@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
   Home,
@@ -23,6 +23,8 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed }) => {
+  const location = useLocation();
+  
   return (
     <div
       className={cn(
@@ -55,37 +57,42 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed }) => {
             text="Dashboard"
             to="/"
             isCollapsed={isCollapsed}
-            active
+            active={location.pathname === "/"}
           />
           <SidebarItem
             icon={<Database className="h-5 w-5" />}
             text="Data Pipeline"
             to="/pipeline"
             isCollapsed={isCollapsed}
-          />
-          <SidebarItem
-            icon={<Activity className="h-5 w-5" />}
-            text="Monitoring"
-            to="/monitoring"
-            isCollapsed={isCollapsed}
+            active={location.pathname === "/pipeline"}
           />
           <SidebarItem
             icon={<BarChart3 className="h-5 w-5" />}
             text="Analytics"
             to="/analytics"
             isCollapsed={isCollapsed}
+            active={location.pathname === "/analytics"}
+          />
+          <SidebarItem
+            icon={<Activity className="h-5 w-5" />}
+            text="Monitoring"
+            to="/monitoring"
+            isCollapsed={isCollapsed}
+            active={location.pathname === "/monitoring"}
           />
           <SidebarItem
             icon={<AlertTriangle className="h-5 w-5" />}
             text="Alerts"
             to="/alerts"
             isCollapsed={isCollapsed}
+            active={location.pathname === "/alerts"}
           />
           <SidebarItem
             icon={<Terminal className="h-5 w-5" />}
             text="Logs"
             to="/logs"
             isCollapsed={isCollapsed}
+            active={location.pathname === "/logs"}
           />
         </ul>
       </nav>
@@ -97,12 +104,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed }) => {
             text="Health"
             to="/health"
             isCollapsed={isCollapsed}
+            active={location.pathname === "/health"}
           />
           <SidebarItem
             icon={<Settings className="h-5 w-5" />}
             text="Settings"
             to="/settings"
             isCollapsed={isCollapsed}
+            active={location.pathname === "/settings"}
           />
         </ul>
       </div>
