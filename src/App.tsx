@@ -8,6 +8,10 @@ import Layout from "./components/layout/Layout";
 import Dashboard from "./pages/Dashboard";
 import Pipeline from "./pages/Pipeline";
 import Analytics from "./pages/Analytics";
+import Monitoring from "./pages/Monitoring";
+import Alerts from "./pages/Alerts";
+import Logs from "./pages/Logs";
+import Health from "./pages/Health";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +36,26 @@ const App = () => (
           <Route path="/analytics" element={
             <Layout>
               <Analytics />
+            </Layout>
+          } />
+          <Route path="/monitoring" element={
+            <Layout>
+              <Monitoring />
+            </Layout>
+          } />
+          <Route path="/alerts" element={
+            <Layout>
+              <Alerts />
+            </Layout>
+          } />
+          <Route path="/logs" element={
+            <Layout>
+              <Logs />
+            </Layout>
+          } />
+          <Route path="/health" element={
+            <Layout>
+              <Health />
             </Layout>
           } />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
