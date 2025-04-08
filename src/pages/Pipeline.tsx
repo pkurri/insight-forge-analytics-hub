@@ -8,6 +8,7 @@ import PipelineUploadForm from '@/components/pipeline/PipelineUploadForm';
 import PipelineStatusTable from '@/components/pipeline/PipelineStatusTable';
 import PipelineAnalytics from '@/components/pipeline/PipelineAnalytics';
 import ChatInterface from '@/components/pipeline/ChatInterface';
+import BusinessRules from '@/components/pipeline/BusinessRules';
 
 const Pipeline: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -86,20 +87,7 @@ const Pipeline: React.FC = () => {
             </TabsContent>
             
             <TabsContent value="rules" className="mt-0">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Business Rules</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-center p-8">
-                    <h3 className="text-lg font-medium">Business Rules Engine</h3>
-                    <p className="text-muted-foreground mt-2">
-                      Configure and manage business rules for automated data processing
-                    </p>
-                    <Button className="mt-4">Manage Rules</Button>
-                  </div>
-                </CardContent>
-              </Card>
+              <BusinessRules />
             </TabsContent>
           </Tabs>
         </div>

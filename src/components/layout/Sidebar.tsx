@@ -28,7 +28,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed }) => {
   return (
     <div
       className={cn(
-        "h-screen bg-white border-r border-gray-200 flex flex-col transition-all duration-300",
+        "h-screen bg-background border-r border-border flex flex-col transition-all duration-300",
         isCollapsed ? "w-16" : "w-64"
       )}
     >
@@ -139,8 +139,10 @@ const SidebarItem: React.FC<SidebarItemProps> = ({
       <Link
         to={to}
         className={cn(
-          "flex items-center px-2 py-2 rounded-md text-gray-700 hover:bg-gray-100 transition-colors",
-          active && "bg-blue-50 text-blue-700"
+          "flex items-center px-2 py-2 rounded-md transition-colors",
+          active 
+            ? "bg-primary/10 text-primary" 
+            : "text-muted-foreground hover:bg-muted hover:text-foreground"
         )}
       >
         <div className={cn("flex items-center", isCollapsed ? "justify-center w-full" : "")}>
