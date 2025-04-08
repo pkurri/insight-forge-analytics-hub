@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Layout from "./components/layout/Layout";
 import Dashboard from "./pages/Dashboard";
+import Pipeline from "./pages/Pipeline";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -20,6 +21,11 @@ const App = () => (
           <Route path="/" element={
             <Layout>
               <Dashboard />
+            </Layout>
+          } />
+          <Route path="/pipeline" element={
+            <Layout>
+              <Pipeline />
             </Layout>
           } />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
