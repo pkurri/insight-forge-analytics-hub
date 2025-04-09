@@ -1,17 +1,24 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { SendHorizontal, Bot, RefreshCw, Search } from 'lucide-react';
+import { SendHorizontal, Bot, RefreshCw, Search, AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
+import { pythonApi } from '@/api/pythonIntegration';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface Message {
   id: string;
-  type: 'user' | 'assistant';
+  type: 'user' | 'assistant' | 'system';
   content: string;
+  metadata?: {
+    confidence?: number;
+    sources?: string[];
+    isError?: boolean;
+  };
   timestamp: Date;
 }
 
@@ -22,14 +29,22 @@ const ChatInterface: React.FC = () => {
       type: 'assistant',
       content: 'Hi there! I\'m your AI assistant for data pipeline operations. How can I help you today?',
       timestamp: new Date()
+    },
+    {
+      id: '2',
+      type: 'system',
+      content: 'I can answer questions about your loaded datasets using vector database technology and Hugging Face models.',
+      timestamp: new Date()
     }
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [activeDataset, setActiveDataset] = useState<string>('ds001'); // Default to first dataset
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   
-  const handleSendMessage = () => {
-    if (!input.trim()) return;
+  const handleSendMessage = async () => {
+    if (!input.trim() || isProcessing) return;
     
     // Add user message
     const userMessage: Message = {
@@ -39,48 +54,60 @@ const ChatInterface: React.FC = () => {
       timestamp: new Date()
     };
     
-    setMessages([...messages, userMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsTyping(true);
+    setIsProcessing(true);
     
-    // Simulate AI response after delay
-    setTimeout(() => {
-      let response = '';
-      const normalizedInput = input.toLowerCase();
+    try {
+      // Send question to Python backend via API
+      const response = await pythonApi.askQuestion(activeDataset, input);
       
-      // Simple pattern matching for responses
-      if (normalizedInput.includes('hello') || normalizedInput.includes('hi')) {
-        response = 'Hello! How can I assist with your data pipeline today?';
-      } else if (normalizedInput.includes('help')) {
-        response = 'I can help with data ingestion, cleaning, validation, or analyzing your pipeline status. What would you like to know more about?';
-      } else if (normalizedInput.includes('anomaly') || normalizedInput.includes('anomalies')) {
-        response = 'Our anomaly detection uses isolation forests and autoencoders to identify outliers in your data. Would you like more details on how it works?';
-      } else if (normalizedInput.includes('clean') || normalizedInput.includes('cleaning')) {
-        response = 'Our data cleaning process handles missing values, duplicates, and outliers using advanced ML techniques. We use imputation methods like random forest regression for predicting missing values.';
-      } else if (normalizedInput.includes('upload') || normalizedInput.includes('format') || normalizedInput.includes('file')) {
-        response = 'We support several file formats including CSV, JSON, Excel spreadsheets, and PDFs. For PDFs, we use Hugging Face models like tab-transformer to extract tables accurately.';
-      } else if (normalizedInput.includes('validation')) {
-        response = 'Data validation ensures your data meets schema and business rule requirements using Pydantic. Our AI can even suggest validation rules based on column names and content.';
-      } else if (normalizedInput.includes('research') || normalizedInput.includes('look up')) {
-        response = 'I can research information for you. For example, I can check the latest best practices for data validation or look up specific documentation on file parsing techniques.';
+      if (response.success && response.data) {
+        const assistantMessage: Message = {
+          id: `assistant-${Date.now()}`,
+          type: 'assistant',
+          content: response.data.answer,
+          metadata: {
+            confidence: response.data.confidence,
+            sources: response.data.sources
+          },
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, assistantMessage]);
       } else {
-        response = 'I understand your question about the data pipeline. Let me help you with that aspect of our processing workflow. What specific details would you like to know?';
+        // Handle error
+        const errorMessage: Message = {
+          id: `error-${Date.now()}`,
+          type: 'system',
+          content: response.error || 'Sorry, I encountered an error processing your question.',
+          metadata: { isError: true },
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, errorMessage]);
       }
-      
-      const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        type: 'assistant',
-        content: response,
+    } catch (error) {
+      // Handle exception
+      const errorMessage: Message = {
+        id: `error-${Date.now()}`,
+        type: 'system',
+        content: 'Sorry, there was a problem connecting to the AI service.',
+        metadata: { isError: true },
         timestamp: new Date()
       };
       
-      setMessages(prevMessages => [...prevMessages, assistantMessage]);
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+      setIsProcessing(false);
+    }
   };
   
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
       handleSendMessage();
     }
   };
@@ -100,15 +127,53 @@ const ChatInterface: React.FC = () => {
             <Avatar className="h-8 w-8 bg-blue-500">
               <Bot className="h-5 w-5 text-white" />
             </Avatar>
-            <CardTitle className="text-md">AI Assistant</CardTitle>
+            <CardTitle className="text-md">Vector DB AI Assistant</CardTitle>
           </div>
           <div className="flex space-x-1">
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <Search className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Search conversation</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8"
+                    onClick={() => {
+                      setMessages([
+                        {
+                          id: '1',
+                          type: 'assistant',
+                          content: 'Hi there! I\'m your AI assistant for data pipeline operations. How can I help you today?',
+                          timestamp: new Date()
+                        },
+                        {
+                          id: '2',
+                          type: 'system',
+                          content: 'I can answer questions about your loaded datasets using vector database technology and Hugging Face models.',
+                          timestamp: new Date()
+                        }
+                      ]);
+                    }}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Reset conversation</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
       </CardHeader>
@@ -117,15 +182,39 @@ const ChatInterface: React.FC = () => {
         <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
           <div className="space-y-4">
             {messages.map((message) => (
-              <div key={message.id} className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div key={message.id} className={`flex ${
+                message.type === 'user' ? 'justify-end' : 
+                message.type === 'system' ? 'justify-center' : 'justify-start'
+              }`}>
                 <div 
                   className={`max-w-[80%] rounded-lg p-3 ${
                     message.type === 'user' 
                       ? 'bg-blue-500 text-white' 
-                      : 'bg-gray-100 text-gray-800'
+                      : message.type === 'system'
+                        ? 'bg-gray-200 text-gray-800'
+                        : 'bg-gray-100 text-gray-800'
                   }`}
                 >
                   <p className="text-sm">{message.content}</p>
+                  
+                  {/* Show confidence and sources for AI responses */}
+                  {message.type === 'assistant' && message.metadata?.confidence && (
+                    <div className="mt-2 text-xs text-gray-500 border-t border-gray-200 pt-1">
+                      <div className="flex items-center">
+                        <span>Confidence: {Math.round(message.metadata.confidence * 100)}%</span>
+                        {message.metadata.confidence < 0.7 && (
+                          <AlertCircle className="h-3 w-3 ml-1 text-amber-500" />
+                        )}
+                      </div>
+                      
+                      {message.metadata.sources && message.metadata.sources.length > 0 && (
+                        <div className="mt-1">
+                          <span>Sources: {message.metadata.sources.join(", ")}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
                   <p className="text-xs mt-1 opacity-70">
                     {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
@@ -152,15 +241,16 @@ const ChatInterface: React.FC = () => {
       <CardFooter className="p-3">
         <div className="flex w-full items-center space-x-2">
           <Input
-            placeholder="Ask a question about the data pipeline..."
+            placeholder="Ask me about your dataset..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyPress}
             className="flex-grow"
+            disabled={isProcessing}
           />
           <Button 
             onClick={handleSendMessage} 
-            disabled={!input.trim()} 
+            disabled={!input.trim() || isProcessing} 
             size="icon"
           >
             <SendHorizontal className="h-4 w-4" />

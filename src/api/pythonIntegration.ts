@@ -129,21 +129,27 @@ class PythonApiClient {
               name: 'Valid Customer Age',
               condition: 'customer.age >= 18 && customer.age < 120',
               severity: 'high',
-              message: 'Customer age must be between 18 and 120'
+              message: 'Customer age must be between 18 and 120',
+              confidence: 0.95,
+              model_generated: true
             },
             {
               id: 'rule002',
               name: 'Email Format Validation',
               condition: 'regex.test(customer.email, "^[\\w-\\.]+@([\\w-]+\\.)+[\\w-]{2,4}$")',
               severity: 'high',
-              message: 'Email must be in a valid format'
+              message: 'Email must be in a valid format',
+              confidence: 0.92,
+              model_generated: true
             },
             {
               id: 'rule003',
               name: 'Transaction Amount Limit',
               condition: 'transaction.amount <= 10000',
               severity: 'medium',
-              message: 'Transaction amount cannot exceed $10,000'
+              message: 'Transaction amount cannot exceed $10,000',
+              confidence: 0.87,
+              model_generated: true
             }
           ]
         }
@@ -153,6 +159,52 @@ class PythonApiClient {
       return {
         success: false,
         error: 'Failed to generate business rules'
+      };
+    }
+  }
+
+  async askQuestion(datasetId: string, question: string): Promise<PythonApiResponse<any>> {
+    try {
+      console.log(`Asking question about dataset: ${datasetId}`, question);
+      
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      
+      // Simulate different responses based on the question
+      let answer = "";
+      
+      if (question.toLowerCase().includes("average") || question.toLowerCase().includes("mean")) {
+        answer = "The average value for this metric is 42.7 based on the available data.";
+      } else if (question.toLowerCase().includes("maximum") || question.toLowerCase().includes("highest")) {
+        answer = "The maximum value observed is 142.6 from record #384 on 2023-06-12.";
+      } else if (question.toLowerCase().includes("minimum") || question.toLowerCase().includes("lowest")) {
+        answer = "The minimum value is 3.2, occurring in 5 different records.";
+      } else if (question.toLowerCase().includes("missing") || question.toLowerCase().includes("null")) {
+        answer = "There are 23 missing values (2.1% of total) in the dataset.";
+      } else if (question.toLowerCase().includes("distribution") || question.toLowerCase().includes("histogram")) {
+        answer = "The distribution appears to be right-skewed with most values clustering around 30-50.";
+      } else {
+        answer = "Based on the data analysis, I found that this dataset contains valuable insights related to your question. The patterns suggest a correlation between the variables you're interested in.";
+      }
+      
+      return {
+        success: true,
+        data: {
+          question,
+          answer,
+          confidence: 0.89,
+          sources: [
+            "Data statistics",
+            "Column profile analysis",
+            "Data distribution"
+          ]
+        }
+      };
+    } catch (error) {
+      console.error('Error asking question:', error);
+      return {
+        success: false,
+        error: 'Failed to answer question'
       };
     }
   }

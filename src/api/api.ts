@@ -15,6 +15,8 @@ export interface BusinessRule {
   condition: string;
   severity: 'low' | 'medium' | 'high';
   message: string;
+  confidence?: number;
+  model_generated?: boolean;
 }
 
 export interface DatasetSummary {
@@ -229,5 +231,12 @@ export const api = {
         ]
       }
     };
+  },
+  
+  /**
+   * Ask a question about a dataset using vector DB
+   */
+  askQuestion: async (datasetId: string, question: string): Promise<APIResponse<any>> => {
+    return await pythonApi.askQuestion(datasetId, question);
   }
 };

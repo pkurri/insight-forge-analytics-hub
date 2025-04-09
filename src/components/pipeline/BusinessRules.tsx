@@ -1,33 +1,42 @@
 
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PlusCircle, Save, RefreshCw } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { PlusCircle, Save, RefreshCw, Sparkles, AlertTriangle, Info, Check } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { pythonApi } from '@/api/pythonIntegration';
 
 interface Rule {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   condition: string;
-  action: string;
-  enabled: boolean;
+  severity: 'low' | 'medium' | 'high';
+  message: string;
+  enabled?: boolean;
+  confidence?: number;
+  model_generated?: boolean;
 }
 
 const BusinessRules: React.FC = () => {
   const { toast } = useToast();
   const [jsonInput, setJsonInput] = useState<string>('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedDataset, setSelectedDataset] = useState<string>("ds001");
   const [rules, setRules] = useState<Rule[]>([
     {
       id: '1',
       name: 'Missing Values Check',
       description: 'Flag records with null values in critical fields',
       condition: 'column.isNull("customer_id") || column.isNull("order_date")',
-      action: 'flag("missing_critical_data")',
+      severity: 'high',
+      message: 'Missing critical data in required fields',
       enabled: true
     },
     {
@@ -35,7 +44,8 @@ const BusinessRules: React.FC = () => {
       name: 'Date Range Validation',
       description: 'Ensure order dates are within acceptable range',
       condition: 'column.date("order_date") < "2023-01-01" || column.date("order_date") > currentDate()',
-      action: 'flag("invalid_date_range")',
+      severity: 'medium',
+      message: 'Order date outside acceptable range',
       enabled: true
     }
   ]);
@@ -79,30 +89,46 @@ const BusinessRules: React.FC = () => {
     });
   };
 
-  const handleGenerateRule = () => {
+  const handleGenerateRule = async () => {
+    setIsGenerating(true);
+    
     toast({
-      title: "Generating rule",
-      description: "Analyzing data patterns to suggest new business rules..."
+      title: "Generating rules",
+      description: "Analyzing data patterns with Hugging Face models..."
     });
     
-    // Simulate AI generating a rule after a delay
-    setTimeout(() => {
-      const newRule: Rule = {
-        id: `${rules.length + 1}`,
-        name: `Auto-generated Rule ${rules.length + 1}`,
-        description: "Detect potential outliers in transaction amounts",
-        condition: "column.numeric('amount') > column.mean('amount') + 3*column.stdDev('amount')",
-        action: "flag('potential_outlier')",
-        enabled: true
-      };
-      
-      setRules([...rules, newRule]);
-      
-      toast({
-        title: "Rule generated",
-        description: "New rule for outlier detection has been created based on data patterns."
+    try {
+      // Call the Python API to generate rules
+      const response = await pythonApi.generateBusinessRules(selectedDataset, {
+        use_ml: true,
+        confidence_threshold: 0.7
       });
-    }, 1500);
+      
+      if (response.success && response.data) {
+        // Add the generated rules to existing rules
+        const generatedRules = response.data.rules;
+        setRules([...rules, ...generatedRules]);
+        
+        toast({
+          title: "Rules generated successfully",
+          description: `${generatedRules.length} new rules have been created based on data patterns.`
+        });
+      } else {
+        toast({
+          title: "Rule generation failed",
+          description: response.error || "Failed to generate rules",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred while generating rules.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -114,7 +140,12 @@ const BusinessRules: React.FC = () => {
       </TabsList>
       
       <TabsContent value="rules" className="space-y-4">
-        <div className="flex justify-end">
+        <div className="flex justify-between items-center">
+          <div>
+            <p className="text-sm text-muted-foreground">
+              Manage your business rules and validation criteria
+            </p>
+          </div>
           <Button size="sm" className="mb-2">
             <PlusCircle className="h-4 w-4 mr-2" />
             Add Rule
@@ -122,19 +153,48 @@ const BusinessRules: React.FC = () => {
         </div>
         
         {rules.map((rule) => (
-          <Card key={rule.id} className="mb-4">
+          <Card key={rule.id} className={`mb-4 ${rule.model_generated ? 'border-blue-200 dark:border-blue-900' : ''}`}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg flex justify-between">
-                <span>{rule.name}</span>
-                <div className="flex items-center space-x-2 text-sm font-normal">
-                  <span className={`px-2 py-1 rounded-full text-xs ${rule.enabled ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>
-                    {rule.enabled ? 'Active' : 'Disabled'}
-                  </span>
+              <div className="flex justify-between items-start">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    {rule.name}
+                    {rule.model_generated && (
+                      <Badge variant="outline" className="ml-2 bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-200 border-blue-200 dark:border-blue-800 flex items-center gap-1">
+                        <Sparkles className="h-3 w-3" />
+                        <span className="text-xs">AI Generated</span>
+                      </Badge>
+                    )}
+                  </CardTitle>
+                  {rule.description && (
+                    <CardDescription>{rule.description}</CardDescription>
+                  )}
                 </div>
-              </CardTitle>
+                <div className="flex items-center space-x-2 text-sm font-normal">
+                  <Badge variant={rule.severity === 'high' ? 'destructive' : rule.severity === 'medium' ? 'default' : 'outline'}>
+                    {rule.severity.charAt(0).toUpperCase() + rule.severity.slice(1)} Severity
+                  </Badge>
+                  <Badge variant={rule.enabled === false ? 'outline' : 'secondary'}>
+                    {rule.enabled === false ? 'Disabled' : 'Active'}
+                  </Badge>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground mb-2">{rule.description}</p>
+              {rule.confidence && (
+                <div className="mb-3 flex items-center text-xs">
+                  <Info className="h-3 w-3 mr-1 text-blue-500" />
+                  <span>
+                    Confidence: <span className="font-medium">{Math.round(rule.confidence * 100)}%</span>
+                  </span>
+                  {rule.confidence < 0.8 && (
+                    <span className="flex items-center ml-2 text-amber-600">
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      Review recommended
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
                   <Label className="mb-1 block text-xs">Condition</Label>
@@ -143,9 +203,9 @@ const BusinessRules: React.FC = () => {
                   </code>
                 </div>
                 <div>
-                  <Label className="mb-1 block text-xs">Action</Label>
+                  <Label className="mb-1 block text-xs">Message</Label>
                   <code className="block p-2 rounded bg-muted text-sm overflow-x-auto">
-                    {rule.action}
+                    {rule.message}
                   </code>
                 </div>
               </div>
@@ -158,6 +218,9 @@ const BusinessRules: React.FC = () => {
         <Card>
           <CardHeader>
             <CardTitle>Import/Export Rules</CardTitle>
+            <CardDescription>
+              Share rule configurations between systems or create backups
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -171,8 +234,14 @@ const BusinessRules: React.FC = () => {
               />
             </div>
             <div className="flex space-x-2">
-              <Button onClick={handleImportJSON}>Import Rules</Button>
-              <Button variant="outline" onClick={handleExportJSON}>Export Current Rules</Button>
+              <Button onClick={handleImportJSON}>
+                <Check className="h-4 w-4 mr-2" />
+                Import Rules
+              </Button>
+              <Button variant="outline" onClick={handleExportJSON}>
+                <Save className="h-4 w-4 mr-2" />
+                Export Current Rules
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -181,33 +250,80 @@ const BusinessRules: React.FC = () => {
       <TabsContent value="generate">
         <Card>
           <CardHeader>
-            <CardTitle>Auto-Generate Rules</CardTitle>
+            <CardTitle>Auto-Generate Rules with ML</CardTitle>
+            <CardDescription>
+              Use Hugging Face models to analyze your data and automatically generate relevant business rules 
+              based on detected patterns and anomalies.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-muted-foreground">
-              Use machine learning algorithms to analyze your data and automatically generate relevant business rules 
-              based on detected patterns and anomalies.
-            </p>
-            
             <div className="space-y-4 border rounded-md p-4 bg-muted/30">
               <div className="space-y-2">
                 <Label htmlFor="data-source">Data Source</Label>
-                <Input id="data-source" placeholder="Select a data source" />
+                <Select 
+                  value={selectedDataset} 
+                  onValueChange={setSelectedDataset}
+                >
+                  <SelectTrigger id="data-source">
+                    <SelectValue placeholder="Select a dataset" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ds001">Customer Orders</SelectItem>
+                    <SelectItem value="ds002">Product Inventory</SelectItem>
+                    <SelectItem value="ds003">Sales Transactions</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               
               <div className="space-y-2">
                 <Label htmlFor="detection-type">Detection Type</Label>
                 <div className="grid grid-cols-3 gap-2">
-                  <Button variant="outline" className="justify-start" id="detection-type">Outliers</Button>
-                  <Button variant="outline" className="justify-start">Patterns</Button>
-                  <Button variant="outline" className="justify-start">Data Quality</Button>
+                  <Button variant="outline" className="justify-start" id="detection-type">
+                    <Check className="h-4 w-4 mr-2" />
+                    Outliers
+                  </Button>
+                  <Button variant="outline" className="justify-start">
+                    <Check className="h-4 w-4 mr-2" />
+                    Patterns
+                  </Button>
+                  <Button variant="outline" className="justify-start">
+                    <Check className="h-4 w-4 mr-2" />
+                    Data Quality
+                  </Button>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="model-selection">Machine Learning Model</Label>
+                <Select defaultValue="huggingface">
+                  <SelectTrigger id="model-selection">
+                    <SelectValue placeholder="Select model type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="huggingface">Hugging Face Models</SelectItem>
+                    <SelectItem value="pydantic">Pydantic Schema Inference</SelectItem>
+                    <SelectItem value="ge">Great Expectations</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             
-            <Button onClick={handleGenerateRule} className="w-full">
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Generate Rules
+            <Button 
+              onClick={handleGenerateRule} 
+              className="w-full" 
+              disabled={isGenerating}
+            >
+              {isGenerating ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Generating Rules...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Generate Rules with ML
+                </>
+              )}
             </Button>
           </CardContent>
         </Card>
