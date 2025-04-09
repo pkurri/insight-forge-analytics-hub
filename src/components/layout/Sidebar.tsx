@@ -36,7 +36,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed }) => {
         {!isCollapsed && (
           <div className="flex items-center gap-2">
             <Server className="h-6 w-6 text-purple" />
-            <h1 className="text-xl font-bold">InsightForge</h1>
+            <h1 className="text-xl font-bold">DataForge</h1>
           </div>
         )}
         <Button
