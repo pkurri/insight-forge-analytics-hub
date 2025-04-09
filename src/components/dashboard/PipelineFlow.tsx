@@ -49,13 +49,13 @@ const PipelineFlow: React.FC<PipelineFlowProps> = ({ nodes, connections }) => {
     }
   };
 
-  // These would be calculated dynamically in a real app
+  // Updated positions with more spacing between nodes
   const nodePositions: Record<string, { x: number; y: number }> = {
-    ingestion: { x: 50, y: 80 },
-    cleaning: { x: 200, y: 80 },
-    validation: { x: 350, y: 80 },
-    anomaly: { x: 500, y: 80 },
-    storage: { x: 650, y: 80 }
+    ingestion: { x: 50, y: 100 },
+    cleaning: { x: 250, y: 100 },
+    validation: { x: 450, y: 100 },
+    anomaly: { x: 650, y: 100 },
+    storage: { x: 850, y: 100 }
   };
 
   return (
@@ -64,8 +64,8 @@ const PipelineFlow: React.FC<PipelineFlowProps> = ({ nodes, connections }) => {
         <CardTitle>Data Pipeline Flow</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="relative h-52">
-          <svg className="w-full h-full" viewBox="0 0 700 150">
+        <div className="relative h-64">
+          <svg className="w-full h-full" viewBox="0 0 950 200">
             {/* Draw connections */}
             {connections.map((conn, idx) => {
               const source = nodePositions[conn.source];
@@ -80,7 +80,7 @@ const PipelineFlow: React.FC<PipelineFlowProps> = ({ nodes, connections }) => {
               return (
                 <g key={`conn-${idx}`}>
                   <path
-                    d={`M${source.x + 75} ${source.y} L${target.x} ${target.y}`}
+                    d={`M${source.x + 95} ${source.y} L${target.x} ${target.y}`}
                     className={cn(connectorClass, "animate-flow")}
                     strokeDasharray="5,5"
                   />
@@ -97,11 +97,11 @@ const PipelineFlow: React.FC<PipelineFlowProps> = ({ nodes, connections }) => {
               
               return (
                 <g key={node.id} transform={`translate(${position.x}, ${position.y})`}>
-                  <foreignObject width="150" height="60">
+                  <foreignObject width="180" height="70">
                     <div className="h-full">
                       <div 
                         className={cn(
-                          "h-full border rounded-md p-2 flex items-center justify-center text-center text-sm font-medium shadow-sm",
+                          "h-full border rounded-md p-3 flex items-center justify-center text-center text-sm font-medium shadow-md",
                           nodeClass,
                           node.status === 'operational' && "animate-pulse-soft"
                         )}
