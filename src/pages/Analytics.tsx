@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -17,7 +16,6 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import { ChartContainer, ChartTooltip } from '@/components/ui/chart';
 import {
   Table,
   TableBody,
@@ -27,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import DataProfileResults from '@/components/analytics/DataProfileResults';
 
 const Analytics: React.FC = () => {
   // Sample data for anomaly detection
@@ -72,6 +71,7 @@ const Analytics: React.FC = () => {
           <TabsTrigger value="anomalies">Anomaly Detection</TabsTrigger>
           <TabsTrigger value="quality">Data Quality</TabsTrigger>
           <TabsTrigger value="validation">Schema Validation</TabsTrigger>
+          <TabsTrigger value="profiles">Data Profiling</TabsTrigger>
         </TabsList>
         
         <TabsContent value="anomalies" className="space-y-4">
@@ -229,6 +229,10 @@ const Analytics: React.FC = () => {
               </Table>
             </CardContent>
           </Card>
+        </TabsContent>
+        
+        <TabsContent value="profiles" className="space-y-4">
+          <DataProfileResults />
         </TabsContent>
       </Tabs>
     </div>

@@ -1,3 +1,4 @@
+
 /**
  * This module handles integration with Python backend services
  * It uses a simple REST API to communicate with Python microservices
@@ -28,15 +29,139 @@ class PythonApiClient {
       return {
         success: true,
         data: {
-          profileStats: {
-            rowCount: 10432,
-            columnCount: 17,
-            missingValues: 243,
-            duplicateRows: 12,
-            numericColumns: 9,
-            categoricalColumns: 8
+          summary: {
+            row_count: 10432,
+            column_count: 17,
+            missing_cells: 243,
+            missing_cells_pct: 2.33,
+            duplicate_rows: 12,
+            duplicate_rows_pct: 0.12,
+            memory_usage: 18500000 // in bytes
           },
-          // More profile data would be included here
+          detailed_profile: {
+            table: {
+              n: 10432,
+              n_var: 17,
+              n_cells_missing: 243,
+              n_cells_total: 177344,
+              n_duplicates: 12,
+              types: {
+                numeric: 9,
+                categorical: 5,
+                date: 2,
+                boolean: 1
+              }
+            },
+            variables: {
+              customer_id: {
+                type: "categorical",
+                count: 10432,
+                n_missing: 0,
+                n_unique: 10432,
+                n: 10432
+              },
+              age: {
+                type: "numeric",
+                mean: 42.5,
+                std: 15.3,
+                min: 18,
+                max: 92,
+                count: 10432,
+                n_missing: 0,
+                n: 10432,
+                histogram_data: [
+                  {"bin": "18-25", "count": 1245},
+                  {"bin": "26-35", "count": 2354},
+                  {"bin": "36-45", "count": 2876},
+                  {"bin": "46-55", "count": 2122},
+                  {"bin": "56-65", "count": 1345},
+                  {"bin": "66+", "count": 490}
+                ]
+              },
+              gender: {
+                type: "categorical",
+                count: 10432,
+                n_missing: 123,
+                n_unique: 3,
+                n: 10432,
+                value_counts: {
+                  "F": 5234,
+                  "M": 5075,
+                  "Other": 123
+                }
+              },
+              income: {
+                type: "numeric",
+                mean: 68500,
+                std: 32400,
+                min: 12000,
+                max: 250000,
+                count: 10432,
+                n_missing: 87,
+                n: 10432
+              },
+              purchase_date: {
+                type: "date",
+                count: 10432,
+                n_missing: 0,
+                n_unique: 365,
+                n: 10432
+              },
+              product_id: {
+                type: "categorical",
+                count: 10432,
+                n_missing: 12,
+                n_unique: 458,
+                n: 10432
+              },
+              amount: {
+                type: "numeric",
+                mean: 127.45,
+                std: 89.32,
+                min: 5.99,
+                max: 1499.99,
+                count: 10432,
+                n_missing: 0,
+                n: 10432
+              },
+              is_returning: {
+                type: "boolean",
+                count: 10432,
+                n_missing: 0,
+                n: 10432,
+                value_counts: {
+                  "True": 7123,
+                  "False": 3309
+                }
+              },
+              customer_segment: {
+                type: "categorical",
+                count: 10432,
+                n_missing: 21,
+                n_unique: 4,
+                n: 10432
+              },
+              location: {
+                type: "categorical",
+                count: 10432,
+                n_missing: 0,
+                n_unique: 215,
+                n: 10432
+              }
+            },
+            correlations: {
+              pearson: {
+                "age_income": 0.42,
+                "age_amount": 0.18,
+                "income_amount": 0.65
+              },
+              spearman: {
+                "age_income": 0.45,
+                "age_amount": 0.20,
+                "income_amount": 0.68
+              }
+            }
+          }
         }
       };
     } catch (error) {
