@@ -3,7 +3,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Import any fonts needed locally instead of using external CDNs */
+/* Base styles */
 @layer base {
   :root {
     --background: 210 40% 98%;
