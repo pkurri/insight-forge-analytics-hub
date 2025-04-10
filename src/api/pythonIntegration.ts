@@ -1,4 +1,3 @@
-
 /**
  * This module handles integration with Python backend services
  * It uses a simple REST API to communicate with Python microservices
@@ -401,28 +400,11 @@ class PythonApiClient {
       // Simulate API call delay
       await new Promise(resolve => setTimeout(resolve, 1200));
       
-      // Simulate different responses based on the question
-      let answer = "";
-      
-      if (question.toLowerCase().includes("average") || question.toLowerCase().includes("mean")) {
-        answer = "The average value for this metric is 42.7 based on the available data.";
-      } else if (question.toLowerCase().includes("maximum") || question.toLowerCase().includes("highest")) {
-        answer = "The maximum value observed is 142.6 from record #384 on 2023-06-12.";
-      } else if (question.toLowerCase().includes("minimum") || question.toLowerCase().includes("lowest")) {
-        answer = "The minimum value is 3.2, occurring in 5 different records.";
-      } else if (question.toLowerCase().includes("missing") || question.toLowerCase().includes("null")) {
-        answer = "There are 23 missing values (2.1% of total) in the dataset.";
-      } else if (question.toLowerCase().includes("distribution") || question.toLowerCase().includes("histogram")) {
-        answer = "The distribution appears to be right-skewed with most values clustering around 30-50.";
-      } else {
-        answer = "Based on the data analysis, I found that this dataset contains valuable insights related to your question. The patterns suggest a correlation between the variables you're interested in.";
-      }
-      
       return {
         success: true,
         data: {
           question,
-          answer,
+          answer: "Based on the data analysis, I found relevant insights related to your question.",
           confidence: 0.89,
           sources: [
             "Data statistics",
@@ -470,6 +452,224 @@ class PythonApiClient {
       return {
         success: false,
         error: 'Failed to train anomaly model'
+      };
+    }
+  }
+  
+  // New methods for the data pipeline flow
+  
+  async getPipelineStatus(): Promise<PythonApiResponse<any>> {
+    try {
+      console.log("Getting pipeline status");
+      
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      return {
+        success: true,
+        data: {
+          pipeline_status: {
+            stages: {
+              "extraction": {"status": "idle", "metadata": {}},
+              "validation": {"status": "idle", "metadata": {}},
+              "transformation": {"status": "idle", "metadata": {}},
+              "enrichment": {"status": "idle", "metadata": {}},
+              "loading": {"status": "idle", "metadata": {}}
+            },
+            active_datasets: 3,
+            latest_run: {
+              id: "run-20240401123456",
+              dataset_id: "ds001",
+              started_at: "2024-04-01T12:34:56Z",
+              completed_at: "2024-04-01T12:45:23Z",
+              status: "complete",
+              stages_completed: ["extraction", "validation", "transformation", "enrichment", "loading"],
+              stages_remaining: []
+            },
+            total_runs: 12
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error getting pipeline status:', error);
+      return {
+        success: false,
+        error: 'Failed to get pipeline status'
+      };
+    }
+  }
+  
+  async uploadDataToPipeline(fileData: File, format: string): Promise<PythonApiResponse<any>> {
+    try {
+      console.log(`Uploading file to pipeline: ${fileData.name}, format: ${format}`);
+      
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      
+      return {
+        success: true,
+        data: {
+          message: `File '${fileData.name}' processed successfully`,
+          dataset_id: `ds-${Date.now()}`,
+          dataset_info: {
+            id: `ds-${Date.now()}`,
+            name: fileData.name.split('.')[0],
+            original_filename: fileData.name,
+            format: format,
+            row_count: Math.floor(Math.random() * 10000) + 1000,
+            column_count: Math.floor(Math.random() * 20) + 5,
+            created_at: new Date().toISOString(),
+            status: "extracted"
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error uploading data to pipeline:', error);
+      return {
+        success: false,
+        error: 'Failed to upload data to pipeline'
+      };
+    }
+  }
+  
+  async validateDataInPipeline(datasetId: string, rules: any[] = []): Promise<PythonApiResponse<any>> {
+    try {
+      console.log(`Validating dataset in pipeline: ${datasetId}`);
+      
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 1800));
+      
+      return {
+        success: true,
+        data: {
+          validation_results: {
+            dataset_id: datasetId,
+            total_rules: rules.length || 3,
+            passed_rules: rules.length - 1 || 2,
+            failed_rules: 1,
+            validation_errors: [
+              {
+                rule_id: rules[0]?.id || "R001",
+                rule_name: rules[0]?.name || "Valid Date Format",
+                column: "transaction_date",
+                error_count: 5,
+                error_percentage: 0.5,
+                sample_errors: ["2023/13/45", "invalid date"]
+              }
+            ]
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error validating data in pipeline:', error);
+      return {
+        success: false,
+        error: 'Failed to validate data in pipeline'
+      };
+    }
+  }
+  
+  async transformDataInPipeline(datasetId: string, config: any = {}): Promise<PythonApiResponse<any>> {
+    try {
+      console.log(`Transforming dataset in pipeline: ${datasetId}`);
+      
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 2200));
+      
+      return {
+        success: true,
+        data: {
+          transformation_results: {
+            dataset_id: datasetId,
+            transformations_applied: [
+              {
+                name: "Convert to datetime",
+                columns: ["order_date", "shipping_date"],
+                output_format: "YYYY-MM-DD"
+              },
+              {
+                name: "Standardize case",
+                columns: ["customer_name", "product_name"],
+                case: "title"
+              }
+            ],
+            rows_transformed: 10432,
+            new_columns_added: ["order_year", "order_month", "days_to_ship"]
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error transforming data in pipeline:', error);
+      return {
+        success: false,
+        error: 'Failed to transform data in pipeline'
+      };
+    }
+  }
+  
+  async enrichDataInPipeline(datasetId: string, config: any = {}): Promise<PythonApiResponse<any>> {
+    try {
+      console.log(`Enriching dataset in pipeline: ${datasetId}`);
+      
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      
+      return {
+        success: true,
+        data: {
+          enrichment_results: {
+            dataset_id: datasetId,
+            enrichments_applied: [
+              {
+                name: "Geocoding",
+                columns: ["customer_address"],
+                output_columns: ["latitude", "longitude", "country_code"]
+              },
+              {
+                name: "Sentiment Analysis",
+                columns: ["customer_feedback"],
+                output_columns: ["sentiment_score", "sentiment_label"]
+              }
+            ],
+            rows_enriched: 10432,
+            new_columns_added: ["latitude", "longitude", "country_code", "sentiment_score", "sentiment_label"]
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error enriching data in pipeline:', error);
+      return {
+        success: false,
+        error: 'Failed to enrich data in pipeline'
+      };
+    }
+  }
+  
+  async loadDataInPipeline(datasetId: string, destination: string, config: any = {}): Promise<PythonApiResponse<any>> {
+    try {
+      console.log(`Loading dataset in pipeline: ${datasetId} to ${destination}`);
+      
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      return {
+        success: true,
+        data: {
+          loading_results: {
+            dataset_id: datasetId,
+            destination: destination,
+            rows_loaded: 10432,
+            columns_loaded: 24,
+            loading_mode: config.mode || "append"
+          },
+          pipeline_complete: true
+        }
+      };
+    } catch (error) {
+      console.error('Error loading data in pipeline:', error);
+      return {
+        success: false,
+        error: 'Failed to load data in pipeline'
       };
     }
   }
