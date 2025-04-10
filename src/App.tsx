@@ -21,49 +21,51 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider defaultTheme="system" storageKey="app-theme">
       <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={
-              <Layout>
-                <Dashboard />
-              </Layout>
-            } />
-            <Route path="/pipeline" element={
-              <Layout>
-                <Pipeline />
-              </Layout>
-            } />
-            <Route path="/analytics" element={
-              <Layout>
-                <Analytics />
-              </Layout>
-            } />
-            <Route path="/monitoring" element={
-              <Layout>
-                <Monitoring />
-              </Layout>
-            } />
-            <Route path="/alerts" element={
-              <Layout>
-                <Alerts />
-              </Layout>
-            } />
-            <Route path="/logs" element={
-              <Layout>
-                <Logs />
-              </Layout>
-            } />
-            <Route path="/health" element={
-              <Layout>
-                <Health />
-              </Layout>
-            } />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
+        <div className="h-screen w-screen overflow-hidden">
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={
+                <Layout>
+                  <Dashboard />
+                </Layout>
+              } />
+              <Route path="/pipeline" element={
+                <Layout>
+                  <Pipeline />
+                </Layout>
+              } />
+              <Route path="/analytics" element={
+                <Layout>
+                  <Analytics />
+                </Layout>
+              } />
+              <Route path="/monitoring" element={
+                <Layout>
+                  <Monitoring />
+                </Layout>
+              } />
+              <Route path="/alerts" element={
+                <Layout>
+                  <Alerts />
+                </Layout>
+              } />
+              <Route path="/logs" element={
+                <Layout>
+                  <Logs />
+                </Layout>
+              } />
+              <Route path="/health" element={
+                <Layout>
+                  <Health />
+                </Layout>
+              } />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </div>
       </TooltipProvider>
     </ThemeProvider>
   </QueryClientProvider>
