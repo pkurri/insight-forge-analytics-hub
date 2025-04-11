@@ -31,3 +31,8 @@ fastapi-limiter==0.1.5
 faiss-cpu==1.7.4
 sentence-transformers==2.2.2
 torch==2.0.1
+python-dateutil==2.8.2
+great-expectations==0.17.18
+dask==2023.9.0
+polars==0.18.2
+fastapi-prometheus-exporter==2.0.0

@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { UploadCloud, AlertCircle, File, Table, Check } from 'lucide-react';
+import { UploadCloud, AlertCircle, File, Table, Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -9,11 +9,14 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from "@/hooks/use-toast";
 import { pythonApi } from '@/api/pythonIntegration';
 import { Stepper, Step } from '@/components/ui/stepper';
+import { Card } from '@/components/ui/card';
 
 const PipelineUploadForm: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dataSource, setDataSource] = useState("local");
   const [fileType, setFileType] = useState("csv");
+  const [apiEndpoint, setApiEndpoint] = useState("");
+  const [dbConnection, setDbConnection] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState(0);
@@ -36,10 +39,28 @@ const PipelineUploadForm: React.FC = () => {
   };
 
   const handleUpload = async () => {
-    if (!selectedFile) {
+    if (dataSource === "local" && !selectedFile) {
       toast({
         title: "No file selected",
         description: "Please select a file to upload",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (dataSource === "api" && !apiEndpoint) {
+      toast({
+        title: "No API endpoint",
+        description: "Please enter an API endpoint",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (dataSource === "database" && !dbConnection) {
+      toast({
+        title: "No database connection",
+        description: "Please select a database connection",
         variant: "destructive",
       });
       return;
@@ -60,8 +81,20 @@ const PipelineUploadForm: React.FC = () => {
     }, 200);
     
     try {
-      // Call the API to upload the file
-      const response = await pythonApi.uploadDataToPipeline(selectedFile, fileType);
+      let response;
+      
+      if (dataSource === "local" && selectedFile) {
+        // Upload local file
+        response = await pythonApi.uploadDataToPipeline(selectedFile, fileType);
+      } else if (dataSource === "api") {
+        // Fetch from API
+        response = await pythonApi.fetchDataFromExternalApi(apiEndpoint, fileType);
+      } else if (dataSource === "database") {
+        // Import from database
+        response = await pythonApi.fetchDataFromDatabase(dbConnection, fileType);
+      } else {
+        throw new Error("Invalid data source");
+      }
       
       clearInterval(progressInterval);
       
@@ -72,10 +105,10 @@ const PipelineUploadForm: React.FC = () => {
         
         toast({
           title: "Upload completed",
-          description: "Your file has been uploaded successfully. Proceeding to validation.",
+          description: `Your data has been successfully uploaded. Proceeding to validation.`,
         });
       } else {
-        throw new Error(response.error || "File upload failed");
+        throw new Error(response.error || "Data upload failed");
       }
     } catch (error) {
       clearInterval(progressInterval);
@@ -179,6 +212,8 @@ const PipelineUploadForm: React.FC = () => {
           setDatasetId(null);
           setCurrentStep(0);
           setUploadProgress(0);
+          setApiEndpoint("");
+          setDbConnection("");
         }, 5000);
       }
     } catch (error) {
@@ -197,6 +232,122 @@ const PipelineUploadForm: React.FC = () => {
     json: "JSON (.json)",
     excel: "Excel Spreadsheet (.xlsx, .xls)",
     pdf: "PDF Document (.pdf)"
+  };
+  
+  const renderDataSourceFields = () => {
+    switch (dataSource) {
+      case "local":
+        return (
+          <div 
+            className={`border-2 border-dashed rounded-lg p-8 text-center ${
+              selectedFile ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' : 'border-gray-300 dark:border-gray-700'
+            }`}
+            onClick={() => document.getElementById('file-upload')?.click()}
+          >
+            <div className="flex flex-col items-center">
+              {selectedFile ? (
+                <>
+                  <File className="h-10 w-10 text-blue-500 mb-2" />
+                  <p className="font-medium">{selectedFile.name}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                  </p>
+                  <Button 
+                    variant="outline" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedFile(null);
+                    }} 
+                    className="mt-3"
+                    size="sm"
+                  >
+                    Remove
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <UploadCloud className="h-10 w-10 text-gray-400 mb-2" />
+                  <p className="text-lg font-medium">Drag and drop your file here</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">
+                    or click to browse files
+                  </p>
+                </>
+              )}
+              <Input
+                type="file"
+                id="file-upload"
+                className="opacity-0 absolute"
+                onChange={handleFileChange}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          </div>
+        );
+      
+      case "api":
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">API Endpoint URL</label>
+              <Input 
+                placeholder="https://api.example.com/data"
+                value={apiEndpoint}
+                onChange={(e) => setApiEndpoint(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Enter the URL of the API endpoint that provides the data
+              </p>
+            </div>
+            
+            <Card className="p-4 border border-dashed">
+              <h4 className="font-medium mb-2">API Authentication</h4>
+              <p className="text-sm text-muted-foreground mb-3">
+                Authentication will be handled using configured credentials from Data Sources
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {}}
+              >
+                Configure API Authentication
+              </Button>
+            </Card>
+          </div>
+        );
+      
+      case "database":
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Database Connection</label>
+              <Select value={dbConnection} onValueChange={setDbConnection}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select database connection" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="postgres_main">PostgreSQL: Main Database</SelectItem>
+                  <SelectItem value="mysql_analytics">MySQL: Analytics DB</SelectItem>
+                  <SelectItem value="mongodb_events">MongoDB: Event Store</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Select from your configured database connections
+              </p>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-2">Query or Table Name</label>
+              <Input placeholder="SELECT * FROM users WHERE status = 'active'" />
+              <p className="text-xs text-muted-foreground mt-1">
+                Enter a SQL query or table name to import
+              </p>
+            </div>
+          </div>
+        );
+      
+      default:
+        return null;
+    }
   };
 
   return (
@@ -258,56 +409,16 @@ const PipelineUploadForm: React.FC = () => {
             </AlertDescription>
           </Alert>
           
-          {/* File dropzone */}
-          <div 
-            className={`border-2 border-dashed rounded-lg p-8 text-center ${
-              selectedFile ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' : 'border-gray-300 dark:border-gray-700'
-            }`}
-            onClick={() => document.getElementById('file-upload')?.click()}
-          >
-            <div className="flex flex-col items-center">
-              {selectedFile ? (
-                <>
-                  <File className="h-10 w-10 text-blue-500 mb-2" />
-                  <p className="font-medium">{selectedFile.name}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
-                  <Button 
-                    variant="outline" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedFile(null);
-                    }} 
-                    className="mt-3"
-                    size="sm"
-                  >
-                    Remove
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <UploadCloud className="h-10 w-10 text-gray-400 mb-2" />
-                  <p className="text-lg font-medium">Drag and drop your file here</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">
-                    or click to browse files
-                  </p>
-                </>
-              )}
-              <Input
-                type="file"
-                id="file-upload"
-                className="opacity-0 absolute"
-                onChange={handleFileChange}
-                onClick={(e) => e.stopPropagation()}
-              />
-            </div>
-          </div>
+          {/* Dynamic data source fields */}
+          {renderDataSourceFields()}
           
           {isUploading && (
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span>Uploading...</span>
+                <span className="flex items-center">
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Uploading...
+                </span>
                 <span>{uploadProgress}%</span>
               </div>
               <Progress value={uploadProgress} />
@@ -317,10 +428,16 @@ const PipelineUploadForm: React.FC = () => {
           <div className="flex justify-end">
             <Button 
               onClick={handleUpload} 
-              disabled={!selectedFile || isUploading}
+              disabled={isUploading || 
+                (dataSource === "local" && !selectedFile) ||
+                (dataSource === "api" && !apiEndpoint) ||
+                (dataSource === "database" && !dbConnection)
+              }
               className="px-6"
             >
-              {isUploading ? "Processing..." : "Upload and Process"}
+              {isUploading ? 
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</> : 
+                "Upload and Process"}
             </Button>
           </div>
         </>
@@ -393,7 +510,9 @@ const PipelineUploadForm: React.FC = () => {
               disabled={isProcessing}
               className="px-6"
             >
-              {isProcessing ? "Processing..." : (currentStep < 4 ? `Proceed to ${pipelineSteps[currentStep].label}` : "Complete Pipeline")}
+              {isProcessing ? 
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</> : 
+                (currentStep < 4 ? `Proceed to ${pipelineSteps[currentStep].label}` : "Complete Pipeline")}
             </Button>
           </div>
         </div>
