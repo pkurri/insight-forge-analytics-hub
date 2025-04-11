@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -26,6 +27,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import DataProfileResults from '@/components/analytics/DataProfileResults';
+import DataQualityDashboard from '@/components/analytics/DataQualityDashboard';
 
 const Analytics: React.FC = () => {
   // Sample data for anomaly detection
@@ -72,6 +74,7 @@ const Analytics: React.FC = () => {
           <TabsTrigger value="quality">Data Quality</TabsTrigger>
           <TabsTrigger value="validation">Schema Validation</TabsTrigger>
           <TabsTrigger value="profiles">Data Profiling</TabsTrigger>
+          <TabsTrigger value="data-quality-dashboard">Quality Dashboard</TabsTrigger>
         </TabsList>
         
         <TabsContent value="anomalies" className="space-y-4">
@@ -194,7 +197,7 @@ const Analytics: React.FC = () => {
         <TabsContent value="validation" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Pydantic Schema Validation Results</CardTitle>
+              <CardTitle>Schema Validation Results</CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
@@ -233,6 +236,10 @@ const Analytics: React.FC = () => {
         
         <TabsContent value="profiles" className="space-y-4">
           <DataProfileResults />
+        </TabsContent>
+
+        <TabsContent value="data-quality-dashboard" className="space-y-4">
+          <DataQualityDashboard />
         </TabsContent>
       </Tabs>
     </div>

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.utils import get_openapi
 
-from api.routes import auth_router, dataset_router, pipeline_router, analytics_router
+from api.routes import auth_router, dataset_router, pipeline_router, analytics_router, data_quality_router
 from api.config.settings import get_settings
 
 settings = get_settings()
@@ -29,6 +29,7 @@ app.include_router(auth_router.router, prefix="/api/auth", tags=["Authentication
 app.include_router(dataset_router.router, prefix="/api/datasets", tags=["Datasets"])
 app.include_router(pipeline_router.router, prefix="/api/pipeline", tags=["Pipeline"])
 app.include_router(analytics_router.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(data_quality_router.router, prefix="/api/data-quality", tags=["Data Quality"])
 
 # Mount uploads directory for file storage
 app.mount("/uploads", StaticFiles(directory="api/uploads"), name="uploads")

@@ -238,5 +238,45 @@ export const api = {
    */
   askQuestion: async (datasetId: string, question: string): Promise<APIResponse<any>> => {
     return await pythonApi.askQuestion(datasetId, question);
+  },
+
+  /**
+   * Clean data in a dataset
+   */
+  cleanData: async (datasetId: string, options: any = {}): Promise<APIResponse<any>> => {
+    return await pythonApi.cleanData(datasetId, options);
+  },
+
+  /**
+   * Get data quality information for a dataset
+   */
+  getDataQuality: async (datasetId: string): Promise<APIResponse<any>> => {
+    return await pythonApi.getDataQuality(datasetId);
+  },
+  
+  /**
+   * Run a complete data pipeline on a dataset
+   */
+  runDataPipeline: async (datasetId: string, steps: string[] = ["profile", "clean", "validate", "anomalies"]): Promise<APIResponse<any>> => {
+    console.log(`Running data pipeline for dataset: ${datasetId} with steps:`, steps);
+    
+    // In a real app, this would make an actual API call
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    return {
+      success: true,
+      data: {
+        dataset_id: datasetId,
+        steps_completed: steps,
+        steps_failed: [],
+        status: "success",
+        results: {
+          profile: { /* profile results */ },
+          clean: { /* cleaning results */ },
+          validate: { /* validation results */ },
+          anomalies: { /* anomaly detection results */ }
+        }
+      }
+    };
   }
 };
