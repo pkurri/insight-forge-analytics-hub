@@ -1,12 +1,20 @@
 
 from pydantic_settings import BaseSettings
 from functools import lru_cache
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import os
 from dotenv import load_dotenv
+import logging.config
+import json
 
 # Load environment variables from .env file
 load_dotenv()
+
+class LoggingSettings(BaseSettings):
+    LOGGING_LEVEL: str = os.getenv("LOGGING_LEVEL", "INFO")
+    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    LOG_FILE: Optional[str] = os.getenv("LOG_FILE")
+    LOG_TO_CONSOLE: bool = os.getenv("LOG_TO_CONSOLE", "True").lower() == "true"
 
 class Settings(BaseSettings):
     # API Settings
@@ -36,10 +44,65 @@ class Settings(BaseSettings):
     # AI/ML Settings
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
     
+    # Logging Settings
+    logging: LoggingSettings = LoggingSettings()
+    
+    # Monitoring Settings
+    ENABLE_MONITORING: bool = os.getenv("ENABLE_MONITORING", "True").lower() == "true"
+    MONITORING_METRICS_RETENTION_DAYS: int = int(os.getenv("MONITORING_METRICS_RETENTION_DAYS", "30"))
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    
+    # Configure logging
+    configure_logging(settings.logging)
+    
+    return settings
+
+def configure_logging(logging_settings: LoggingSettings) -> None:
+    """Configure logging based on settings."""
+    handlers = {}
+    
+    if logging_settings.LOG_TO_CONSOLE:
+        handlers["console"] = {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+            "level": logging_settings.LOGGING_LEVEL,
+        }
+    
+    if logging_settings.LOG_FILE:
+        handlers["file"] = {
+            "class": "logging.FileHandler",
+            "filename": logging_settings.LOG_FILE,
+            "formatter": "standard",
+            "level": logging_settings.LOGGING_LEVEL,
+        }
+    
+    logging_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "standard": {
+                "format": logging_settings.LOG_FORMAT,
+            },
+        },
+        "handlers": handlers,
+        "loggers": {
+            "": {  # root logger
+                "handlers": list(handlers.keys()),
+                "level": logging_settings.LOGGING_LEVEL,
+            },
+            "api": {
+                "handlers": list(handlers.keys()),
+                "level": logging_settings.LOGGING_LEVEL,
+                "propagate": False,
+            },
+        },
+    }
+    
+    logging.config.dictConfig(logging_config)
