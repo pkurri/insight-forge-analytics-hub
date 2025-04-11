@@ -1,6 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Body
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from api.routes.auth_router import get_current_user_or_api_key
 from api.services.ai_service import get_ai_response, analyze_dataset
@@ -102,3 +102,48 @@ async def analyze_anomalies(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to analyze anomalies: {str(e)}")
+
+@router.post("/recommend-actions/{dataset_id}", response_model=Dict[str, Any])
+async def recommend_actions(
+    dataset_id: str,
+    analysis_type: str = Body(..., description="Type of analysis to base recommendations on"),
+    context: Dict[str, Any] = Body({}, description="Additional context"),
+    current_user = Depends(get_current_user_or_api_key)
+):
+    """Get AI-powered recommendations for actions based on dataset analysis."""
+    try:
+        # This would call an AI service to generate recommendations
+        # For now, return mock recommendations
+        return {
+            "dataset_id": dataset_id,
+            "recommendations": [
+                {
+                    "action": "Clean missing values in 'customer_email' column",
+                    "priority": "high",
+                    "impact": "Improves data quality by 8.5%",
+                    "effort": "low",
+                    "details": "23 rows (2.3%) have missing or invalid email formats"
+                },
+                {
+                    "action": "Investigate outliers in 'transaction_amount' column",
+                    "priority": "medium",
+                    "impact": "Potential fraud detection",
+                    "effort": "medium",
+                    "details": "5 transactions exceed 3σ from the mean"
+                },
+                {
+                    "action": "Standardize values in 'product_category' column",
+                    "priority": "medium",
+                    "impact": "Improves reporting accuracy",
+                    "effort": "low",
+                    "details": "Multiple variations of the same category found ('electronics', 'Electronics', 'ELECTRONICS')"
+                }
+            ],
+            "analysis_context": {
+                "analysis_type": analysis_type,
+                "insights_used": ["data profile", "anomaly detection", "business rules"],
+                "confidence": 0.87
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate recommendations: {str(e)}")
