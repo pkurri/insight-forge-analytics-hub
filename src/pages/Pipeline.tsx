@@ -9,6 +9,7 @@ import PipelineStatusTable from '@/components/pipeline/PipelineStatusTable';
 import PipelineAnalytics from '@/components/pipeline/PipelineAnalytics';
 import ChatInterface from '@/components/pipeline/ChatInterface';
 import BusinessRules from '@/components/pipeline/BusinessRules';
+import DataSourceConfig from '@/components/pipeline/DataSourceConfig';
 
 const Pipeline: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -46,8 +47,9 @@ const Pipeline: React.FC = () => {
       <div className={`grid gap-6 ${isChatOpen ? 'md:grid-cols-3' : 'md:grid-cols-1'}`}>
         <div className={isChatOpen ? 'md:col-span-2' : 'md:col-span-1'}>
           <Tabs defaultValue="upload" className="w-full">
-            <TabsList className="grid grid-cols-4 mb-4">
+            <TabsList className="grid grid-cols-5 mb-4">
               <TabsTrigger value="upload">Upload Data</TabsTrigger>
+              <TabsTrigger value="datasources">Data Sources</TabsTrigger>
               <TabsTrigger value="status">Pipeline Status</TabsTrigger>
               <TabsTrigger value="analytics">Analytics</TabsTrigger>
               <TabsTrigger value="rules">Business Rules</TabsTrigger>
@@ -62,6 +64,10 @@ const Pipeline: React.FC = () => {
                   <PipelineUploadForm />
                 </CardContent>
               </Card>
+            </TabsContent>
+            
+            <TabsContent value="datasources" className="mt-0">
+              <DataSourceConfig />
             </TabsContent>
             
             <TabsContent value="status" className="mt-0">
