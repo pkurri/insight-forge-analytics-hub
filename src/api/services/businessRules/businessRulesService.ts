@@ -1,19 +1,6 @@
 
 import { callApi } from '../../utils/apiUtils';
-import { ApiResponse } from '../../api';
-
-export interface BusinessRule {
-  id: string;
-  name: string;
-  description: string;
-  dataset_id: string;
-  rule_type: string;
-  condition: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  active: boolean;
-  created_at: string;
-  updated_at: string;
-}
+import { ApiResponse, BusinessRule } from '../../api';
 
 /**
  * Business Rules Service - Handles business rule operations

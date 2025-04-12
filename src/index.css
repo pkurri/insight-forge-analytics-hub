@@ -114,6 +114,33 @@
     padding: 0;
     overflow: hidden;
   }
+  
+  /* Improve mobile experience */
+  html, body {
+    touch-action: manipulation;
+    -webkit-overflow-scrolling: touch;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Better height handling for mobile */
+  @supports (-webkit-touch-callout: none) {
+    .h-screen {
+      height: -webkit-fill-available;
+    }
+    
+    .min-h-screen {
+      min-height: -webkit-fill-available;
+    }
+  }
+  
+  /* Fix for mobile resizing when virtual keyboard appears */
+  @media (max-width: 640px) {
+    .fixed-height-mobile {
+      height: 100%;
+      max-height: 100%;
+      overflow-y: auto;
+    }
+  }
 }
 
 /* Animation keyframes */
@@ -141,5 +168,33 @@
   }
   100% { 
     stroke-dashoffset: 0; 
+  }
+}
+
+/* Responsive text classes */
+.responsive-text-xs {
+  font-size: clamp(0.75rem, 2vw, 0.875rem);
+}
+
+.responsive-text-sm {
+  font-size: clamp(0.875rem, 2.5vw, 1rem);
+}
+
+.responsive-text-base {
+  font-size: clamp(1rem, 3vw, 1.125rem);
+}
+
+.responsive-text-lg {
+  font-size: clamp(1.125rem, 3.5vw, 1.25rem);
+}
+
+/* Responsive spacing */
+@media (max-width: 640px) {
+  .sm-p-2 {
+    padding: 0.5rem;
+  }
+  
+  .sm-gap-1 {
+    gap: 0.25rem;
   }
 }

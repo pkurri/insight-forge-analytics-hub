@@ -35,6 +35,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
       ${showSidebar ? "flex" : "hidden"} 
       ${sidebarWidth} 
       flex-col h-screen border-r bg-background p-4 transition-all duration-300
+      min-h-[100dvh]
     `}>
       <div className="flex items-center justify-between px-2 pb-3">
         <div className={`flex items-center gap-2 ${isCollapsed && !isMobile ? 'justify-center w-full' : ''}`}>
@@ -77,9 +78,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+            ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <LayoutDashboard className="h-4 w-4" />
+          <LayoutDashboard className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
           {(!isCollapsed || isMobile) && <span>Dashboard</span>}
         </NavLink>
         <NavLink 
@@ -87,9 +89,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+            ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <GitBranch className="h-4 w-4" />
+          <GitBranch className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
           {(!isCollapsed || isMobile) && <span>Data Pipeline</span>}
         </NavLink>
         <NavLink 
@@ -97,9 +100,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+            ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <BarChart3 className="h-4 w-4" />
+          <BarChart3 className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
           {(!isCollapsed || isMobile) && <span>Analytics</span>}
         </NavLink>
         
@@ -108,10 +112,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+            ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <Bot className="h-4 w-4" />
-          {(!isCollapsed || isMobile) && <span>AI Chat</span>}
+          <Bot className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          {(!isCollapsed || iMobile) && <span>AI Chat</span>}
         </NavLink>
       </div>
 
@@ -124,9 +129,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+            ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <Activity className="h-4 w-4" />
+          <Activity className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
           {(!isCollapsed || isMobile) && <span>Monitoring</span>}
         </NavLink>
         <NavLink 
@@ -134,9 +140,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+            ${isCollapsed && !iMobile ? 'justify-center' : ''}
           `}
         >
-          <Bell className="h-4 w-4" />
+          <Bell className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
           {(!isCollapsed || isMobile) && <span>Alerts</span>}
         </NavLink>
         <NavLink 
@@ -144,9 +151,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+            ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <ScrollText className="h-4 w-4" />
+          <ScrollText className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
           {(!isCollapsed || isMobile) && <span>Logs</span>}
         </NavLink>
         <NavLink 
@@ -154,9 +162,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
+            ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <HeartPulse className="h-4 w-4" />
+          <HeartPulse className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
           {(!isCollapsed || isMobile) && <span>Health</span>}
         </NavLink>
       </div>

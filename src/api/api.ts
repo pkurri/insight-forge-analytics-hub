@@ -23,6 +23,19 @@ export interface DatasetSummary {
   description?: string;
 }
 
+export interface BusinessRule {
+  id: string;
+  name: string;
+  description: string;
+  dataset_id: string;
+  rule_type: string;
+  condition: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // API utilities
 export const api = {
   // Dataset operations

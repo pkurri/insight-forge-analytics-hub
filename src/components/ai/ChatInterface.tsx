@@ -1,5 +1,9 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { SendHorizontal, Bot, RefreshCw, Search, AlertCircle, ArrowUp, Clock, XCircle, Settings } from 'lucide-react';
+import { 
+  SendHorizontal, Bot, RefreshCw, Search, AlertCircle, ArrowUp, 
+  Clock, XCircle, Settings, Lightbulb, ChevronDown, ChevronUp 
+} from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -15,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 export interface Message {
   id: string;
@@ -27,6 +32,8 @@ export interface Message {
     dataset?: string;
     timestamp?: string;
     modelId?: string;
+    insights?: string[];
+    context?: any;
   };
   timestamp: Date;
 }
@@ -88,8 +95,23 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [inputHistory, setInputHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [modelId, setModelId] = useState(selectedModel);
+  const [expandedMessageIds, setExpandedMessageIds] = useState<string[]>([]);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  
+  // Toggle insight expansion
+  const toggleInsightExpansion = (messageId: string) => {
+    setExpandedMessageIds(prev => 
+      prev.includes(messageId) 
+        ? prev.filter(id => id !== messageId) 
+        : [...prev, messageId]
+    );
+  };
+
+  // Check if insights are expanded for a message
+  const isInsightExpanded = (messageId: string) => {
+    return expandedMessageIds.includes(messageId);
+  };
   
   // Update model selection when prop changes
   useEffect(() => {
@@ -142,6 +164,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         });
         
         if (response.success && response.data) {
+          const insights = response.data.context?.map((ctx: any) => {
+            if (ctx.insight) return ctx.insight;
+            if (ctx.analysis) return `Analysis: ${ctx.analysis}`;
+            if (ctx.distribution) return `Distribution: ${ctx.distribution}`;
+            return null;
+          }).filter(Boolean);
+          
           const assistantMessage: Message = {
             id: `assistant-${Date.now()}`,
             type: 'assistant',
@@ -151,7 +180,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               sources: response.data.context?.map((ctx: any) => ctx.column || ctx.analysis),
               dataset: currentDataset,
               timestamp: new Date().toISOString(),
-              modelId: modelId
+              modelId: modelId,
+              insights: insights || [],
+              context: response.data.context || []
             },
             timestamp: new Date()
           };
@@ -272,7 +303,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (scrollAreaRef.current) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, expandedMessageIds]);
   
   // Initialize chat with welcome message if empty
   useEffect(() => {
@@ -282,7 +313,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }, [messages.length, handleResetChat, isHistoryLoading]);
   
   return (
-    <Card className={`h-[calc(100vh-16rem)] flex flex-col ${className}`}>
+    <Card className={`h-[calc(100vh-16rem)] flex flex-col ${className} max-h-[calc(100dvh-16rem)]`}>
       <CardHeader className="px-4 py-3 border-b">
         <div className="flex justify-between items-center">
           <div className="flex items-center space-x-2">
@@ -301,7 +332,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 value={currentDataset}
                 onValueChange={handleSetDataset}
               >
-                <SelectTrigger className="text-sm border rounded px-2 py-1 mr-2 w-40">
+                <SelectTrigger className="text-sm border rounded px-2 py-1 mr-2 w-40 md:w-48">
                   <SelectValue placeholder="Select dataset" />
                 </SelectTrigger>
                 <SelectContent>
@@ -371,7 +402,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <Badge 
               key={suggestion.id} 
               variant="outline" 
-              className="cursor-pointer hover:bg-muted"
+              className="cursor-pointer hover:bg-muted whitespace-nowrap"
               onClick={() => applySuggestion(suggestion.text)}
             >
               {suggestion.text}
@@ -404,7 +435,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   message.type === 'system' ? 'justify-center' : 'justify-start'
                 }`}>
                   <div 
-                    className={`max-w-[80%] rounded-lg p-3 ${
+                    className={`max-w-[90%] sm:max-w-[85%] md:max-w-[80%] rounded-lg p-3 ${
                       message.type === 'user' 
                         ? 'bg-primary text-primary-foreground' 
                         : message.type === 'system'
@@ -413,6 +444,40 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     }`}
                   >
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    
+                    {/* Show AI Insights for assistant responses */}
+                    {message.type === 'assistant' && message.metadata?.insights && message.metadata.insights.length > 0 && (
+                      <Collapsible
+                        className="w-full mt-2 border-t border-border pt-1"
+                        open={isInsightExpanded(message.id)}
+                        onOpenChange={() => toggleInsightExpansion(message.id)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs flex items-center gap-1 text-muted-foreground">
+                            <Lightbulb className="h-3 w-3" />
+                            <span>AI Insights</span>
+                          </p>
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                              {isInsightExpanded(message.id) ? (
+                                <ChevronUp className="h-3 w-3" />
+                              ) : (
+                                <ChevronDown className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </CollapsibleTrigger>
+                        </div>
+                        <CollapsibleContent className="mt-2">
+                          <div className="pl-4 border-l-2 border-muted space-y-1">
+                            {message.metadata.insights.map((insight, index) => (
+                              <p key={index} className="text-xs">
+                                • {insight}
+                              </p>
+                            ))}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    )}
                     
                     {/* Show confidence and sources for AI responses */}
                     {message.type === 'assistant' && message.metadata?.confidence && (
