@@ -1,95 +1,99 @@
 
-/**
- * DataForge API Module
- * 
- * This module provides centralized access to all DataForge API endpoints,
- * including data profiling, anomaly detection, schema validation,
- * and business rules management.
- */
-
-import { analyticsService } from './services/analyticsService';
-import { validationService } from './services/validationService';
-import { businessRulesService } from './services/businessRulesService';
-import { pipelineService } from './services/pipelineService';
-import { monitoringService } from './services/monitoringService';
-import { aiService } from './services/aiService';
-import { datasetService } from './services/datasetService';
 import { aiChatService } from './services/ai/aiChatService';
+import { datasetService } from './services/datasets/datasetService';
+import { userService } from './services/user/userService';
 
-export interface BusinessRule {
-  id: string;
-  name: string;
-  condition: string;
-  severity: 'low' | 'medium' | 'high';
-  message: string;
-  confidence?: number;
-  model_generated?: boolean;
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  status?: number;
 }
 
 export interface DatasetSummary {
   id: string;
   name: string;
-  recordCount: number;
-  columnCount: number;
-  createdAt: string;
-  updatedAt: string;
-  status: 'ready' | 'processing' | 'error';
+  rows: number;
+  columns: number;
+  created_at: string;
+  updated_at: string;
+  status: 'active' | 'pending' | 'error';
+  description?: string;
 }
 
-export interface APIResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  message?: string;
-}
-
-/**
- * DataForge API client
- */
+// API utilities
 export const api = {
   // Dataset operations
-  getDatasets: datasetService.getDatasets,
-  getDataset: datasetService.getDataset,
-  runDataQualityChecks: datasetService.runDataQualityChecks,
-
-  // Analytics operations
-  profileDataset: analyticsService.fetchDataProfile,
-  detectAnomalies: analyticsService.detectAnomalies,
-  getDataQuality: analyticsService.getDataQuality,
-
-  // Validation operations
-  validateSchema: validationService.validateSchema,
-  cleanData: validationService.cleanData,
-
-  // Business rules operations
-  getBusinessRules: businessRulesService.getBusinessRules,
-  generateBusinessRules: businessRulesService.generateBusinessRules,
-  saveBusinessRules: businessRulesService.saveBusinessRules,
-
-  // Pipeline operations
-  uploadDataToPipeline: pipelineService.uploadDataToPipeline,
-  fetchDataFromExternalApi: pipelineService.fetchDataFromExternalApi,
-  fetchDataFromDatabase: pipelineService.fetchDataFromDatabase,
-  validateDataInPipeline: pipelineService.validateDataInPipeline,
-  transformDataInPipeline: pipelineService.transformDataInPipeline,
-  enrichDataInPipeline: pipelineService.enrichDataInPipeline,
-  loadDataInPipeline: pipelineService.loadDataInPipeline,
-  runDataPipeline: pipelineService.runDataPipeline,
-
-  // Monitoring operations
-  getMonitoringMetrics: monitoringService.getMonitoringMetrics,
-  getSystemAlerts: monitoringService.getSystemAlerts,
-  getSystemLogs: monitoringService.getSystemLogs,
-
-  // AI operations
-  askQuestion: aiService.askQuestion,
-  getAiAssistantResponse: aiService.getAiAssistantResponse,
-  analyzeAnomalies: aiService.analyzeAnomalies,
+  getDatasets: async (): Promise<ApiResponse<DatasetSummary[]>> => {
+    return datasetService.getDatasets();
+  },
   
-  // AI Chat operations (Vector DB + Hugging Face)
-  getChatSuggestions: aiChatService.getChatSuggestions,
-  getChatHistory: aiChatService.getChatHistory,
-  generateEmbeddings: aiChatService.generateEmbeddings,
-  storeChatHistory: aiChatService.storeChatHistory,
-  getAvailableModels: aiChatService.getAvailableModels
+  getDatasetDetails: async (id: string): Promise<ApiResponse> => {
+    return datasetService.getDatasetDetails(id);
+  },
+  
+  // AI Assistant operations
+  getAiAssistantResponse: async (message: string, context?: any): Promise<ApiResponse> => {
+    // Integrate with backend API
+    try {
+      return aiChatService.generateResponse(message, context);
+    } catch (error) {
+      console.error("Error in AI assistant response:", error);
+      return {
+        success: false,
+        error: "Failed to get AI response"
+      };
+    }
+  },
+  
+  // Ask question about dataset(s)
+  askQuestion: async (datasetId: string, question: string, options?: any): Promise<ApiResponse> => {
+    try {
+      // If datasetId is 'all', send request to analyze all datasets
+      const params = {
+        dataset_id: datasetId === 'all' ? undefined : datasetId,
+        question,
+        ...options
+      };
+      
+      return aiChatService.askQuestion(params);
+    } catch (error) {
+      console.error("Error asking question:", error);
+      return {
+        success: false,
+        error: "Failed to process question"
+      };
+    }
+  },
+  
+  // Get available AI models
+  getAvailableModels: async (): Promise<ApiResponse> => {
+    try {
+      return aiChatService.getAvailableModels();
+    } catch (error) {
+      console.error("Error getting AI models:", error);
+      return {
+        success: false,
+        error: "Failed to get available models"
+      };
+    }
+  },
+  
+  // Get chat history
+  getChatHistory: async (datasetId: string): Promise<ApiResponse> => {
+    try {
+      return aiChatService.getChatHistory(datasetId);
+    } catch (error) {
+      console.error("Error getting chat history:", error);
+      return {
+        success: false,
+        error: "Failed to retrieve chat history"
+      };
+    }
+  },
+  
+  // User and authentication operations
+  getCurrentUser: async (): Promise<ApiResponse> => {
+    return userService.getCurrentUser();
+  }
 };

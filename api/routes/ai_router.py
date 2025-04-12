@@ -1,12 +1,39 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Query, Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
+from datetime import datetime
+import logging
+import asyncio
+from pydantic import BaseModel
 
 from api.routes.auth_router import get_current_user_or_api_key
 from api.services.ai_service import get_ai_response, analyze_dataset, generate_embeddings
 from api.services.vector_service import store_vector_embeddings, search_vector_embeddings
+from api.services.dataset_service import get_dataset_columns, get_all_dataset_ids
+from api.services.cache_service import get_cached_response, cache_response
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Pydantic models for request validation
+class QuestionRequest(BaseModel):
+    dataset_id: Optional[str] = None
+    question: str
+    model_id: Optional[str] = None
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = 500
+    streaming: Optional[bool] = False
+
+class EmbeddingRequest(BaseModel):
+    text: str
+    model: Optional[str] = "sentence-transformers/all-MiniLM-L6-v2"
+
+class SuggestionRequest(BaseModel):
+    dataset_id: Optional[str] = None
+    context: Optional[Dict[str, Any]] = {}
 
 @router.post("/assistant", response_model=Dict[str, Any])
 async def ai_assistant(
@@ -16,165 +43,152 @@ async def ai_assistant(
 ):
     """Get a response from the AI assistant."""
     try:
+        # Check cache first
+        cache_key = f"ai_assistant:{message}:{str(context)}"
+        cached_result = get_cached_response(cache_key)
+        if cached_result:
+            return cached_result
+        
         # Add user information to the context
         ai_context = {
             **context,
-            "user_id": current_user.id,
-            "user_name": current_user.username,
-            "timestamp": "2023-04-11T12:00:00Z"
+            "user_id": current_user.id if current_user else "anonymous",
+            "user_name": current_user.username if current_user else "guest",
+            "timestamp": datetime.now().isoformat()
         }
         
         # Get AI response
         response = await get_ai_response(message, ai_context)
         
-        return {
+        result = {
             "message": message,
             "response": response["text"],
             "context": response["context"],
             "timestamp": response["timestamp"]
         }
+        
+        # Cache the response for future reuse
+        cache_response(cache_key, result, expiry_seconds=3600)  # Cache for 1 hour
+        
+        return result
     except Exception as e:
+        logger.error(f"Failed to get AI response: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get AI response: {str(e)}")
 
 @router.post("/ask", response_model=Dict[str, Any])
 async def ask_about_dataset(
-    dataset_id: str = Body(..., description="ID of the dataset to query"),
-    question: str = Body(..., description="Question about the dataset"),
-    context: Optional[Dict[str, Any]] = Body({}, description="Additional context for the AI"),
+    request: QuestionRequest,
     current_user = Depends(get_current_user_or_api_key)
 ):
-    """Ask questions about a specific dataset."""
+    """Ask questions about a specific dataset or all datasets."""
     try:
-        # Analyze dataset and get response
-        analysis_result = await analyze_dataset(dataset_id, question, context)
+        # Generate cache key based on request
+        cache_key = f"dataset_question:{request.dataset_id or 'all'}:{request.question}:{request.model_id}"
+        cached_result = get_cached_response(cache_key)
+        if cached_result:
+            return cached_result
         
-        return {
-            "answer": analysis_result["answer"],
-            "confidence": analysis_result["confidence"],
-            "context": analysis_result["context"],
-            "query_analysis": analysis_result["query_analysis"]
+        context = {
+            "user_id": current_user.id if current_user else "anonymous",
+            "model_id": request.model_id,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to analyze dataset: {str(e)}")
-
-@router.post("/generate-rules/{dataset_id}", response_model=Dict[str, Any])
-async def generate_business_rules(
-    dataset_id: str,
-    config: Dict[str, Any] = Body({}, description="Configuration for rule generation"),
-    current_user = Depends(get_current_user_or_api_key)
-):
-    """Generate business rules for a dataset using AI."""
-    from api.services.rule_service import generate_rules_with_ai
-    
-    try:
-        rules = await generate_rules_with_ai(dataset_id, config)
         
-        return {
-            "dataset_id": dataset_id,
-            "rules_generated": len(rules),
-            "rules": rules,
-            "generation_metadata": {
-                "method": config.get("method", "pattern_mining"),
-                "confidence_threshold": config.get("confidence_threshold", 0.8),
-                "timestamp": "2023-04-11T12:00:00Z"
+        # If no dataset specified, fetch from all datasets
+        if not request.dataset_id:
+            # Get all dataset IDs
+            dataset_ids = await get_all_dataset_ids()
+            results = []
+            
+            # Process datasets in parallel for better performance
+            async def process_dataset(dataset_id):
+                try:
+                    result = await analyze_dataset(dataset_id, request.question, context)
+                    return {**result, "dataset_id": dataset_id}
+                except Exception as e:
+                    logger.error(f"Error processing dataset {dataset_id}: {str(e)}")
+                    return None
+            
+            # Create tasks for each dataset
+            tasks = [process_dataset(ds_id) for ds_id in dataset_ids]
+            dataset_results = await asyncio.gather(*tasks)
+            
+            # Filter out failed results and find the best answer
+            valid_results = [r for r in dataset_results if r is not None]
+            if not valid_results:
+                raise HTTPException(status_code=404, detail="No valid results from any datasets")
+            
+            # Sort by confidence score to get the best answer
+            best_result = sorted(valid_results, key=lambda x: x.get("confidence", 0), reverse=True)[0]
+            
+            result = {
+                "answer": best_result["answer"],
+                "confidence": best_result["confidence"],
+                "context": best_result["context"],
+                "query_analysis": best_result["query_analysis"],
+                "dataset_id": best_result["dataset_id"],
+                "combined_datasets": True,
+                "datasets_analyzed": len(valid_results)
             }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate rules: {str(e)}")
-
-@router.post("/analyze-anomalies/{dataset_id}", response_model=Dict[str, Any])
-async def analyze_anomalies(
-    dataset_id: str,
-    config: Dict[str, Any] = Body({}, description="Configuration for anomaly analysis"),
-    current_user = Depends(get_current_user_or_api_key)
-):
-    """Analyze anomalies in a dataset and provide explanations."""
-    from api.services.anomaly_service import analyze_anomalies_with_ai
-    
-    try:
-        anomaly_analysis = await analyze_anomalies_with_ai(dataset_id, config)
+        else:
+            # Analyze the specified dataset
+            result = await analyze_dataset(request.dataset_id, request.question, context)
+            result["dataset_id"] = request.dataset_id
+            result["combined_datasets"] = False
         
-        return {
-            "dataset_id": dataset_id,
-            "anomaly_count": len(anomaly_analysis["anomalies"]),
-            "anomalies": anomaly_analysis["anomalies"],
-            "root_causes": anomaly_analysis["root_causes"],
-            "recommendations": anomaly_analysis["recommendations"]
-        }
+        # Cache the result
+        cache_response(cache_key, result, expiry_seconds=1800)  # Cache for 30 minutes
+        
+        return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to analyze anomalies: {str(e)}")
-
-# New AI Chat and Vector DB Routes
+        logger.error(f"Failed to analyze dataset: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze dataset: {str(e)}")
 
 @router.post("/embeddings", response_model=Dict[str, Any])
 async def create_embeddings(
-    text: str = Body(..., description="Text to generate embeddings for"),
-    model: str = Body("sentence-transformers/all-MiniLM-L6-v2", description="Embedding model name"),
+    request: EmbeddingRequest,
     current_user = Depends(get_current_user_or_api_key)
 ):
     """Generate embeddings for text using Hugging Face models."""
     try:
-        embedding_result = await generate_embeddings(text, model)
+        # Check cache for existing embeddings
+        cache_key = f"embeddings:{request.model}:{request.text}"
+        cached_result = get_cached_response(cache_key)
+        if cached_result:
+            return cached_result
+            
+        # Generate new embeddings
+        embedding_result = await generate_embeddings(request.text, request.model)
         
-        return {
-            "text": text,
+        result = {
+            "text": request.text,
             "embedding": embedding_result["embedding"],
-            "model": model,
+            "model": request.model,
             "dimensions": len(embedding_result["embedding"])
         }
+        
+        # Cache the embeddings
+        cache_response(cache_key, result, expiry_seconds=86400)  # Cache for 24 hours
+        
+        return result
     except Exception as e:
+        logger.error(f"Failed to generate embeddings: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate embeddings: {str(e)}")
-
-@router.post("/embeddings/store", response_model=Dict[str, Any])
-async def store_embeddings(
-    dataset_id: str = Body(..., description="Dataset ID to associate with"),
-    record_id: str = Body(..., description="Record ID within the dataset"),
-    embedding: List[float] = Body(..., description="Vector embedding"),
-    metadata: Dict[str, Any] = Body(..., description="Associated metadata"),
-    current_user = Depends(get_current_user_or_api_key)
-):
-    """Store vector embeddings for future retrieval."""
-    try:
-        result = await store_vector_embeddings(dataset_id, record_id, embedding, metadata)
-        
-        return {
-            "success": True,
-            "embedding_id": result["embedding_id"],
-            "dataset_id": dataset_id,
-            "record_id": record_id
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to store embeddings: {str(e)}")
-
-@router.post("/embeddings/search", response_model=Dict[str, Any])
-async def search_embeddings(
-    dataset_id: str = Body(..., description="Dataset ID to search within"),
-    query_vector: List[float] = Body(..., description="Query vector for similarity search"),
-    limit: int = Body(10, description="Number of results to return"),
-    current_user = Depends(get_current_user_or_api_key)
-):
-    """Search for similar vectors in the database."""
-    try:
-        search_results = await search_vector_embeddings(dataset_id, query_vector, limit)
-        
-        return {
-            "dataset_id": dataset_id,
-            "results": search_results,
-            "count": len(search_results)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to search embeddings: {str(e)}")
 
 @router.post("/suggestions", response_model=Dict[str, Any])
 async def get_chat_suggestions(
-    dataset_id: Optional[str] = Body(None, description="Dataset ID to get suggestions for"),
-    context: Dict[str, Any] = Body({}, description="User context for personalized suggestions"),
+    request: SuggestionRequest,
     current_user = Depends(get_current_user_or_api_key)
 ):
     """Get suggested questions for the AI chat interface."""
     try:
-        # This would call an AI service to generate suggestions
-        # For now, return static suggestions
+        # Check cache
+        cache_key = f"chat_suggestions:{request.dataset_id or 'all'}"
+        cached_result = get_cached_response(cache_key)
+        if cached_result:
+            return cached_result
+            
         suggestions = [
             {"id": "1", "text": "What's the distribution of values in column X?", "category": "exploration"},
             {"id": "2", "text": "Show me the relationship between column A and B", "category": "correlation"},
@@ -183,11 +197,10 @@ async def get_chat_suggestions(
             {"id": "5", "text": "What trends do you notice over time?", "category": "trends"}
         ]
         
-        if dataset_id:
+        if request.dataset_id:
             # Add dataset-specific suggestions
-            from api.services.dataset_service import get_dataset_columns
             try:
-                columns = await get_dataset_columns(dataset_id)
+                columns = await get_dataset_columns(request.dataset_id)
                 if columns and len(columns) > 1:
                     col1 = columns[0]
                     col2 = columns[1]
@@ -201,13 +214,17 @@ async def get_chat_suggestions(
                         "text": f"Is there a correlation between {col1} and {col2}?", 
                         "category": "dataset-specific"
                     })
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Error getting dataset columns: {str(e)}")
         
-        return {
-            "suggestions": suggestions
-        }
+        result = {"suggestions": suggestions}
+        
+        # Cache the suggestions
+        cache_response(cache_key, result, expiry_seconds=3600)  # Cache for 1 hour
+        
+        return result
     except Exception as e:
+        logger.error(f"Failed to get chat suggestions: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get chat suggestions: {str(e)}")
 
 @router.get("/models", response_model=Dict[str, Any])
@@ -217,7 +234,7 @@ async def get_available_models(
 ):
     """Get available AI models for use with the chat interface."""
     try:
-        # This would query available models from a service
+        # This would be expanded to query available models from a database or service
         models = [
             {
                 "id": "sentence-transformers/all-MiniLM-L6-v2",
@@ -228,7 +245,13 @@ async def get_available_models(
             {
                 "id": "google/flan-t5-base",
                 "type": "generation",
-                "is_default": True
+                "is_default": True,
+                "max_tokens": 512
+            },
+            {
+                "id": "google/flan-t5-large",
+                "type": "generation",
+                "max_tokens": 1024
             },
             {
                 "id": "facebook/bart-large-mnli",
@@ -247,6 +270,7 @@ async def get_available_models(
             "models": models
         }
     except Exception as e:
+        logger.error(f"Failed to get available models: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get available models: {str(e)}")
 
 @router.get("/chat-history/{dataset_id}", response_model=Dict[str, Any])
@@ -267,6 +291,7 @@ async def get_chat_history(
             }
         }
     except Exception as e:
+        logger.error(f"Failed to get chat history: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get chat history: {str(e)}")
 
 @router.post("/chat-history/{dataset_id}", response_model=Dict[str, Any])
@@ -284,4 +309,146 @@ async def store_chat_history(
             "message": "Chat history stored successfully"
         }
     except Exception as e:
+        logger.error(f"Failed to store chat history: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to store chat history: {str(e)}")
+
+# Create a new service for caching responses
+<lov-write file_path="api/services/cache_service.py">
+import time
+import logging
+from typing import Dict, Any, Optional
+from functools import lru_cache
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Simple in-memory cache
+_cache: Dict[str, Dict[str, Any]] = {}
+
+def get_cached_response(key: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a response from the cache if it exists and is not expired
+    
+    Args:
+        key: The cache key
+        
+    Returns:
+        The cached data if found and valid, otherwise None
+    """
+    if key not in _cache:
+        return None
+    
+    cache_item = _cache[key]
+    
+    # Check if expired
+    if cache_item["expires_at"] < time.time():
+        # Expired, remove from cache
+        del _cache[key]
+        return None
+    
+    # Update access stats
+    _cache[key]["access_count"] += 1
+    _cache[key]["last_accessed"] = time.time()
+    
+    logger.debug(f"Cache hit for key: {key}")
+    return cache_item["data"]
+
+def cache_response(key: str, data: Dict[str, Any], expiry_seconds: int = 3600) -> None:
+    """
+    Store a response in the cache
+    
+    Args:
+        key: The cache key
+        data: The data to cache
+        expiry_seconds: How long the cache should be valid for (in seconds)
+    """
+    now = time.time()
+    
+    _cache[key] = {
+        "data": data,
+        "created_at": now,
+        "expires_at": now + expiry_seconds,
+        "last_accessed": now,
+        "access_count": 0
+    }
+    
+    logger.debug(f"Stored in cache: {key} (expires in {expiry_seconds}s)")
+    
+    # Perform cache cleanup if it's getting large
+    if len(_cache) > 1000:  # Arbitrary limit
+        _cleanup_cache()
+
+def invalidate_cache(key: str) -> bool:
+    """
+    Remove a specific item from the cache
+    
+    Args:
+        key: The cache key to remove
+        
+    Returns:
+        True if the item was in the cache and removed, False otherwise
+    """
+    if key in _cache:
+        del _cache[key]
+        logger.debug(f"Invalidated cache key: {key}")
+        return True
+    return False
+
+def clear_cache() -> int:
+    """
+    Clear the entire cache
+    
+    Returns:
+        The number of items that were in the cache
+    """
+    count = len(_cache)
+    _cache.clear()
+    logger.info(f"Cleared {count} items from cache")
+    return count
+
+def _cleanup_cache() -> int:
+    """
+    Clean up the cache by removing expired or least recently used items
+    
+    Returns:
+        The number of items removed from the cache
+    """
+    now = time.time()
+    expired_keys = [k for k, v in _cache.items() if v["expires_at"] < now]
+    
+    # Remove expired items
+    for key in expired_keys:
+        del _cache[key]
+    
+    # If still too many items, remove least recently accessed
+    if len(_cache) > 800:  # Target size
+        items = list(_cache.items())
+        # Sort by last accessed time
+        items.sort(key=lambda x: x[1]["last_accessed"])
+        # Remove oldest 20% of items
+        items_to_remove = items[:int(len(items) * 0.2)]
+        for key, _ in items_to_remove:
+            del _cache[key]
+    
+    removed = len(expired_keys) + (len(_cache) - 800 if len(_cache) > 800 else 0)
+    logger.info(f"Cache cleanup: removed {removed} items")
+    return removed
+
+# Helper function for dataset service
+@lru_cache(maxsize=100)
+async def get_all_dataset_ids():
+    """Mock function to get all dataset IDs - would be replaced with actual DB call"""
+    # This would be replaced with actual database query
+    return ["ds001", "ds002", "ds003"]
+
+@lru_cache(maxsize=100)
+async def get_dataset_columns(dataset_id: str):
+    """Mock function to get columns for a dataset - would be replaced with actual DB call"""
+    # This would be replaced with actual database query
+    columns_map = {
+        "ds001": ["name", "age", "salary", "department"],
+        "ds002": ["product_id", "price", "quantity", "date"],
+        "ds003": ["customer_id", "order_date", "total_value", "items"]
+    }
+    return columns_map.get(dataset_id, [])

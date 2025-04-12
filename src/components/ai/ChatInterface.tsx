@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { SendHorizontal, Bot, RefreshCw, Search, AlertCircle, ArrowUp, Clock, XCircle } from 'lucide-react';
+import { SendHorizontal, Bot, RefreshCw, Search, AlertCircle, ArrowUp, Clock, XCircle, Settings } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -13,6 +13,8 @@ import { useDatasetContext } from '@/hooks/useDatasetContext';
 import { api } from '@/api/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 export interface Message {
   id: string;
@@ -24,6 +26,7 @@ export interface Message {
     isError?: boolean;
     dataset?: string;
     timestamp?: string;
+    modelId?: string;
   };
   timestamp: Date;
 }
@@ -40,9 +43,10 @@ interface ChatInterfaceProps {
   showDatasetSelector?: boolean;
   defaultDataset?: string;
   suggestions?: ChatSuggestion[];
-  onMessage?: (message: string, dataset: string) => void;
+  onMessage?: (message: string, dataset: string, modelId: string) => void;
   processingCallback?: (isProcessing: boolean) => void;
   className?: string;
+  selectedModel?: string;
 }
 
 /**
@@ -57,12 +61,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onMessage,
   processingCallback,
   className = "",
+  selectedModel = "",
 }) => {
   // Get dataset context if available
   const { datasets, activeDataset, setActiveDataset } = useDatasetContext();
   
   // Local state for handling active dataset if context not available
-  const [localActiveDataset, setLocalActiveDataset] = useState<string>(defaultDataset || 'ds001');
+  const [localActiveDataset, setLocalActiveDataset] = useState<string>(defaultDataset || 'all');
   
   // Use the context dataset if available, otherwise use local state
   const currentDataset = activeDataset || localActiveDataset;
@@ -82,8 +87,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [inputHistory, setInputHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [modelId, setModelId] = useState(selectedModel);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  
+  // Update model selection when prop changes
+  useEffect(() => {
+    if (selectedModel) {
+      setModelId(selectedModel);
+    }
+  }, [selectedModel]);
   
   // Update processing status to parent component if callback provided
   useEffect(() => {
@@ -121,10 +134,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     try {
       // If external handler is provided, use it
       if (onMessage) {
-        onMessage(input, currentDataset);
+        onMessage(input, currentDataset, modelId);
       } else {
         // Otherwise use default API call
-        const response = await api.askQuestion(currentDataset, input);
+        const response = await api.askQuestion(currentDataset, input, {
+          modelId: modelId
+        });
         
         if (response.success && response.data) {
           const assistantMessage: Message = {
@@ -135,7 +150,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               confidence: response.data.confidence,
               sources: response.data.context?.map((ctx: any) => ctx.column || ctx.analysis),
               dataset: currentDataset,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
+              modelId: modelId
             },
             timestamp: new Date()
           };
@@ -281,18 +297,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <div className="flex space-x-1">
             {/* Dataset selector */}
             {showDatasetSelector && datasets && datasets.length > 0 && (
-              <select 
-                className="text-sm border rounded px-2 py-1 mr-2"
+              <Select 
                 value={currentDataset}
-                onChange={(e) => handleSetDataset(e.target.value)}
-                disabled={isProcessing}
+                onValueChange={handleSetDataset}
               >
-                {datasets.map(dataset => (
-                  <option key={dataset.id} value={dataset.id}>
-                    {dataset.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="text-sm border rounded px-2 py-1 mr-2 w-40">
+                  <SelectValue placeholder="Select dataset" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Datasets</SelectItem>
+                  {datasets.map(dataset => (
+                    <SelectItem key={dataset.id} value={dataset.id}>
+                      {dataset.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
             
             <TooltipProvider>
@@ -326,6 +346,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+            
+            {/* Model selector dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem className="text-xs text-muted-foreground" disabled>
+                  Current model: {modelId.split('/').pop() || modelId}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </CardHeader>
@@ -372,17 +406,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   <div 
                     className={`max-w-[80%] rounded-lg p-3 ${
                       message.type === 'user' 
-                        ? 'bg-blue-500 text-white' 
+                        ? 'bg-primary text-primary-foreground' 
                         : message.type === 'system'
-                          ? 'bg-gray-200 text-gray-800'
-                          : 'bg-gray-100 text-gray-800'
+                          ? 'bg-muted text-foreground' 
+                          : 'bg-accent text-accent-foreground'
                     }`}
                   >
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                     
                     {/* Show confidence and sources for AI responses */}
                     {message.type === 'assistant' && message.metadata?.confidence && (
-                      <div className="mt-2 text-xs text-gray-500 border-t border-gray-200 pt-1">
+                      <div className="mt-2 text-xs text-muted-foreground border-t border-border pt-1">
                         <div className="flex items-center">
                           <span>Confidence: {Math.round(message.metadata.confidence * 100)}%</span>
                           {message.metadata.confidence < 0.7 && (
@@ -404,9 +438,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       </p>
                       
                       {/* Show dataset if available */}
-                      {message.metadata?.dataset && (
+                      {message.metadata?.dataset && message.metadata.dataset !== "all" && (
                         <Badge variant="outline" className="text-xs">
                           {message.metadata.dataset}
+                        </Badge>
+                      )}
+                      
+                      {/* Show model if available */}
+                      {message.metadata?.modelId && (
+                        <Badge variant="outline" className="text-xs ml-1">
+                          {message.metadata.modelId.split('/').pop() || 'AI'}
                         </Badge>
                       )}
                     </div>
@@ -417,11 +458,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             
             {isTyping && (
               <div className="flex justify-start">
-                <div className="bg-gray-100 text-gray-800 rounded-lg p-3">
+                <div className="bg-accent text-accent-foreground rounded-lg p-3">
                   <div className="flex space-x-1">
-                    <div className="h-2 w-2 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                    <div className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                    <div className="h-2 w-2 bg-current rounded-full animate-bounce"></div>
+                    <div className="h-2 w-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    <div className="h-2 w-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
                   </div>
                 </div>
               </div>
