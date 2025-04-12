@@ -1,56 +1,56 @@
+import { callApi } from '../../utils/apiUtils';
+import { ApiResponse, DatasetSummary } from '../../api';
 
-import { callApi } from '../utils/apiUtils';
-import { ApiResponse, DatasetSummary } from '../api';
-
-/**
- * Dataset Service - Handles dataset operations
- */
 export const datasetService = {
   /**
-   * Get list of available datasets
+   * Get a list of all datasets
    */
   getDatasets: async (): Promise<ApiResponse<DatasetSummary[]>> => {
     const endpoint = 'datasets';
     
     try {
       const response = await callApi(endpoint);
+      
       if (response.success) {
         return response;
       }
       
-      // Fallback to mock data if API fails
+      // Return mock data as fallback
       console.log(`Falling back to mock data for: ${endpoint}`);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 800));
       
       return {
         success: true,
         data: [
           {
-            id: 'ds001',
-            name: 'Customer Orders',
-            rows: 12453,
-            columns: 15,
-            createdAt: '2023-05-15T10:23:45Z',
-            updatedAt: '2023-06-02T14:10:22Z',
-            status: 'active'
-          },
-          {
-            id: 'ds002',
-            name: 'Product Inventory',
-            rows: 5823,
+            id: "ds001",
+            name: "Sales Data 2023",
+            rows: 5280,
             columns: 12,
-            createdAt: '2023-06-10T08:15:30Z',
-            updatedAt: '2023-06-10T08:15:30Z',
-            status: 'pending'
+            created_at: new Date(2023, 0, 15).toISOString(),
+            updated_at: new Date(2023, 6, 10).toISOString(),
+            status: "active",
+            description: "Annual sales data with customer demographics"
           },
           {
-            id: 'ds003',
-            name: 'Sales Transactions',
-            rows: 45231,
-            columns: 22,
-            createdAt: '2023-04-22T16:45:12Z',
-            updatedAt: '2023-06-05T11:30:45Z',
-            status: 'active'
+            id: "ds002",
+            name: "Customer Feedback",
+            rows: 2150,
+            columns: 8,
+            created_at: new Date(2023, 2, 22).toISOString(),
+            updated_at: new Date(2023, 5, 30).toISOString(),
+            status: "active",
+            description: "Survey responses and NPS scores"
+          },
+          {
+            id: "ds003",
+            name: "Inventory Tracking",
+            rows: 3720,
+            columns: 15,
+            created_at: new Date(2023, 3, 10).toISOString(),
+            updated_at: new Date(2023, 7, 5).toISOString(),
+            status: "pending",
+            description: "Warehouse inventory and logistics data"
           }
         ]
       };
@@ -62,130 +62,111 @@ export const datasetService = {
       };
     }
   },
-
+  
   /**
-   * Get detailed information about a dataset
+   * Get detailed information about a specific dataset
    */
-  getDataset: async (datasetId: string): Promise<ApiResponse<any>> => {
+  getDatasetDetails: async (datasetId: string): Promise<ApiResponse<any>> => {
     const endpoint = `datasets/${datasetId}`;
     
     try {
       const response = await callApi(endpoint);
+      
       if (response.success) {
         return response;
       }
       
-      // Find the dataset in our mock data
-      const datasets = [
-        {
-          id: 'ds001',
-          name: 'Customer Orders',
-          rows: 12453,
-          columns: 15,
-          createdAt: '2023-05-15T10:23:45Z',
-          updatedAt: '2023-06-02T14:10:22Z',
-          status: 'active'
-        },
-        {
-          id: 'ds002',
-          name: 'Product Inventory',
-          rows: 5823,
-          columns: 12,
-          createdAt: '2023-06-10T08:15:30Z',
-          updatedAt: '2023-06-10T08:15:30Z',
-          status: 'pending'
-        },
-        {
-          id: 'ds003',
-          name: 'Sales Transactions',
-          rows: 45231,
-          columns: 22,
-          createdAt: '2023-04-22T16:45:12Z',
-          updatedAt: '2023-06-05T11:30:45Z',
-          status: 'active'
-        }
-      ];
+      // Return mock data as fallback
+      console.log(`Falling back to mock data for: ${endpoint}`);
+      await new Promise(resolve => setTimeout(resolve, 800));
       
-      const dataset = datasets.find(ds => ds.id === datasetId);
+      // Generate mock data based on dataset ID
+      const isFirstDataset = datasetId === "ds001";
       
-      if (!dataset) {
-        return {
-          success: false,
-          error: `Dataset with ID ${datasetId} not found`
-        };
-      }
-      
-      // Generate some sample data based on the dataset
       return {
         success: true,
         data: {
-          ...dataset,
+          id: datasetId,
+          name: isFirstDataset ? "Sales Data 2023" : "Customer Feedback",
+          rows: isFirstDataset ? 5280 : 2150,
+          columns: isFirstDataset ? 12 : 8,
+          created_at: new Date(2023, isFirstDataset ? 0 : 2, isFirstDataset ? 15 : 22).toISOString(),
+          updated_at: new Date(2023, isFirstDataset ? 6 : 5, isFirstDataset ? 10 : 30).toISOString(),
+          status: "active",
+          description: isFirstDataset 
+            ? "Annual sales data with customer demographics" 
+            : "Survey responses and NPS scores",
           schema: {
-            columns: [
-              { name: 'id', type: 'string', nullable: false },
-              { name: 'name', type: 'string', nullable: false },
-              { name: 'category', type: 'string', nullable: true },
-              { name: 'price', type: 'number', nullable: false },
-              { name: 'quantity', type: 'integer', nullable: false },
-              { name: 'created_at', type: 'datetime', nullable: false },
-              { name: 'updated_at', type: 'datetime', nullable: true },
-            ]
+            fields: isFirstDataset 
+              ? [
+                  { name: "sale_id", type: "string", nullable: false },
+                  { name: "date", type: "datetime", nullable: false },
+                  { name: "customer_id", type: "string", nullable: false },
+                  { name: "product_id", type: "string", nullable: false },
+                  { name: "quantity", type: "integer", nullable: false },
+                  { name: "unit_price", type: "decimal", nullable: false },
+                  { name: "total", type: "decimal", nullable: false }
+                ] 
+              : [
+                  { name: "feedback_id", type: "string", nullable: false },
+                  { name: "customer_id", type: "string", nullable: false },
+                  { name: "date", type: "datetime", nullable: false },
+                  { name: "score", type: "integer", nullable: false },
+                  { name: "comment", type: "string", nullable: true },
+                  { name: "category", type: "string", nullable: false }
+                ]
           },
+          sample_data: isFirstDataset 
+            ? [
+                {
+                  sale_id: "S12345",
+                  date: "2023-02-15T10:30:00Z",
+                  customer_id: "C5001",
+                  product_id: "P100",
+                  quantity: 2,
+                  unit_price: 49.99,
+                  total: 99.98
+                },
+                {
+                  sale_id: "S12346",
+                  date: "2023-02-15T11:15:00Z",
+                  customer_id: "C5002",
+                  product_id: "P105",
+                  quantity: 1,
+                  unit_price: 199.99,
+                  total: 199.99
+                }
+              ] 
+            : [
+                {
+                  feedback_id: "F1001",
+                  customer_id: "C5001",
+                  date: "2023-03-10T14:22:00Z",
+                  score: 9,
+                  comment: "Great service, very satisfied!",
+                  category: "Support"
+                },
+                {
+                  feedback_id: "F1002",
+                  customer_id: "C5010",
+                  date: "2023-03-11T09:45:00Z",
+                  score: 6,
+                  comment: "Product works well but shipping was slow",
+                  category: "Logistics"
+                }
+              ],
           stats: {
-            rowCount: dataset.rows,
-            nullValues: Math.floor(dataset.rows * 0.05),
-            duplicateRows: Math.floor(dataset.rows * 0.02),
-            lastProcessed: new Date().toISOString()
+            missing_values: isFirstDataset ? 42 : 18,
+            outliers: isFirstDataset ? 15 : 7,
+            duplicates: isFirstDataset ? 3 : 0
           }
         }
       };
     } catch (error) {
-      console.error("Error fetching dataset details:", error);
+      console.error(`Error fetching dataset details for ${datasetId}:`, error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to fetch dataset details"
-      };
-    }
-  },
-  
-  /**
-   * Run data quality checks
-   */
-  runDataQualityChecks: async (datasetId: string): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/quality-checks`;
-    
-    try {
-      const response = await callApi(endpoint, 'POST');
-      if (response.success) {
-        return response;
-      }
-      
-      // Fallback to mock data if API fails
-      console.log(`Falling back to mock data for: ${endpoint}`);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      return {
-        success: true,
-        data: {
-          completeness: 98.5,
-          validity: 96.2,
-          accuracy: 95.0,
-          consistency: 97.8,
-          uniqueness: 99.2,
-          details: [
-            { check: 'No null values in required fields', status: 'passed', score: 100 },
-            { check: 'Values within valid ranges', status: 'warning', score: 96.2 },
-            { check: 'Referential integrity', status: 'passed', score: 100 },
-            { check: 'Format validation', status: 'warning', score: 94.5 },
-            { check: 'Business rules compliance', status: 'warning', score: 92.8 }
-          ]
-        }
-      };
-    } catch (error) {
-      console.error("Error running data quality checks:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to run data quality checks"
       };
     }
   }
