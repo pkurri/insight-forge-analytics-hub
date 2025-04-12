@@ -4,14 +4,17 @@ import { ThemeToggle } from '@/components/theme/ThemeToggle';
 import { Menu, User, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar } from '@/components/ui/avatar';
+import { useTheme } from '@/components/theme/ThemeProvider';
 
 interface HeaderProps {
   toggleSidebar: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
+  const { theme } = useTheme();
+  
   return (
-    <header className="border-b bg-background h-14 flex items-center px-2 sm:px-4">
+    <header className="border-b border-border bg-background h-14 flex items-center px-2 sm:px-4">
       <div className="flex items-center gap-2 sm:gap-4">
         <Button variant="ghost" size="icon" onClick={toggleSidebar} className="h-9 w-9" aria-label="Toggle sidebar">
           <Menu className="h-5 w-5" />

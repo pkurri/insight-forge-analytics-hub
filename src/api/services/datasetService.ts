@@ -1,3 +1,4 @@
+
 import { callApi } from '../utils/apiUtils';
 import { ApiResponse, DatasetSummary } from '../api';
 
@@ -27,8 +28,8 @@ export const datasetService = {
           {
             id: 'ds001',
             name: 'Customer Orders',
-            recordCount: 12453,
-            columnCount: 15,
+            rows: 12453,
+            columns: 15,
             createdAt: '2023-05-15T10:23:45Z',
             updatedAt: '2023-06-02T14:10:22Z',
             status: 'active'
@@ -36,8 +37,8 @@ export const datasetService = {
           {
             id: 'ds002',
             name: 'Product Inventory',
-            recordCount: 5823,
-            columnCount: 12,
+            rows: 5823,
+            columns: 12,
             createdAt: '2023-06-10T08:15:30Z',
             updatedAt: '2023-06-10T08:15:30Z',
             status: 'pending'
@@ -45,8 +46,8 @@ export const datasetService = {
           {
             id: 'ds003',
             name: 'Sales Transactions',
-            recordCount: 45231,
-            columnCount: 22,
+            rows: 45231,
+            columns: 22,
             createdAt: '2023-04-22T16:45:12Z',
             updatedAt: '2023-06-05T11:30:45Z',
             status: 'active'
@@ -79,8 +80,8 @@ export const datasetService = {
         {
           id: 'ds001',
           name: 'Customer Orders',
-          recordCount: 12453,
-          columnCount: 15,
+          rows: 12453,
+          columns: 15,
           createdAt: '2023-05-15T10:23:45Z',
           updatedAt: '2023-06-02T14:10:22Z',
           status: 'active'
@@ -88,8 +89,8 @@ export const datasetService = {
         {
           id: 'ds002',
           name: 'Product Inventory',
-          recordCount: 5823,
-          columnCount: 12,
+          rows: 5823,
+          columns: 12,
           createdAt: '2023-06-10T08:15:30Z',
           updatedAt: '2023-06-10T08:15:30Z',
           status: 'pending'
@@ -97,8 +98,8 @@ export const datasetService = {
         {
           id: 'ds003',
           name: 'Sales Transactions',
-          recordCount: 45231,
-          columnCount: 22,
+          rows: 45231,
+          columns: 22,
           createdAt: '2023-04-22T16:45:12Z',
           updatedAt: '2023-06-05T11:30:45Z',
           status: 'active'
@@ -131,9 +132,9 @@ export const datasetService = {
             ]
           },
           stats: {
-            rowCount: dataset.recordCount,
-            nullValues: Math.floor(dataset.recordCount * 0.05),
-            duplicateRows: Math.floor(dataset.recordCount * 0.02),
+            rowCount: dataset.rows,
+            nullValues: Math.floor(dataset.rows * 0.05),
+            duplicateRows: Math.floor(dataset.rows * 0.02),
             lastProcessed: new Date().toISOString()
           }
         }

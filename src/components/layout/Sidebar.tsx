@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -34,7 +34,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
     <nav className={`
       ${showSidebar ? "flex" : "hidden"} 
       ${sidebarWidth} 
-      flex-col h-screen border-r bg-background p-4 transition-all duration-300
+      flex-col h-screen border-r border-border bg-background p-4 transition-all duration-300
       min-h-[100dvh]
     `}>
       <div className="flex items-center justify-between px-2 pb-3">
@@ -104,7 +104,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           `}
         >
           <BarChart3 className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
-          {(!isCollapsed || isMobile) && <span>Analytics</span>}
+          {(!isCollapsed || iMobile) && <span>Analytics</span>}
         </NavLink>
         
         <NavLink 
@@ -112,16 +112,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
-            ${isCollapsed && !isMobile ? 'justify-center' : ''}
+            ${isCollapsed && !iMobile ? 'justify-center' : ''}
           `}
         >
-          <Bot className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
-          {(!isCollapsed || isMobile) && <span>AI Chat</span>}
+          <Bot className={`${isCollapsed && !iMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          {(!isCollapsed || iMobile) && <span>AI Chat</span>}
         </NavLink>
       </div>
 
       <div className="space-y-1 mt-6">
-        <p className={`text-sm font-medium text-muted-foreground mb-2 ${isCollapsed && !isMobile ? 'sr-only' : ''}`}>
+        <p className={`text-sm font-medium text-muted-foreground mb-2 ${isCollapsed && !iMobile ? 'sr-only' : ''}`}>
           System
         </p>
         <NavLink 
@@ -129,44 +129,44 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
-            ${isCollapsed && !isMobile ? 'justify-center' : ''}
+            ${isCollapsed && !iMobile ? 'justify-center' : ''}
           `}
         >
-          <Activity className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
-          {(!isCollapsed || isMobile) && <span>Monitoring</span>}
+          <Activity className={`${isCollapsed && !iMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          {(!isCollapsed || iMobile) && <span>Monitoring</span>}
         </NavLink>
         <NavLink 
           to="/alerts" 
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
-            ${isCollapsed && !isMobile ? 'justify-center' : ''}
+            ${isCollapsed && !iMobile ? 'justify-center' : ''}
           `}
         >
-          <Bell className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
-          {(!isCollapsed || isMobile) && <span>Alerts</span>}
+          <Bell className={`${isCollapsed && !iMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          {(!isCollapsed || iMobile) && <span>Alerts</span>}
         </NavLink>
         <NavLink 
           to="/logs" 
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
-            ${isCollapsed && !isMobile ? 'justify-center' : ''}
+            ${isCollapsed && !iMobile ? 'justify-center' : ''}
           `}
         >
-          <ScrollText className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
-          {(!isCollapsed || isMobile) && <span>Logs</span>}
+          <ScrollText className={`${isCollapsed && !iMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          {(!isCollapsed || iMobile) && <span>Logs</span>}
         </NavLink>
         <NavLink 
           to="/health" 
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
-            ${isCollapsed && !isMobile ? 'justify-center' : ''}
+            ${isCollapsed && !iMobile ? 'justify-center' : ''}
           `}
         >
-          <HeartPulse className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
-          {(!isCollapsed || isMobile) && <span>Health</span>}
+          <HeartPulse className={`${isCollapsed && !iMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          {(!isCollapsed || iMobile) && <span>Health</span>}
         </NavLink>
       </div>
     </nav>
