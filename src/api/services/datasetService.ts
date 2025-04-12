@@ -1,6 +1,6 @@
 
 import { callApi } from '../utils/apiUtils';
-import { DatasetSummary, APIResponse } from '../api';
+import { ApiResponse, DatasetSummary } from '../api';
 
 /**
  * Dataset Service - Handles dataset operations

@@ -116,7 +116,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           `}
         >
           <Bot className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
-          {(!isCollapsed || iMobile) && <span>AI Chat</span>}
+          {(!isCollapsed || isMobile) && <span>AI Chat</span>}
         </NavLink>
       </div>
 
@@ -140,7 +140,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
           className={({ isActive }) => `
             ${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} 
             flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium
-            ${isCollapsed && !iMobile ? 'justify-center' : ''}
+            ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
           <Bell className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />

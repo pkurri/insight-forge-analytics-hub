@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -112,14 +111,12 @@ const BusinessRules: React.FC = () => {
     });
     
     try {
-      // Call the Python API to generate rules
       const response = await pythonApi.generateBusinessRules(selectedDataset, {
         use_ml: true,
         confidence_threshold: 0.7
       });
       
       if (response.success && response.data) {
-        // Add the generated rules to existing rules
         const generatedRules = response.data.rules;
         setRules([...rules, ...generatedRules]);
         
@@ -155,7 +152,6 @@ const BusinessRules: React.FC = () => {
       return;
     }
     
-    // Generate a unique ID if not provided
     const ruleToAdd = {
       ...newRule,
       id: newRule.id || `manual-${Date.now()}`
@@ -164,7 +160,6 @@ const BusinessRules: React.FC = () => {
     setRules([...rules, ruleToAdd]);
     setShowAddRuleDialog(false);
     
-    // Reset the form
     setNewRule({
       id: '',
       name: '',
@@ -193,7 +188,7 @@ const BusinessRules: React.FC = () => {
       if (response.success) {
         toast({
           title: "Rules saved successfully",
-          description: response.message || `${rules.length} rules have been saved.`
+          description: response.data?.message || `${rules.length} rules have been saved.`
         });
       } else {
         toast({

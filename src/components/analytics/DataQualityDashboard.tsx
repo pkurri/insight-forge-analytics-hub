@@ -99,7 +99,8 @@ const DataQualityDashboard: React.FC<{ datasetId?: string }> = ({ datasetId = 'd
   const runDataCleaning = async () => {
     setLoading(true);
     try {
-      const response = await api.cleanData(datasetId);
+      // Pass empty options object as second argument
+      const response = await api.cleanData(datasetId, {});
       if (response.success) {
         setCleaningData(response.data);
         toast({
