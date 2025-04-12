@@ -1,4 +1,3 @@
-
 import { callApi } from '../utils/apiUtils';
 import { ApiResponse, DatasetSummary } from '../api';
 
@@ -32,7 +31,7 @@ export const datasetService = {
             columnCount: 15,
             createdAt: '2023-05-15T10:23:45Z',
             updatedAt: '2023-06-02T14:10:22Z',
-            status: 'ready'
+            status: 'active'
           },
           {
             id: 'ds002',
@@ -41,7 +40,7 @@ export const datasetService = {
             columnCount: 12,
             createdAt: '2023-06-10T08:15:30Z',
             updatedAt: '2023-06-10T08:15:30Z',
-            status: 'ready'
+            status: 'pending'
           },
           {
             id: 'ds003',
@@ -50,7 +49,7 @@ export const datasetService = {
             columnCount: 22,
             createdAt: '2023-04-22T16:45:12Z',
             updatedAt: '2023-06-05T11:30:45Z',
-            status: 'ready'
+            status: 'active'
           }
         ]
       };
@@ -84,7 +83,7 @@ export const datasetService = {
           columnCount: 15,
           createdAt: '2023-05-15T10:23:45Z',
           updatedAt: '2023-06-02T14:10:22Z',
-          status: 'ready'
+          status: 'active'
         },
         {
           id: 'ds002',
@@ -93,7 +92,7 @@ export const datasetService = {
           columnCount: 12,
           createdAt: '2023-06-10T08:15:30Z',
           updatedAt: '2023-06-10T08:15:30Z',
-          status: 'ready'
+          status: 'pending'
         },
         {
           id: 'ds003',
@@ -102,7 +101,7 @@ export const datasetService = {
           columnCount: 22,
           createdAt: '2023-04-22T16:45:12Z',
           updatedAt: '2023-06-05T11:30:45Z',
-          status: 'ready'
+          status: 'active'
         }
       ];
       
