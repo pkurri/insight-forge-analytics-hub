@@ -16,14 +16,14 @@ export function ThemeToggle() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
+        <Button variant="ghost" size="icon" className="h-8 w-8 relative">
           <Sun className={cn(
             "h-5 w-5 transition-all",
-            theme === "dark" ? "scale-0 rotate-90 opacity-0" : "scale-100 rotate-0 opacity-100"
+            theme === "dark" || theme === "system" ? "scale-0 rotate-90 opacity-0" : "scale-100 rotate-0 opacity-100"
           )} />
           <Moon className={cn(
             "absolute h-5 w-5 transition-all",
-            theme === "light" ? "scale-0 -rotate-90 opacity-0" : (theme === "dark" ? "scale-100 rotate-0 opacity-100" : "scale-0 rotate-90 opacity-0")
+            theme === "dark" ? "scale-100 rotate-0 opacity-100" : "scale-0 rotate-90 opacity-0"
           )} />
           <Laptop className={cn(
             "absolute h-5 w-5 transition-all", 

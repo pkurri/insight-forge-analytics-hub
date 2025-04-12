@@ -21,12 +21,12 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
         </Button>
         <h1 className="text-lg sm:text-xl font-semibold truncate">DataForge Platform</h1>
       </div>
-      <div className="ml-auto flex items-center gap-1 sm:gap-2">
+      <div className="ml-auto flex items-center gap-1 sm:gap-3">
         <Button variant="ghost" size="icon" className="h-8 w-8 hidden sm:flex" aria-label="Notifications">
-          <Bell className="h-4 w-4" />
+          <Bell className="h-5 w-5" />
         </Button>
-        <Avatar className="h-8 w-8 hidden sm:flex" aria-label="User profile">
-          <User className="h-4 w-4" />
+        <Avatar className="h-8 w-8 hidden sm:flex items-center justify-center" aria-label="User profile">
+          <User className="h-5 w-5" />
         </Avatar>
         <ThemeToggle />
       </div>
