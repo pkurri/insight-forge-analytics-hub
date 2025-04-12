@@ -14,6 +14,7 @@ import { pipelineService } from './services/pipelineService';
 import { monitoringService } from './services/monitoringService';
 import { aiService } from './services/aiService';
 import { datasetService } from './services/datasetService';
+import { aiChatService } from './services/ai/aiChatService';
 
 export interface BusinessRule {
   id: string;
@@ -83,5 +84,12 @@ export const api = {
   // AI operations
   askQuestion: aiService.askQuestion,
   getAiAssistantResponse: aiService.getAiAssistantResponse,
-  analyzeAnomalies: aiService.analyzeAnomalies
+  analyzeAnomalies: aiService.analyzeAnomalies,
+  
+  // AI Chat operations (Vector DB + Hugging Face)
+  getChatSuggestions: aiChatService.getChatSuggestions,
+  getChatHistory: aiChatService.getChatHistory,
+  generateEmbeddings: aiChatService.generateEmbeddings,
+  storeChatHistory: aiChatService.storeChatHistory,
+  getAvailableModels: aiChatService.getAvailableModels
 };

@@ -1,156 +1,94 @@
-
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { cn } from '@/lib/utils';
-import {
-  Home,
-  Database,
-  Activity,
-  BarChart3,
-  Settings,
-  AlertTriangle,
-  Terminal,
-  Server,
+import React, { useState } from 'react';
+import { NavLink } from 'react-router-dom';
+import { 
+  LayoutDashboard, 
+  GitBranch, 
+  BarChart3, 
+  Activity, 
+  Bell, 
+  ScrollText, 
   HeartPulse,
-  MenuIcon,
+  Bot
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
+import { useMediaQuery } from 'usehooks-ts';
 
 interface SidebarProps {
-  isCollapsed: boolean;
-  setIsCollapsed: (collapsed: boolean) => void;
+  isMobile: boolean;
+  isOpen: boolean;
+  setIsOpen: (open: boolean) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed }) => {
-  const location = useLocation();
-  
-  return (
-    <div
-      className={cn(
-        "h-screen bg-background border-r border-border flex flex-col transition-all duration-300",
-        isCollapsed ? "w-16" : "w-64"
-      )}
-    >
-      <div className="flex items-center justify-between p-4">
-        {!isCollapsed && (
-          <div className="flex items-center gap-2">
-            <Server className="h-6 w-6 text-purple" />
-            <h1 className="text-xl font-bold">DataForge</h1>
-          </div>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          aria-label="Toggle sidebar"
-          className={cn("ml-auto", isCollapsed && "mx-auto")}
-        >
-          <MenuIcon className="h-5 w-5" />
-        </Button>
-      </div>
-      <Separator />
-      <nav className="flex-1 p-2">
-        <ul className="space-y-1">
-          <SidebarItem
-            icon={<Home className="h-5 w-5" />}
-            text="Dashboard"
-            to="/"
-            isCollapsed={isCollapsed}
-            active={location.pathname === "/"}
-          />
-          <SidebarItem
-            icon={<Database className="h-5 w-5" />}
-            text="Data Pipeline"
-            to="/pipeline"
-            isCollapsed={isCollapsed}
-            active={location.pathname === "/pipeline"}
-          />
-          <SidebarItem
-            icon={<BarChart3 className="h-5 w-5" />}
-            text="Analytics"
-            to="/analytics"
-            isCollapsed={isCollapsed}
-            active={location.pathname === "/analytics"}
-          />
-          <SidebarItem
-            icon={<Activity className="h-5 w-5" />}
-            text="Monitoring"
-            to="/monitoring"
-            isCollapsed={isCollapsed}
-            active={location.pathname === "/monitoring"}
-          />
-          <SidebarItem
-            icon={<AlertTriangle className="h-5 w-5" />}
-            text="Alerts"
-            to="/alerts"
-            isCollapsed={isCollapsed}
-            active={location.pathname === "/alerts"}
-          />
-          <SidebarItem
-            icon={<Terminal className="h-5 w-5" />}
-            text="Logs"
-            to="/logs"
-            isCollapsed={isCollapsed}
-            active={location.pathname === "/logs"}
-          />
-        </ul>
-      </nav>
-      <Separator />
-      <div className="p-2">
-        <ul className="space-y-1">
-          <SidebarItem
-            icon={<HeartPulse className="h-5 w-5" />}
-            text="Health"
-            to="/health"
-            isCollapsed={isCollapsed}
-            active={location.pathname === "/health"}
-          />
-          <SidebarItem
-            icon={<Settings className="h-5 w-5" />}
-            text="Settings"
-            to="/settings"
-            isCollapsed={isCollapsed}
-            active={location.pathname === "/settings"}
-          />
-        </ul>
-      </div>
-    </div>
-  );
-};
+const Sidebar: React.FC<SidebarProps> = ({ isMobile, isOpen, setIsOpen }) => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const matches = useMediaQuery('(min-width: 768px)');
 
-interface SidebarItemProps {
-  icon: React.ReactNode;
-  text: string;
-  to: string;
-  isCollapsed: boolean;
-  active?: boolean;
-}
-
-const SidebarItem: React.FC<SidebarItemProps> = ({
-  icon,
-  text,
-  to,
-  isCollapsed,
-  active,
-}) => {
   return (
-    <li>
-      <Link
-        to={to}
-        className={cn(
-          "flex items-center px-2 py-2 rounded-md transition-colors",
-          active 
-            ? "bg-primary/10 text-primary" 
-            : "text-muted-foreground hover:bg-muted hover:text-foreground"
-        )}
-      >
-        <div className={cn("flex items-center", isCollapsed ? "justify-center w-full" : "")}>
-          {icon}
-          {!isCollapsed && <span className="ml-3">{text}</span>}
+    <nav className={`${isMobile ? (isOpen ? "flex" : "hidden") : "flex"} flex-col h-screen border-r bg-background p-4 w-72`}>
+      <div className="flex items-center justify-between px-2 pb-3">
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-xl">DataForge</span>
         </div>
-      </Link>
-    </li>
+        {isMobile && (
+          <button onClick={() => setIsOpen(false)} className="p-1 rounded-md hover:bg-accent hover:text-accent-foreground">
+            {/* Close Icon */}
+          </button>
+        )}
+      </div>
+      
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-muted-foreground mb-2">Operations</p>
+        <NavLink to="/dashboard" className={({ isActive }) => `${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium`}>
+          <LayoutDashboard className="h-4 w-4" />
+          Dashboard
+        </NavLink>
+        <NavLink to="/pipeline" className={({ isActive }) => `${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium`}>
+          <GitBranch className="h-4 w-4" />
+          Data Pipeline
+        </NavLink>
+        <NavLink to="/analytics" className={({ isActive }) => `${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium`}>
+          <BarChart3 className="h-4 w-4" />
+          Analytics
+        </NavLink>
+        
+        {/* Add new AI Chat link */}
+        <NavLink to="/ai-chat" className={({ isActive }) => `${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium`}>
+          <Bot className="h-4 w-4" />
+          AI Chat
+        </NavLink>
+      </div>
+
+      <div className="space-y-1 mt-6">
+        <p className="text-sm font-medium text-muted-foreground mb-2">System</p>
+        <NavLink to="/monitoring" className={({ isActive }) => `${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium`}>
+          <Activity className="h-4 w-4" />
+          Monitoring
+        </NavLink>
+        <NavLink to="/alerts" className={({ isActive }) => `${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium`}>
+          <Bell className="h-4 w-4" />
+          Alerts
+        </NavLink>
+        <NavLink to="/logs" className={({ isActive }) => `${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium`}>
+          <ScrollText className="h-4 w-4" />
+          Logs
+        </NavLink>
+        <NavLink to="/health" className={({ isActive }) => `${isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'} flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium`}>
+          <HeartPulse className="h-4 w-4" />
+          Health
+        </NavLink>
+      </div>
+
+      <div className="mt-auto px-2 pt-4">
+        {matches && (
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground w-full"
+          >
+            {/* Collapse Icon */}
+            {isCollapsed ? "Expand" : "Collapse"}
+          </button>
+        )}
+      </div>
+    </nav>
   );
 };
 

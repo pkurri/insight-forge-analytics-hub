@@ -11,14 +11,12 @@ import os
 # Import AI libraries (these should be added to requirements.txt)
 try:
     import numpy as np
-    import openai
     from sentence_transformers import SentenceTransformer
 except ImportError:
     pass  # Handle gracefully in production code
 
 # Initialize environment-specific configurations
-AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")  # Default to gpt-4o-mini
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
 # Initialize Sentence Transformer model for embeddings
@@ -46,41 +44,9 @@ async def get_ai_response(message: str, context: Dict[str, Any] = None) -> Dict[
         Dict containing the response text and metadata
     """
     try:
-        # If OpenAI API key is available, use it
-        if OPENAI_API_KEY:
-            openai.api_key = OPENAI_API_KEY
-            
-            # Construct the message payload
-            system_message = "You are an AI assistant for a data processing platform. Answer questions about data processing, pipelines, analytics, and data quality."
-            
-            # Add context to system message if provided
-            if context:
-                context_str = json.dumps(context, indent=2)
-                system_message += f"\n\nContext:\n{context_str}"
-            
-            # Call OpenAI API
-            completion = await openai.chat.completions.create(
-                model=AI_MODEL,
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": message}
-                ]
-            )
-            
-            response_text = completion.choices[0].message.content
-            
-            return {
-                "text": response_text,
-                "context": {
-                    "sources": ["OpenAI API response"],
-                    "model": AI_MODEL,
-                    "confidence": 0.9
-                },
-                "timestamp": datetime.utcnow().isoformat()
-            }
-        else:
-            # Fallback to rule-based responses
-            return rule_based_response(message, context)
+        # In a production environment, this would connect to an LLM API
+        # For demo, use rule-based responses
+        return rule_based_response(message, context)
     
     except Exception as e:
         print(f"AI service error: {str(e)}")
@@ -119,7 +85,7 @@ def rule_based_response(message: str, context: Dict[str, Any] = None) -> Dict[st
             "sources": sources,
             "confidence": 0.7
         },
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now().isoformat()
     }
 
 async def analyze_dataset(dataset_id: str, question: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -233,61 +199,39 @@ async def analyze_dataset(dataset_id: str, question: str, context: Dict[str, Any
             "query_analysis": {"status": "error"}
         }
 
-async def generate_business_rules(dataset, columns) -> List[Dict[str, Any]]:
+async def generate_embeddings(text: str, model: str = "sentence-transformers/all-MiniLM-L6-v2") -> Dict[str, Any]:
     """
-    Generate business rules for a dataset using AI.
-    This is a mock implementation.
-    """
-    # Wait to simulate processing time
-    await asyncio.sleep(2)
+    Generate vector embeddings for text using Hugging Face models.
     
-    # Sample generated rules
-    rules = [
-        {
-            "id": "auto-1",
-            "name": "Price Range",
-            "condition": "data['price'] >= 0 and data['price'] <= 2000",
-            "severity": "high",
-            "message": "Price must be between 0 and 2000",
-            "confidence": 0.95,
-            "model_generated": True
-        },
-        {
-            "id": "auto-2",
-            "name": "Valid Stock",
-            "condition": "data['stock'] >= 0",
-            "severity": "high",
-            "message": "Stock cannot be negative",
-            "confidence": 0.99,
-            "model_generated": True
-        },
-        {
-            "id": "auto-3",
-            "name": "Rating Range",
-            "condition": "data['rating'] >= 1 and data['rating'] <= 5",
-            "severity": "medium",
-            "message": "Rating must be between 1 and 5",
-            "confidence": 0.98,
-            "model_generated": True
-        },
-        {
-            "id": "auto-4",
-            "name": "Category Check",
-            "condition": "data['category'] in ['Electronics', 'Clothing', 'Home', 'Books', 'Food', 'Sports', 'Beauty', 'Other']",
-            "severity": "medium",
-            "message": "Category must be from approved list",
-            "confidence": 0.96,
-            "model_generated": True
-        },
-        {
-            "id": "auto-5",
-            "name": "Price-Stock Correlation",
-            "condition": "data['price'] < 100 or data['stock'] >= 5",
-            "severity": "low",
-            "message": "High-priced items should maintain minimum stock",
-            "confidence": 0.82,
-            "model_generated": True
+    Args:
+        text: Text to generate embeddings for
+        model: Model to use for embeddings
+        
+    Returns:
+        Dict with embeddings and metadata
+    """
+    try:
+        # In production, this would use the actual model
+        # For demo, generate random embeddings
+        
+        # Simulate processing time
+        await asyncio.sleep(0.5)
+        
+        # Generate random embeddings of the right size
+        # In reality, this would call the embedding model
+        if model == "sentence-transformers/all-MiniLM-L6-v2":
+            dim = 384
+        else:
+            dim = 768
+            
+        embedding = np.random.normal(0, 1, dim).tolist()
+        
+        return {
+            "success": True,
+            "text": text,
+            "embedding": embedding,
+            "model": model
         }
-    ]
-    
-    return rules
+    except Exception as e:
+        print(f"Error generating embeddings: {e}")
+        raise
