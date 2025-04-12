@@ -2,6 +2,8 @@
 import { aiChatService } from './services/ai/aiChatService';
 import { datasetService } from './services/datasets/datasetService';
 import { userService } from './services/user/userService';
+import { analyticsService } from './services/analytics/analyticsService';
+import { businessRulesService } from './services/businessRules/businessRulesService';
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -95,5 +97,23 @@ export const api = {
   // User and authentication operations
   getCurrentUser: async (): Promise<ApiResponse> => {
     return userService.getCurrentUser();
+  },
+  
+  // Analytics operations
+  getDataQuality: async (datasetId: string): Promise<ApiResponse> => {
+    return analyticsService.getDataQuality(datasetId);
+  },
+  
+  profileDataset: async (datasetId: string): Promise<ApiResponse> => {
+    return analyticsService.profileDataset(datasetId);
+  },
+  
+  cleanData: async (datasetId: string, options: any): Promise<ApiResponse> => {
+    return analyticsService.cleanData(datasetId, options);
+  },
+  
+  // Business Rules operations
+  saveBusinessRules: async (datasetId: string, rules: any[]): Promise<ApiResponse> => {
+    return businessRulesService.saveBusinessRules(datasetId, rules);
   }
 };

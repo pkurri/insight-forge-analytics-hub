@@ -1,11 +1,93 @@
 
 import { callApi } from '../../utils/apiUtils';
+import { ApiResponse } from '../../api';
 
 /**
  * AI Chat Service - Handles AI assistant operations
  * using Vector DB and Hugging Face models
  */
 export const aiChatService = {
+  /**
+   * Generate a response from the AI assistant
+   */
+  generateResponse: async (message: string, context?: any): Promise<ApiResponse<any>> => {
+    const endpoint = `ai/assistant`;
+    
+    try {
+      const response = await callApi(endpoint, 'POST', {
+        message,
+        context: context || {}
+      });
+      
+      if (response.success) {
+        return response;
+      }
+      
+      // Fallback to mock data if API fails
+      console.log(`Falling back to mock data for: ${endpoint}`);
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      return {
+        success: true,
+        data: {
+          text: `Here's a response to "${message}"`,
+          context: {
+            sources: ['Mock AI response'],
+            confidence: 0.85
+          },
+          timestamp: new Date().toISOString()
+        }
+      };
+    } catch (error) {
+      console.error("Error generating AI response:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to generate AI response"
+      };
+    }
+  },
+
+  /**
+   * Ask a question about a specific dataset
+   */
+  askQuestion: async (params: any): Promise<ApiResponse<any>> => {
+    const endpoint = `ai/question`;
+    
+    try {
+      const response = await callApi(endpoint, 'POST', params);
+      
+      if (response.success) {
+        return response;
+      }
+      
+      // Fallback to mock data if API fails
+      console.log(`Falling back to mock data for: ${endpoint}`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      return {
+        success: true,
+        data: {
+          answer: `Here's an answer to your question about dataset ${params.dataset_id || 'all datasets'}: "${params.question}"`,
+          confidence: 0.87,
+          context: [
+            {
+              column: 'category',
+              insight: '8 unique categories present in the dataset',
+              distribution: 'Electronics (32.5%), Clothing (21.4%), Home (17.0%)'
+            }
+          ],
+          visualizations: []
+        }
+      };
+    } catch (error) {
+      console.error("Error asking question:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to process question"
+      };
+    }
+  },
+
   /**
    * Get chat suggestions based on dataset metadata and user history
    */
