@@ -9,7 +9,7 @@ export const datasetService = {
   /**
    * Get list of available datasets
    */
-  getDatasets: async (): Promise<APIResponse<DatasetSummary[]>> => {
+  getDatasets: async (): Promise<ApiResponse<DatasetSummary[]>> => {
     const endpoint = 'datasets';
     
     try {
@@ -66,7 +66,7 @@ export const datasetService = {
   /**
    * Get detailed information about a dataset
    */
-  getDataset: async (datasetId: string): Promise<APIResponse<any>> => {
+  getDataset: async (datasetId: string): Promise<ApiResponse<any>> => {
     const endpoint = `datasets/${datasetId}`;
     
     try {
@@ -151,7 +151,7 @@ export const datasetService = {
   /**
    * Run data quality checks
    */
-  runDataQualityChecks: async (datasetId: string): Promise<APIResponse<any>> => {
+  runDataQualityChecks: async (datasetId: string): Promise<ApiResponse<any>> => {
     const endpoint = `datasets/${datasetId}/quality-checks`;
     
     try {
