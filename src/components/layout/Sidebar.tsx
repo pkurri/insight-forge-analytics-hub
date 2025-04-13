@@ -28,8 +28,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
   
   const sidebarWidth = isCollapsed && !isMobile ? 'w-16' : 'w-72';
   
-  // Size for icons based on sidebar state
-  const iconSize = isCollapsed && !isMobile ? 20 : 16;
+  // Increased icon size when sidebar is collapsed
+  const iconSize = isCollapsed && !isMobile ? 24 : 16;
 
   return (
     <nav className={`
