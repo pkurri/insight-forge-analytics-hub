@@ -23,7 +23,21 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 _embedding_model = None
 
 def get_embedding_model():
-    """Get or initialize the embedding model."""
+    """
+    Get or initialize the embedding model.
+    
+    Returns:
+        SentenceTransformer instance for generating text embeddings
+        
+    Notes:
+        This function implements lazy loading of the embedding model
+        to optimize startup time and memory usage. The model is loaded
+        only when first requested.
+        
+        The 'all-MiniLM-L6-v2' model is a lightweight, general-purpose
+        sentence embedding model that maps sentences to a 384-dimensional
+        dense vector space for semantic similarity calculations.
+    """
     global _embedding_model
     if _embedding_model is None:
         try:
@@ -42,6 +56,18 @@ async def get_ai_response(message: str, context: Dict[str, Any] = None) -> Dict[
         
     Returns:
         Dict containing the response text and metadata
+        
+    AI Implementation Details:
+        In production, this function would connect to a language model API
+        (like OpenAI, Anthropic Claude, or Hugging Face Inference API) to 
+        generate responses to user queries.
+        
+        The context parameter allows for including conversation history,
+        user preferences, and other contextual information that helps the
+        AI generate more appropriate and personalized responses.
+        
+        Error handling with fallback to rule-based responses ensures the
+        system remains functional even when AI services are unavailable.
     """
     try:
         # In a production environment, this would connect to an LLM API
@@ -54,7 +80,22 @@ async def get_ai_response(message: str, context: Dict[str, Any] = None) -> Dict[
         return rule_based_response(message, context)
 
 def rule_based_response(message: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
-    """Generate a response using simple rule-based matching."""
+    """
+    Generate a response using simple rule-based matching.
+    
+    Args:
+        message: The user's message
+        context: Optional context information
+        
+    Returns:
+        Dict containing the response text and metadata
+        
+    Notes:
+        This function serves as both a fallback mechanism when AI services
+        fail and as a demonstration of the response structure expected from
+        the AI service. In production, this would be replaced by more
+        sophisticated AI responses, but maintaining the same structure.
+    """
     message = message.lower()
     
     response = "I don't have enough context to answer that question."
@@ -99,6 +140,20 @@ async def analyze_dataset(dataset_id: str, question: str, context: Dict[str, Any
         
     Returns:
         Dict containing the answer and analysis metadata
+        
+    AI Implementation Details:
+        This function implements an AI-powered data analysis capability where
+        users can ask natural language questions about their datasets and
+        receive insightful answers.
+        
+        In production, this would use:
+        1. A vector database to store dataset metadata and enable semantic search
+        2. An embedding model to encode the question
+        3. A language model to generate insights based on retrieved data context
+        4. Data analysis techniques to perform real-time computations on the dataset
+        
+        The AI component uses RAG (Retrieval Augmented Generation) techniques to 
+        combine dataset-specific knowledge with general language understanding.
     """
     try:
         # For demonstration purposes, generate mock responses
@@ -209,6 +264,19 @@ async def generate_embeddings(text: str, model: str = "sentence-transformers/all
         
     Returns:
         Dict with embeddings and metadata
+        
+    AI Implementation Details:
+        Vector embeddings are the backbone of modern AI-powered search and
+        recommendation systems. This function converts text into numeric 
+        vector representations that capture semantic meaning.
+        
+        The default model 'all-MiniLM-L6-v2' is a lightweight model that:
+        - Maps sentences to a 384-dimensional vector space
+        - Is trained to cluster similar meanings together in vector space
+        - Enables semantic similarity search via vector distance calculations
+        
+        In production, these embeddings would be stored in a vector database
+        like Pinecone, Weaviate, or FAISS for fast similarity searches.
     """
     try:
         # In production, this would use the actual model

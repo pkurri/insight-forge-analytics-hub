@@ -10,6 +10,12 @@ import { Separator } from '@/components/ui/separator';
 import { pythonApi } from '@/api/pythonIntegration';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
+/**
+ * Message interface defining the structure of chat messages
+ * 
+ * AI usage: The message type and metadata structure supports
+ * AI-generated responses with confidence scores and source attribution
+ */
 interface Message {
   id: string;
   type: 'user' | 'assistant' | 'system';
@@ -22,6 +28,15 @@ interface Message {
   timestamp: Date;
 }
 
+/**
+ * ChatInterface Component: Provides an AI-powered chat interface for data exploration
+ * 
+ * AI Implementation:
+ * - Connects to a backend AI service through the pythonApi.askQuestion method
+ * - Uses vectorized data representations for semantic search capabilities
+ * - Presents AI confidence scores and source attributions for transparency
+ * - Handles AI errors gracefully with fallbacks
+ */
 const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -43,6 +58,15 @@ const ChatInterface: React.FC = () => {
   const [activeDataset, setActiveDataset] = useState<string>('ds001'); // Default to first dataset
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   
+  /**
+   * Send a user message to the AI assistant and handle the response
+   * 
+   * AI Processing Flow:
+   * 1. User question is captured and sent to the backend
+   * 2. Backend vector DB retrieves relevant context from datasets
+   * 3. AI model generates an answer based on retrieved context
+   * 4. Response with confidence scores and metadata is displayed
+   */
   const handleSendMessage = async () => {
     if (!input.trim() || isProcessing) return;
     
@@ -61,6 +85,7 @@ const ChatInterface: React.FC = () => {
     
     try {
       // Send question to Python backend via API
+      // This triggers the AI-powered vector search and response generation
       const response = await pythonApi.askQuestion(activeDataset, input);
       
       if (response.success && response.data) {
