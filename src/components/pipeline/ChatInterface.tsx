@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { SendHorizontal, Bot, RefreshCw, Search, AlertCircle } from 'lucide-react';
+import { SendHorizontal, Bot, RefreshCw, Search, AlertCircle, Sparkles, Brain } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -24,6 +24,9 @@ interface Message {
     confidence?: number;
     sources?: string[];
     isError?: boolean;
+    processing_time?: number;
+    tokens_used?: number;
+    embedding_count?: number;
   };
   timestamp: Date;
 }
@@ -48,7 +51,7 @@ const ChatInterface: React.FC = () => {
     {
       id: '2',
       type: 'system',
-      content: 'I can answer questions about your loaded datasets using vector database technology and Hugging Face models.',
+      content: 'I can answer questions about your loaded datasets using vector database technology and AI-powered schema detection.',
       timestamp: new Date()
     }
   ]);
@@ -95,7 +98,10 @@ const ChatInterface: React.FC = () => {
           content: response.data.answer,
           metadata: {
             confidence: response.data.confidence,
-            sources: response.data.sources
+            sources: response.data.sources,
+            processing_time: response.data.processing_time,
+            tokens_used: response.data.tokens_used || 0,
+            embedding_count: response.data.embedding_count || 0
           },
           timestamp: new Date()
         };
@@ -150,7 +156,7 @@ const ChatInterface: React.FC = () => {
         <div className="flex justify-between items-center">
           <div className="flex items-center space-x-2">
             <Avatar className="h-8 w-8 bg-blue-500">
-              <Bot className="h-5 w-5 text-white" />
+              <Brain className="h-5 w-5 text-white" />
             </Avatar>
             <CardTitle className="text-md">Vector DB AI Assistant</CardTitle>
           </div>
@@ -185,7 +191,7 @@ const ChatInterface: React.FC = () => {
                         {
                           id: '2',
                           type: 'system',
-                          content: 'I can answer questions about your loaded datasets using vector database technology and Hugging Face models.',
+                          content: 'I can answer questions about your loaded datasets using vector database technology and AI-powered schema detection.',
                           timestamp: new Date()
                         }
                       ]);
@@ -220,7 +226,14 @@ const ChatInterface: React.FC = () => {
                         : 'bg-gray-100 text-gray-800'
                   }`}
                 >
-                  <p className="text-sm">{message.content}</p>
+                  {message.type === 'assistant' && (
+                    <div className="flex items-center text-blue-600 text-xs mb-1 space-x-1">
+                      <Sparkles className="h-3 w-3" />
+                      <span>AI Assistant</span>
+                    </div>
+                  )}
+                  
+                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                   
                   {/* Show confidence and sources for AI responses */}
                   {message.type === 'assistant' && message.metadata?.confidence && (
@@ -235,6 +248,18 @@ const ChatInterface: React.FC = () => {
                       {message.metadata.sources && message.metadata.sources.length > 0 && (
                         <div className="mt-1">
                           <span>Sources: {message.metadata.sources.join(", ")}</span>
+                        </div>
+                      )}
+                      
+                      {message.metadata.processing_time && (
+                        <div className="mt-1 text-xs text-gray-400">
+                          <span>Processing time: {message.metadata.processing_time.toFixed(2)}s</span>
+                          {message.metadata.tokens_used && (
+                            <span className="ml-2">• Tokens: {message.metadata.tokens_used}</span>
+                          )}
+                          {message.metadata.embedding_count && (
+                            <span className="ml-2">• Embeddings: {message.metadata.embedding_count}</span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -277,6 +302,7 @@ const ChatInterface: React.FC = () => {
             onClick={handleSendMessage} 
             disabled={!input.trim() || isProcessing} 
             size="icon"
+            className="bg-blue-500 hover:bg-blue-600"
           >
             <SendHorizontal className="h-4 w-4" />
           </Button>
