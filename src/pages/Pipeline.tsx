@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { MessageSquare, AlertCircle } from 'lucide-react';
 import PipelineStages from '@/components/pipeline/PipelineStages';
 import PipelineUploadForm from '@/components/pipeline/PipelineUploadForm';
 import PipelineStatusTable from '@/components/pipeline/PipelineStatusTable';
@@ -10,6 +11,12 @@ import PipelineAnalytics from '@/components/pipeline/PipelineAnalytics';
 import ChatInterface from '@/components/pipeline/ChatInterface';
 import BusinessRules from '@/components/pipeline/BusinessRules';
 import DataSourceConfig from '@/components/pipeline/DataSourceConfig';
+import { 
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger 
+} from '@/components/ui/tooltip';
 
 const Pipeline: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -23,14 +30,24 @@ const Pipeline: React.FC = () => {
             Manage and monitor your data processing workflow
           </p>
         </div>
-        <Button 
-          onClick={() => setIsChatOpen(!isChatOpen)}
-          variant="outline"
-          className="flex items-center gap-2"
-        >
-          <span className={`w-2 h-2 rounded-full ${isChatOpen ? 'bg-green-500' : 'bg-blue-500'}`}></span>
-          {isChatOpen ? 'Hide AI Assistant' : 'Open AI Assistant'}
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button 
+                onClick={() => setIsChatOpen(!isChatOpen)}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                <span className={`w-2 h-2 rounded-full ${isChatOpen ? 'bg-green-500' : 'bg-blue-500'}`}></span>
+                <MessageSquare className="h-4 w-4 mr-1" />
+                {isChatOpen ? 'Hide AI Assistant' : 'Open AI Assistant'}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>AI-powered data pipeline assistant</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
@@ -100,7 +117,17 @@ const Pipeline: React.FC = () => {
         
         {isChatOpen && (
           <div className="md:col-span-1">
-            <ChatInterface />
+            <Card className="h-full border-primary/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <MessageSquare className="h-4 w-4" />
+                  AI Assistant
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <ChatInterface />
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>

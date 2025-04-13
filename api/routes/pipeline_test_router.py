@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 import os
 import shutil
+import logging
 
 from api.services.pipeline_data_loader import (
     load_data_file, 
@@ -18,8 +19,35 @@ from api.services.pipeline_data_loader import (
     store_in_pgvector, 
     test_pipeline
 )
+from api.services.cache_service import cache_response, get_cached_response
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Helper functions for better separation of concerns
+async def _handle_file_upload(file: UploadFile) -> str:
+    """Handle file upload and save it to disk"""
+    upload_dir = os.getenv("UPLOAD_DIR", "/tmp/uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    unique_filename = f"{timestamp}_{file.filename}"
+    file_path = os.path.join(upload_dir, unique_filename)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    logger.info(f"File saved at: {file_path}")
+    return file_path
+
+def _determine_file_type(file_name: str, provided_type: Optional[str] = None) -> str:
+    """Determine file type based on extension or provided type"""
+    if provided_type:
+        return provided_type
+    
+    return os.path.splitext(file_name)[1].lower().lstrip('.')
 
 @router.post("/test", response_model=Dict[str, Any])
 async def test_pipeline_process(
@@ -39,27 +67,26 @@ async def test_pipeline_process(
     Returns:
         Complete processing results
     """
-    # Create upload directory if it doesn't exist
-    upload_dir = os.getenv("UPLOAD_DIR", "/tmp/uploads")
-    os.makedirs(upload_dir, exist_ok=True)
+    # Check cache for identical file to avoid redundant processing
+    cache_key = f"pipeline_test:{file.filename}:{file.size}"
+    cached_result = get_cached_response(cache_key)
     
-    # Save uploaded file
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    unique_filename = f"{timestamp}_{file.filename}"
-    file_path = os.path.join(upload_dir, unique_filename)
+    if cached_result:
+        logger.info(f"Using cached result for file: {file.filename}")
+        return cached_result
     
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # Handle file upload
+    file_path = await _handle_file_upload(file)
     
-    # Determine file type if not provided
-    if not file_type:
-        file_type = os.path.splitext(file.filename)[1].lower().lstrip('.')
+    # Determine file type
+    detected_file_type = _determine_file_type(file.filename, file_type)
     
     # Run pipeline test
-    result = await test_pipeline(file_path, file_type)
+    result = await test_pipeline(file_path, detected_file_type)
     
-    # Clean up file if requested
-    # In production, you might want to keep the file for debugging
+    # Cache successful results
+    if result.get("success", False):
+        cache_response(cache_key, result, 3600)  # Cache for 1 hour
     
     return result
 
@@ -75,24 +102,14 @@ async def load_data(
     Returns:
         Loading results with sample data and detected schema
     """
-    # Create upload directory if it doesn't exist
-    upload_dir = os.getenv("UPLOAD_DIR", "/tmp/uploads")
-    os.makedirs(upload_dir, exist_ok=True)
+    # Handle file upload
+    file_path = await _handle_file_upload(file)
     
-    # Save uploaded file
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    unique_filename = f"{timestamp}_{file.filename}"
-    file_path = os.path.join(upload_dir, unique_filename)
-    
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    # Determine file type if not provided
-    if not file_type:
-        file_type = os.path.splitext(file.filename)[1].lower().lstrip('.')
+    # Determine file type
+    detected_file_type = _determine_file_type(file.filename, file_type)
     
     # Load data
-    result = await load_data_file(file_path, file_type, options)
+    result = await load_data_file(file_path, detected_file_type, options)
     
     return result
 

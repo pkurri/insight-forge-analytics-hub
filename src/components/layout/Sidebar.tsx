@@ -9,7 +9,7 @@ import {
   Bell, 
   ScrollText, 
   HeartPulse,
-  Bot,
+  MessageSquare,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -27,6 +27,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
   const showSidebar = isMobile ? !isCollapsed : true;
   
   const sidebarWidth = isCollapsed && !isMobile ? 'w-16' : 'w-72';
+  
+  // Size for icons based on sidebar state
+  const iconSize = isCollapsed && !isMobile ? 20 : 16;
 
   return (
     <nav className={`
@@ -79,7 +82,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
             ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <LayoutDashboard className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          <LayoutDashboard size={iconSize} />
           {(!isCollapsed || isMobile) && <span>Dashboard</span>}
         </NavLink>
         <NavLink 
@@ -90,7 +93,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
             ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <GitBranch className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          <GitBranch size={iconSize} />
           {(!isCollapsed || isMobile) && <span>Data Pipeline</span>}
         </NavLink>
         <NavLink 
@@ -101,7 +104,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
             ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <BarChart3 className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          <BarChart3 size={iconSize} />
           {(!isCollapsed || isMobile) && <span>Analytics</span>}
         </NavLink>
         
@@ -113,7 +116,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
             ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <Bot className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          <MessageSquare size={iconSize} />
           {(!isCollapsed || isMobile) && <span>AI Chat</span>}
         </NavLink>
       </div>
@@ -130,7 +133,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
             ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <Activity className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          <Activity size={iconSize} />
           {(!isCollapsed || isMobile) && <span>Monitoring</span>}
         </NavLink>
         <NavLink 
@@ -141,7 +144,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
             ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <Bell className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          <Bell size={iconSize} />
           {(!isCollapsed || isMobile) && <span>Alerts</span>}
         </NavLink>
         <NavLink 
@@ -152,7 +155,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
             ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <ScrollText className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          <ScrollText size={iconSize} />
           {(!isCollapsed || isMobile) && <span>Logs</span>}
         </NavLink>
         <NavLink 
@@ -163,7 +166,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobile, isCollapsed, setIsCollapsed
             ${isCollapsed && !isMobile ? 'justify-center' : ''}
           `}
         >
-          <HeartPulse className={`${isCollapsed && !isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} />
+          <HeartPulse size={iconSize} />
           {(!isCollapsed || isMobile) && <span>Health</span>}
         </NavLink>
       </div>
