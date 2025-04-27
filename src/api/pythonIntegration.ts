@@ -320,75 +320,203 @@ export const pythonApi = {
       
       // Fallback to mock data if API fails
       console.log(`Falling back to mock data for: ${endpoint}`);
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
       return {
         success: true,
         data: {
-          rules_generated: 8,
           rules: [
             {
               id: "auto-1",
               name: "Price Range",
-              condition: "data['price'] >= 0 and data['price'] <= 2000",
+              condition: "price >= 0 AND price <= 2000",
               severity: "high",
               message: "Price must be between 0 and 2000",
-              confidence: 0.95,
-              model_generated: true
+              confidence: 0.95
             },
             {
               id: "auto-2",
-              name: "Valid Stock",
-              condition: "data['stock'] >= 0",
+              name: "Required Fields",
+              condition: "name IS NOT NULL AND description IS NOT NULL",
               severity: "high",
-              message: "Stock cannot be negative",
-              confidence: 0.99,
-              model_generated: true
+              message: "Name and description are required fields",
+              confidence: 0.98
             },
             {
               id: "auto-3",
-              name: "Rating Range",
-              condition: "data['rating'] >= 1 and data['rating'] <= 5",
+              name: "Valid Category",
+              condition: "category IN ('electronics', 'clothing', 'home', 'sports', 'books')",
               severity: "medium",
-              message: "Rating must be between 1 and 5",
-              confidence: 0.98,
-              model_generated: true
+              message: "Category must be one of the allowed values",
+              confidence: 0.92
             },
             {
               id: "auto-4",
-              name: "Category Check",
-              condition: "data['category'] in ['Electronics', 'Clothing', 'Home', 'Books', 'Food', 'Sports', 'Beauty', 'Other']",
+              name: "Rating Range",
+              condition: "rating >= 1 AND rating <= 5",
               severity: "medium",
-              message: "Category must be from approved list",
-              confidence: 0.96,
-              model_generated: true
+              message: "Rating must be between 1 and 5",
+              confidence: 0.96
             },
             {
               id: "auto-5",
-              name: "Price-Stock Correlation",
-              condition: "data['price'] < 100 or data['stock'] >= 5",
+              name: "Stock Quantity",
+              condition: "stock_quantity >= 0",
               severity: "low",
-              message: "High-priced items should maintain minimum stock",
-              confidence: 0.82,
-              model_generated: true
+              message: "Stock quantity cannot be negative",
+              confidence: 0.99
             }
           ],
-          generation_metadata: {
-            method: "pattern_mining",
-            confidence_threshold: 0.8,
-            row_threshold: 0.98
-          }
+          generation_time: new Date().toISOString(),
+          model_used: "gpt-4",
+          confidence_threshold: 0.9
         }
       };
     } catch (error) {
       console.error("Error generating business rules:", error);
+    /**
+   * Get data quality metrics for a dataset
+   */
+  const getDataQualityMetrics = async (datasetId: string): Promise<ApiResponse> => {
+    try {
+      const response = await callApi(`/analytics/quality/${datasetId}`, 'GET');
+      return response;
+    } catch (error) {
+      console.error('Error getting data quality metrics:', error);
       return {
         success: false,
-        error: "Failed to generate business rules"
+        error: 'Failed to get data quality metrics',
+        data: null
+      };
+    }
+  };
+
+  /**
+   * Get pipeline performance metrics for a dataset
+   */
+  const getPipelineMetrics = async (datasetId: string): Promise<ApiResponse> => {
+    try {
+      const response = await callApi(`/analytics/pipeline/metrics/${datasetId}`, 'GET');
+      return response;
+    } catch (error) {
+      console.error('Error getting pipeline metrics:', error);
+      return {
+        success: false,
+        error: 'Failed to get pipeline metrics',
+        data: null
+      };
+    }
+  };
+
+  /**
+   * Get time series metrics for a dataset
+   */
+  const getTimeSeriesMetrics = async (datasetId: string): Promise<ApiResponse> => {
+    try {
+      const response = await callApi(`/analytics/timeseries/${datasetId}`, 'GET');
+      return response;
+    } catch (error) {
+      console.error('Error getting time series metrics:', error);
+      return {
+        success: false,
+        error: 'Failed to get time series metrics',
+        data: null
+      };
+    }
+  };
+
+  /**
+   * Ask a question about a dataset using the AI assistant
+   */
+  const askDatasetQuestion = async (datasetId: string, question: string): Promise<ApiResponse> => {
+    try {
+      const response = await callApi('/chat/ask', 'POST', {
+        dataset_id: datasetId,
+        question: question
+      });
+      return response;
+    } catch (error) {
+      console.error('Error asking question:', error);
+      return {
+        success: false,
+        error: 'Failed to process question',
+        data: null
+      };
+    }
+  };
+
+  /**
+   * Apply business rules to validate a dataset
+   */
+  validateWithBusinessRules: async (datasetId: string, options: any = {}): Promise<any> => {
+    const endpoint = `rules/validate/${datasetId}`;
+    
+    try {
+      const response = await callApi(endpoint, 'POST', options);
+      if (response.success) {
+        return response;
+      }
+      
+      // Fallback to mock data if API fails
+      console.log(`Falling back to mock data for: ${endpoint}`);
+      await new Promise(resolve => setTimeout(resolve, 1800));
+      
+      return {
+        success: true,
+        data: {
+          validation_summary: {
+            dataset_id: datasetId,
+            total_rules: 5,
+            passed_rules: 3,
+            failed_rules: 2,
+            total_violations: 28,
+            validation_time: new Date().toISOString()
+          },
+          rule_results: [
+            {
+              rule_id: "rule1",
+              rule_name: "Price Range Check",
+              passed: true,
+              violations: [],
+              violation_count: 0,
+              execution_time: "0.12s"
+            },
+            {
+              rule_id: "rule2",
+              rule_name: "Required Fields",
+              passed: false,
+              violations: [
+                { row_index: 23, value: null, message: "Name field is required" },
+                { row_index: 45, value: null, message: "Name field is required" },
+                { row_index: 67, value: null, message: "Name field is required" }
+              ],
+              violation_count: 3,
+              execution_time: "0.08s"
+            },
+            {
+              rule_id: "auto-1",
+              rule_name: "Price Range",
+              passed: false,
+              violations: [
+                { row_index: 12, value: -10.99, message: "Price must be between 0 and 2000" },
+                { row_index: 34, value: 2500, message: "Price must be between 0 and 2000" },
+                { row_index: 156, value: 3000, message: "Price must be between 0 and 2000" }
+              ],
+              violation_count: 25,
+              execution_time: "0.15s"
+            }
+          ]
+        }
+      };
+    } catch (error) {
+      console.error("Error validating with business rules:", error);
+      return {
+        success: false,
+        error: "Failed to validate data with business rules"
       };
     }
   },
-  
+
   /**
    * Clean data in a dataset
    */

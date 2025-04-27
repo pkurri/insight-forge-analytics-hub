@@ -1,0 +1,133 @@
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from typing import Dict, List, Any, Optional, Union
+import json
+import asyncio
+
+# Import services
+from ..services.ai_agent_service import (
+    get_available_models,
+    get_available_agents,
+    generate_embeddings,
+    get_agent_response,
+    get_chat_suggestions,
+    get_streaming_response
+)
+
+# Create router
+router = APIRouter(prefix="/ai", tags=["AI"])
+
+# Models
+class EmbeddingRequest(BaseModel):
+    text: str
+    model: Optional[str] = None
+
+class ChatRequest(BaseModel):
+    query: str
+    model_id: Optional[str] = None
+    agent_type: Optional[str] = None
+    dataset_id: Optional[str] = None
+    chat_history: Optional[List[Dict[str, Any]]] = None
+    context: Optional[Dict[str, Any]] = None
+
+class StreamingChatRequest(BaseModel):
+    query: str
+    model_id: Optional[str] = None
+    agent_type: Optional[str] = None
+    dataset_id: Optional[str] = None
+    chat_history: Optional[List[Dict[str, Any]]] = None
+    context: Optional[Dict[str, Any]] = None
+
+class SuggestionsRequest(BaseModel):
+    dataset_id: Optional[str] = None
+    category: Optional[str] = None
+
+# Routes
+@router.get("/models")
+async def get_models():
+    """
+    Get available AI models
+    """
+    models = await get_available_models()
+    return {"success": True, "data": models}
+
+@router.get("/agents")
+async def get_agents():
+    """
+    Get available agent types
+    """
+    agents = await get_available_agents()
+    return {"success": True, "data": agents}
+
+@router.post("/embeddings")
+async def create_embeddings(request: EmbeddingRequest):
+    """
+    Generate embeddings for text
+    """
+    try:
+        result = await generate_embeddings(request.text, request.model)
+        return {"success": True, "data": result}
+    except HTTPException as e:
+        return {"success": False, "error": e.detail, "status": e.status_code}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.post("/chat")
+async def chat(request: ChatRequest):
+    """
+    Get a response from an AI agent
+    """
+    try:
+        result = await get_agent_response(
+            query=request.query,
+            agent_type=request.agent_type,
+            model_id=request.model_id,
+            dataset_id=request.dataset_id,
+            chat_history=request.chat_history,
+            context=request.context
+        )
+        return {"success": True, "data": result}
+    except HTTPException as e:
+        return {"success": False, "error": e.detail, "status": e.status_code}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.post("/chat/stream")
+async def stream_chat(request: StreamingChatRequest):
+    """
+    Get a streaming response from an AI agent
+    """
+    try:
+        # Create generator function for streaming response
+        async def response_generator():
+            async for chunk in get_streaming_response(request.dict()):
+                yield f"data: {chunk}\n\n"
+        
+        return StreamingResponse(
+            response_generator(),
+            media_type="text/event-stream"
+        )
+    except Exception as e:
+        # Return error as SSE event
+        async def error_generator():
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        return StreamingResponse(
+            error_generator(),
+            media_type="text/event-stream"
+        )
+
+@router.post("/suggestions")
+async def get_suggestions(request: SuggestionsRequest):
+    """
+    Get suggested chat queries
+    """
+    try:
+        suggestions = await get_chat_suggestions(
+            dataset_id=request.dataset_id,
+            category=request.category
+        )
+        return {"success": True, "data": suggestions}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

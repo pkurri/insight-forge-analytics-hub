@@ -1,5 +1,4 @@
-
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Body, File, UploadFile, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, UploadFile, Form, Query
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import tempfile
@@ -12,6 +11,28 @@ from api.repositories.dataset_repository import get_dataset_repository
 from api.services.pipeline_service import run_pipeline_step
 from api.routes.auth_router import get_current_user_or_api_key
 from api.services.file_service import process_uploaded_file
+from api.services.data_cleaning_service import DataCleaningService
+from api.services.validation_service import ValidationService
+from api.services.database_service import DatabaseService
+from api.services.analytics_service import get_data_profile, detect_anomalies
+from api.config.settings import get_settings
+from api.services.ai_models import AIModelService
+from api.services.vector_store import VectorStoreService
+
+settings = get_settings()
+
+# Initialize services
+data_cleaning_service = DataCleaningService()
+validation_service = ValidationService()
+database_service = DatabaseService({
+    'user': settings.DB_USER,
+    'password': settings.DB_PASSWORD,
+    'database': settings.DB_NAME,
+    'host': settings.DB_HOST,
+    'port': settings.DB_PORT
+})
+ai_model_service = AIModelService()
+vector_store = VectorStoreService()
 
 router = APIRouter()
 
@@ -171,6 +192,9 @@ async def upload_data_to_pipeline(
     file_type: str = Form(...),
     name: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
+    rules_path: Optional[str] = Form(None),
+    clean_data: bool = Form(True),
+    validate_data: bool = Form(True),
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
@@ -193,12 +217,40 @@ async def upload_data_to_pipeline(
     if not name:
         name = f"{file.filename} - {timestamp}"
     
+    # Process the file and get DataFrame
+    df = await process_uploaded_file(file_path, file_type)
+    
+    # Clean data if requested
+    if clean_data:
+        df, cleaning_metadata = await data_cleaning_service.clean_data(df)
+    
+    # Validate data if requested
+    validation_results = None
+    if validate_data:
+        validation_results = await validation_service.validate_data(
+            df,
+            rules_path=rules_path
+        )
+    
+    # Generate data profile
+    profile_data = await get_data_profile(df)
+    
+    # Detect anomalies
+    anomalies = await detect_anomalies(df)
+    
+    # Store data in vector database
+    await database_service.store_dataframe(df, f'dataset_{timestamp}')
+    
     # Create dataset record
     dataset = await dataset_repo.create_dataset(
         dataset={
             "name": name,
             "description": description or f"Uploaded {file_type} file: {file.filename}",
-            "file_type": file_type
+            "file_type": file_type,
+            "cleaning_metadata": cleaning_metadata if clean_data else None,
+            "validation_results": validation_results,
+            "profile_data": profile_data,
+            "anomalies": anomalies
         },
         user_id=current_user.id,
         file_path=file_path

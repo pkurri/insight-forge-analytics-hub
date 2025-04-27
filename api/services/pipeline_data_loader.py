@@ -17,6 +17,9 @@ from datetime import datetime
 import uuid
 from functools import lru_cache
 
+# Import business rules service
+from api.services.business_rules_service import BusinessRulesService
+
 # Import local services
 from api.services.cache_service import get_cached_response, cache_response
 from api.services.ai_schema_service import detect_schema, validate_with_ai_schema
@@ -42,6 +45,9 @@ class PipelineDataLoader:
         """Initialize the data loader with default settings"""
         logger.info("Initializing AI-powered Pipeline Data Loader")
         self.temp_storage = {}
+        
+        # Initialize business rules service
+        self.business_rules_service = BusinessRulesService()
         
         # Configure supported file types and their handlers
         self.file_handlers = {
@@ -347,6 +353,67 @@ class PipelineDataLoader:
         else:
             return current_level
     
+    async def apply_business_rules(self, dataset_id: str, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Apply business rules to the dataset
+        
+        Args:
+            dataset_id: ID of the dataset
+            df: DataFrame to validate
+            
+        Returns:
+            Business rules validation results
+        """
+        try:
+            # Get business rules for the dataset
+            rules = await self.business_rules_service.get_rules_for_dataset(dataset_id)
+            
+            if not rules or len(rules) == 0:
+                return {
+                    "success": True,
+                    "message": "No business rules found for this dataset",
+                    "rules_applied": 0,
+                    "violations": []
+                }
+            
+            # Apply each rule and collect results
+            results = []
+            for rule in rules:
+                # Skip disabled rules
+                if not rule.get("active", True):
+                    continue
+                    
+                rule_result = await self.business_rules_service.execute_rule(rule, df)
+                results.append({
+                    "rule_id": rule.get("id"),
+                    "rule_name": rule.get("name"),
+                    "passed": rule_result.get("passed", False),
+                    "violations": rule_result.get("violations", []),
+                    "violation_count": len(rule_result.get("violations", [])),
+                    "execution_time": rule_result.get("execution_time")
+                })
+            
+            # Summarize results
+            total_rules = len([r for r in rules if r.get("active", True)])
+            passed_rules = len([r for r in results if r["passed"]])
+            total_violations = sum(r["violation_count"] for r in results)
+            
+            return {
+                "success": True,
+                "total_rules": total_rules,
+                "passed_rules": passed_rules,
+                "failed_rules": total_rules - passed_rules,
+                "total_violations": total_violations,
+                "rule_results": results
+            }
+            
+        except Exception as e:
+            logger.error(f"Error applying business rules for dataset {dataset_id}: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
     async def validate_data(self, dataset_id: str, validation_options: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Validate dataset using AI-powered schema detection
@@ -378,10 +445,14 @@ class PipelineDataLoader:
             # Validate against schema
             validation_result = await validate_with_ai_schema(dataset_id, df)
             
+            # Apply business rules
+            business_rules_result = await self.apply_business_rules(dataset_id, df)
+            
             return {
                 "success": True,
                 "dataset_id": dataset_id,
                 "validation_results": validation_result,
+                "business_rules_results": business_rules_result,
                 "schema": schema
             }
             

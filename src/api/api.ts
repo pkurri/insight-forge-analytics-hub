@@ -1,10 +1,10 @@
+import { modelService } from './services/ai/modelService';
+import { embeddingService } from './services/ai/embeddingService';
+import { aiAgentService } from './services/ai/aiAgentService';
 
-import { aiChatService } from './services/ai/aiChatService';
-import { datasetService } from './services/datasets/datasetService';
-import { userService } from './services/user/userService';
-import { analyticsService } from './services/analytics/analyticsService';
-import { businessRulesService } from './services/businessRules/businessRulesService';
-
+/**
+ * API Response interface
+ */
 export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
@@ -12,121 +12,240 @@ export interface ApiResponse<T = any> {
   status?: number;
 }
 
-export interface DatasetSummary {
+/**
+ * Dataset interface
+ */
+export interface Dataset {
   id: string;
   name: string;
   rows: number;
-  columns: number;
-  created_at: string;
-  updated_at: string;
-  status: 'active' | 'pending' | 'error';
+  columns?: number;
+  updated_at?: string;
   description?: string;
+  tags?: string[];
 }
 
-export interface BusinessRule {
-  id: string;
-  name: string;
-  description: string;
-  dataset_id: string;
-  rule_type: string;
-  condition: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-// API utilities
-export const api = {
-  // Dataset operations
-  getDatasets: async (): Promise<ApiResponse<DatasetSummary[]>> => {
-    return datasetService.getDatasets();
-  },
+/**
+ * Call API utility function
+ * @param endpoint API endpoint to call
+ * @param method HTTP method
+ * @param data Request data
+ * @returns Promise with API response
+ */
+export async function callApi<T = any>(
+  endpoint: string,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
+  data?: any
+): Promise<ApiResponse<T>> {
+  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+  const url = `${apiUrl}/${endpoint.startsWith('/') ? endpoint.substring(1) : endpoint}`;
   
-  getDatasetDetails: async (id: string): Promise<ApiResponse> => {
-    return datasetService.getDatasetDetails(id);
-  },
-  
-  // AI Assistant operations
-  getAiAssistantResponse: async (message: string, context?: any): Promise<ApiResponse> => {
-    // Integrate with backend API
-    try {
-      return aiChatService.generateResponse(message, context);
-    } catch (error) {
-      console.error("Error in AI assistant response:", error);
-      return {
-        success: false,
-        error: "Failed to get AI response"
-      };
+  try {
+    const options: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    };
+    
+    if (data) {
+      options.body = JSON.stringify(data);
     }
-  },
-  
-  // Ask question about dataset(s)
-  askQuestion: async (datasetId: string, question: string, options?: any): Promise<ApiResponse> => {
-    try {
-      // If datasetId is 'all', send request to analyze all datasets
-      const params = {
-        dataset_id: datasetId === 'all' ? undefined : datasetId,
-        question,
-        ...options
-      };
+    
+    const response = await fetch(url, options);
+    const contentType = response.headers.get('content-type');
+    
+    if (contentType && contentType.includes('application/json')) {
+      const json = await response.json();
       
-      return aiChatService.askQuestion(params);
-    } catch (error) {
-      console.error("Error asking question:", error);
-      return {
-        success: false,
-        error: "Failed to process question"
-      };
+      if (response.ok) {
+        return {
+          success: true,
+          data: json.data || json,
+          status: response.status,
+        };
+      } else {
+        return {
+          success: false,
+          error: json.error || json.message || 'Unknown error',
+          status: response.status,
+        };
+      }
+    } else {
+      const text = await response.text();
+      
+      if (response.ok) {
+        return {
+          success: true,
+          data: text as unknown as T,
+          status: response.status,
+        };
+      } else {
+        return {
+          success: false,
+          error: text || 'Unknown error',
+          status: response.status,
+        };
+      }
     }
+  } catch (error) {
+    console.error(`API call to ${url} failed:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Network error',
+      status: 0,
+    };
+  }
+}
+
+/**
+ * Dataset API functions
+ */
+const datasets = {
+  /**
+   * Get all datasets
+   * @returns Promise with datasets
+   */
+  getDatasets: async (): Promise<ApiResponse<Dataset[]>> => {
+    return callApi<Dataset[]>('datasets');
   },
   
-  // Get available AI models
-  getAvailableModels: async (): Promise<ApiResponse> => {
+  /**
+   * Get a specific dataset
+   * @param id Dataset ID
+   * @returns Promise with dataset
+   */
+  getDataset: async (id: string): Promise<ApiResponse<Dataset>> => {
+    return callApi<Dataset>(`datasets/${id}`);
+  },
+  
+  /**
+   * Upload a dataset
+   * @param file Dataset file
+   * @param name Dataset name
+   * @returns Promise with upload result
+   */
+  uploadDataset: async (file: File, name: string): Promise<ApiResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', name);
+    
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+    const url = `${apiUrl}/datasets/upload`;
+    
     try {
-      return aiChatService.getAvailableModels();
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      
+      const json = await response.json();
+      
+      if (response.ok) {
+        return {
+          success: true,
+          data: json.data || json,
+          status: response.status,
+        };
+      } else {
+        return {
+          success: false,
+          error: json.error || json.message || 'Unknown error',
+          status: response.status,
+        };
+      }
     } catch (error) {
-      console.error("Error getting AI models:", error);
+      console.error('Dataset upload failed:', error);
       return {
         success: false,
-        error: "Failed to get available models"
+        error: error instanceof Error ? error.message : 'Network error',
+        status: 0,
       };
     }
   },
   
-  // Get chat history
-  getChatHistory: async (datasetId: string): Promise<ApiResponse> => {
-    try {
-      return aiChatService.getChatHistory(datasetId);
-    } catch (error) {
-      console.error("Error getting chat history:", error);
-      return {
-        success: false,
-        error: "Failed to retrieve chat history"
-      };
-    }
+  /**
+   * Delete a dataset
+   * @param id Dataset ID
+   * @returns Promise with delete result
+   */
+  deleteDataset: async (id: string): Promise<ApiResponse> => {
+    return callApi(`datasets/${id}`, 'DELETE');
+  }
+};
+
+/**
+ * AI Assistant API functions
+ */
+const getAiAssistantResponse = async (
+  query: string,
+  options?: {
+    dataset_id?: string;
+    model_id?: string;
+    agent_type?: string;
+    context?: any;
+  }
+): Promise<ApiResponse> => {
+  const request = {
+    query,
+    modelId: options?.model_id,
+    agentType: options?.agent_type || 'data_analyst',
+    datasetId: options?.dataset_id,
+    context: options?.context
+  };
+  
+  return aiAgentService.getAgentResponse(request);
+};
+
+/**
+ * Export API functions
+ */
+export const api = {
+  callApi,
+  datasets,
+  getAiAssistantResponse,
+  models: modelService,
+  embeddings: embeddingService,
+  agents: aiAgentService,
+  
+  // Dashboard API
+  getDashboardMetrics: async (): Promise<ApiResponse> => {
+    return callApi('dashboard/metrics');
   },
   
-  // User and authentication operations
-  getCurrentUser: async (): Promise<ApiResponse> => {
-    return userService.getCurrentUser();
+  // Analytics API
+  getDatasetAnalytics: async (datasetId: string): Promise<ApiResponse> => {
+    return callApi(`analytics/dataset/${datasetId}`);
   },
   
-  // Analytics operations
-  getDataQuality: async (datasetId: string): Promise<ApiResponse> => {
-    return analyticsService.getDataQuality(datasetId);
+  getGlobalAnalytics: async (): Promise<ApiResponse> => {
+    return callApi('analytics/global');
   },
   
-  profileDataset: async (datasetId: string): Promise<ApiResponse> => {
-    return analyticsService.profileDataset(datasetId);
+  // Project Evaluation API
+  getProjectQualityScores: async (): Promise<ApiResponse> => {
+    return callApi('project-eval/scores');
   },
   
-  cleanData: async (datasetId: string, options: any): Promise<ApiResponse> => {
-    return analyticsService.cleanData(datasetId, options);
+  runProjectEvaluation: async (): Promise<ApiResponse> => {
+    return callApi('project-eval/all', 'POST');
   },
   
-  // Business Rules operations
-  saveBusinessRules: async (datasetId: string, rules: any[]): Promise<ApiResponse> => {
-    return businessRulesService.saveBusinessRules(datasetId, rules);
+  // OpenEvals Runtime Code Quality API
+  evaluateRuntimeComponent: async (componentName: string): Promise<ApiResponse> => {
+    return callApi('openevals/runtime/evaluate', 'POST', { component_name: componentName });
+  },
+  
+  showComponentSuggestions: async (componentName: string): Promise<ApiResponse> => {
+    return callApi('openevals/runtime/suggestions', 'POST', { component_name: componentName });
+  },
+  
+  applyComponentSuggestions: async (componentName: string, suggestionId: string): Promise<ApiResponse> => {
+    return callApi('openevals/runtime/apply', 'POST', { 
+      component_name: componentName,
+      suggestion_id: suggestionId
+    });
   }
 };

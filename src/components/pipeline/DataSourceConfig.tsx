@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -12,8 +12,9 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Switch } from '@/components/ui/switch';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Trash2, Database, Globe, Key } from 'lucide-react';
+import { Plus, Trash2, Database, Globe, Key, Loader2 } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
+import { api } from '@/api/api';
 
 // Schema for API connection form
 const apiFormSchema = z.object({
@@ -41,13 +42,73 @@ const dbFormSchema = z.object({
   options: z.string().optional(),
 });
 
+interface ApiConnection {
+  id: string;
+  name: string;
+  url: string;
+  authType: string;
+  username?: string;
+  password?: string;
+  apiKey?: string;
+  apiKeyName?: string;
+  bearerToken?: string;
+  headers?: string;
+  createdAt: string;
+}
+
+interface DbConnection {
+  id: string;
+  name: string;
+  connectionType: string;
+  host: string;
+  port: string;
+  database: string;
+  username?: string;
+  password?: string;
+  ssl: boolean;
+  options?: string;
+  createdAt: string;
+}
+
 const DataSourceConfig: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>("api");
   const [showApiDialog, setShowApiDialog] = useState<boolean>(false);
   const [showDbDialog, setShowDbDialog] = useState<boolean>(false);
-  const [apiConnections, setApiConnections] = useState<any[]>([]);
-  const [dbConnections, setDbConnections] = useState<any[]>([]);
+  const [apiConnections, setApiConnections] = useState<ApiConnection[]>([]);
+  const [dbConnections, setDbConnections] = useState<DbConnection[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const { toast } = useToast();
+  
+  // Fetch existing connections when component mounts
+  useEffect(() => {
+    const fetchConnections = async () => {
+      setIsLoading(true);
+      try {
+        // Fetch API connections
+        const apiResponse = await api.pipeline.getApiConnections();
+        if (apiResponse.success) {
+          setApiConnections(apiResponse.data || []);
+        }
+        
+        // Fetch DB connections
+        const dbResponse = await api.pipeline.getDbConnections();
+        if (dbResponse.success) {
+          setDbConnections(dbResponse.data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching connections:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to fetch existing connections',
+          variant: 'destructive'
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchConnections();
+  }, []);
   
   // API form
   const apiForm = useForm<z.infer<typeof apiFormSchema>>({
@@ -81,57 +142,153 @@ const DataSourceConfig: React.FC = () => {
     },
   });
   
-  const onApiSubmit = (values: z.infer<typeof apiFormSchema>) => {
-    // In a real app, this would save to the backend
-    const newConnection = {
-      id: `api-${Date.now()}`,
-      ...values,
-      createdAt: new Date().toISOString(),
-    };
-    
-    setApiConnections([...apiConnections, newConnection]);
-    setShowApiDialog(false);
-    apiForm.reset();
-    
-    toast({
-      title: "API Connection Added",
-      description: `Successfully created connection to ${values.name}`,
-    });
+  const onApiSubmit = async (values: z.infer<typeof apiFormSchema>) => {
+    try {
+      setIsLoading(true);
+      // Save to backend
+      const response = await api.pipeline.createApiConnection(values);
+      
+      if (response.success && response.data) {
+        // Add the new connection to state
+        setApiConnections([...apiConnections, response.data]);
+        setShowApiDialog(false);
+        apiForm.reset();
+        
+        toast({
+          title: "API Connection Added",
+          description: `Successfully created connection to ${values.name}`,
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || 'Failed to create API connection',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      console.error('Error creating API connection:', error);
+      toast({
+        title: "Error",
+        description: 'Failed to create API connection',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
   
-  const onDbSubmit = (values: z.infer<typeof dbFormSchema>) => {
-    // In a real app, this would save to the backend
-    const newConnection = {
-      id: `db-${Date.now()}`,
-      ...values,
-      createdAt: new Date().toISOString(),
-    };
-    
-    setDbConnections([...dbConnections, newConnection]);
-    setShowDbDialog(false);
-    dbForm.reset();
-    
-    toast({
-      title: "Database Connection Added",
-      description: `Successfully created connection to ${values.name}`,
-    });
+  const onDbSubmit = async (values: z.infer<typeof dbFormSchema>) => {
+    try {
+      setIsLoading(true);
+      // Save to backend
+      const response = await api.pipeline.createDbConnection(values);
+      
+      if (response.success && response.data) {
+        // Add the new connection to state
+        setDbConnections([...dbConnections, response.data]);
+        setShowDbDialog(false);
+        dbForm.reset();
+        
+        toast({
+          title: "Database Connection Added",
+          description: `Successfully created connection to ${values.name}`,
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || 'Failed to create database connection',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      console.error('Error creating database connection:', error);
+      toast({
+        title: "Error",
+        description: 'Failed to create database connection',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
   
-  const deleteApiConnection = (id: string) => {
-    setApiConnections(apiConnections.filter(conn => conn.id !== id));
-    toast({
-      title: "Connection Removed",
-      description: "API connection has been deleted",
-    });
+  const deleteApiConnection = async (id: string) => {
+    try {
+      setIsLoading(true);
+      // Delete from backend
+      const response = await api.pipeline.deleteApiConnection(id);
+      
+      if (response.success) {
+        // Remove from state
+        setApiConnections(apiConnections.filter(conn => conn.id !== id));
+        toast({
+          title: "Connection Removed",
+          description: "API connection has been deleted",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || 'Failed to delete API connection',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting API connection:', error);
+      toast({
+        title: "Error",
+        description: 'Failed to delete API connection',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
   
-  const deleteDbConnection = (id: string) => {
-    setDbConnections(dbConnections.filter(conn => conn.id !== id));
-    toast({
-      title: "Connection Removed",
-      description: "Database connection has been deleted",
-    });
+  const deleteDbConnection = async (id: string) => {
+    try {
+      setIsLoading(true);
+      // Delete from backend
+      const response = await api.pipeline.deleteDbConnection(id);
+      
+      if (response.success) {
+        // Remove from state
+        setDbConnections(dbConnections.filter(conn => conn.id !== id));
+        toast({
+          title: "Connection Removed",
+          description: "Database connection has been deleted",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || 'Failed to delete database connection',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting database connection:', error);
+      toast({
+        title: "Error",
+        description: 'Failed to delete database connection',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
+  
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Data Source Configuration</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center justify-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-2">Loading connections...</span>
+        </CardContent>
+      </Card>
+    );
+  }
   
   return (
     <Card>

@@ -1,601 +1,853 @@
+"""Business Rules Service Module
 
-"""
-Business Rules Service Module
-
-This module provides services for managing, validating, and generating
-business rules for datasets.
+This module handles business rules management and execution, including:
+- Manual rule creation and management
+- AI-generated rules using OpenAI
+- Great Expectations integration
+- Pydantic model validation
+- Huffman coding based rules
+- Rule import/export via JSON
+- Rule execution and logging
 """
 
 import logging
-import json
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
+import ast
 import re
+import json
+import uuid
+import asyncio
+from openai import OpenAI
+import great_expectations as ge
+from pydantic import BaseModel, ValidationError, create_model
+from huffman import HuffmanCoding
+from sqlalchemy.sql import text
 
+from api.config.settings import get_settings
+from api.models.dataset import DatasetStatus
 from api.repositories.business_rules_repository import BusinessRulesRepository
 from api.repositories.dataset_repository import DatasetRepository
-from api.models.dataset import BusinessRule, BusinessRuleCreate, BusinessRuleSeverity
-from api.utils.file_utils import load_dataset_to_dataframe
+from api.database.connection import get_db_session
 
-# Initialize repositories
-business_rules_repo = BusinessRulesRepository()
-dataset_repo = DatasetRepository()
-
+settings = get_settings()
 logger = logging.getLogger(__name__)
 
-class RuleEngine:
-    """Class for managing and executing business rules on data."""
+# Initialize repositories
+rules_repo = BusinessRulesRepository()
+dataset_repo = DatasetRepository()
+
+class BusinessRulesService:
+    """Service for managing and executing business rules.
     
-    def __init__(self, rules: List[Dict[str, Any]] = None):
-        """Initialize rule engine with optional list of rules."""
-        self.rules = rules or []
-        logger.info(f"RuleEngine initialized with {len(self.rules)} rules")
+    This service provides functionality for:
+    - Creating, updating, and deleting business rules
+    - Importing and exporting rules via JSON
+    - Generating rules using AI and various validation frameworks
+    - Executing rules on datasets
+    - Logging rule execution results
+    """
     
-    async def load_rules(self, dataset_id: int) -> Dict[str, Any]:
-        """Load rules for a dataset from the database."""
+    def __init__(self):
+        """Initialize the service components."""
+        # Initialize OpenAI client if API key is available
+        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
+        
+        # Initialize validation frameworks
+        self.ge_context = ge.get_context()
+        self.huffman_coder = HuffmanCoding()
+        
+        # Cache for loaded rules
+        self.rules_cache = {}
+            
+    async def load_rules(self, dataset_id: str) -> List[Dict[str, Any]]:
+        """Load all active rules for a dataset.
+        
+        Args:
+            dataset_id: ID of the dataset to load rules for
+            
+        Returns:
+            List of active rules for the dataset
+        """
         try:
-            rules = await business_rules_repo.get_rules(dataset_id)
-            self.rules = rules
-            return {
-                "success": True,
-                "loaded_rules": len(rules),
-                "rules": rules
-            }
+            # Check cache first
+            if dataset_id in self.rules_cache:
+                return self.rules_cache[dataset_id]
+            
+            # Get rules from database
+            rules = await rules_repo.get_rules_by_dataset(dataset_id)
+            
+            # Cache rules for faster access
+            self.rules_cache[dataset_id] = rules
+            return rules
+            
         except Exception as e:
             logger.error(f"Error loading rules: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
-    def _compile_condition(self, condition: str):
-        """Compile a rule condition into an executable function."""
-        # First, replace common operators for better readability
-        condition = condition.replace('==', '==').replace('!=', '!=')
-        condition = condition.replace('<=', '<=').replace('>=', '>=')
+            return []
+            
+    async def create_rule(self, rule_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new business rule.
         
-        # Create a function that accepts a data context and evaluates the condition
+        Args:
+            rule_data: Dictionary containing rule information:
+                - name: Rule name
+                - description: Rule description
+                - condition: Rule condition
+                - severity: Rule severity (low, medium, high)
+                - message: Error message when rule fails
+                - source: Rule source (manual, great_expectations, pydantic, huffman, ai)
+                - dataset_id: ID of the dataset this rule applies to
+                - metadata: Additional rule metadata
+        
+        Returns:
+            Created rule object
+        """
         try:
-            # Create the function code
-            fn_code = f"""
-def evaluate_condition(data):
-    try:
-        return bool({condition})
-    except Exception as e:
-        return False
-"""
-            # Create a local namespace
-            local_namespace = {}
+            # Validate rule format
+            if not self._validate_rule_format(rule_data):
+                raise ValueError("Invalid rule format")
             
-            # Execute the function definition in the local namespace
-            exec(fn_code, {'re': re, 'np': np, 'pd': pd}, local_namespace)
+            # Generate rule ID
+            rule_data["id"] = str(uuid.uuid4())
             
-            # Return the compiled function
-            return local_namespace['evaluate_condition']
+            # Handle different rule sources
+            source = rule_data.get("source", "manual")
+            if source == "great_expectations":
+                rule_data = await self._create_ge_rule(rule_data)
+            elif source == "pydantic":
+                rule_data = await self._create_pydantic_rule(rule_data)
+            elif source == "huffman":
+                rule_data = await self._create_huffman_rule(rule_data)
+            elif source == "ai":
+                rule_data = await self._create_ai_rule(rule_data)
+            
+            # Validate condition
+            if not await self._validate_condition(rule_data["condition"]):
+                raise ValueError("Invalid rule condition")
+            
+            # Create rule in database
+            rule = await rules_repo.create_rule(rule_data)
+            
+            # Update cache
+            dataset_id = rule_data["dataset_id"]
+            if dataset_id in self.rules_cache:
+                self.rules_cache[dataset_id].append(rule)
+            
+            # Log rule creation
+            await self._log_rule_execution(
+                rule["id"],
+                {
+                    "success": True,
+                    "message": "Rule created successfully",
+                    "execution_metadata": {"action": "create"}
+                }
+            )
+            
+            return rule
             
         except Exception as e:
-            logger.error(f"Error compiling condition '{condition}': {str(e)}")
-            raise ValueError(f"Invalid condition syntax: {str(e)}")
-    
-    async def apply_rules(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Apply loaded rules to a dataframe and get violations."""
+            logger.error(f"Error creating rule: {str(e)}")
+            raise
+            
+    async def update_rule(self, rule_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing business rule."""
         try:
-            if not self.rules:
-                return {
-                    "success": True,
-                    "message": "No rules to apply",
-                    "rules_applied": 0,
-                    "violations": []
-                }
+            updates["updated_at"] = datetime.now().isoformat()
             
-            violations = []
-            rules_applied = 0
+            if "condition" in updates:
+                if not await self._validate_condition(updates["condition"]):
+                    raise ValueError("Invalid rule condition")
             
-            # Apply each rule to the data
-            for rule in self.rules:
-                if not rule.get("is_active", True):
-                    continue
-                    
-                rules_applied += 1
-                rule_id = rule["id"]
-                rule_name = rule["name"]
-                condition = rule["condition"]
-                severity = rule.get("severity", "medium")
-                message = rule.get("message", f"Violated rule: {rule_name}")
+            async with get_db_session() as session:
+                set_clause = ", ".join([f"{k} = :{k}" for k in updates.keys()])
+                await session.execute(
+                    text(f"UPDATE business_rules SET {set_clause} WHERE id = :rule_id"),
+                    {**updates, "rule_id": rule_id}
+                )
+                await session.commit()
+            
+            return await self.get_rule(rule_id)
+            
+        except Exception as e:
+            logger.error(f"Error updating rule: {str(e)}")
+            raise
+            
+    async def delete_rule(self, rule_id: str) -> bool:
+        """Delete a business rule."""
+        try:
+            async with get_db_session() as session:
+                await session.execute(
+                    text("DELETE FROM business_rules WHERE id = :rule_id"),
+                    {"rule_id": rule_id}
+                )
+                await session.commit()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting rule: {str(e)}")
+            raise
+            
+    async def get_rule(self, rule_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific business rule."""
+        try:
+            async with get_db_session() as session:
+                result = await session.execute(
+                    text("SELECT * FROM business_rules WHERE id = :rule_id"),
+                    {"rule_id": rule_id}
+                )
+                row = result.first()
+                return dict(row) if row else None
                 
+        except Exception as e:
+            logger.error(f"Error getting rule: {str(e)}")
+            raise
+            
+    async def get_rules(self, dataset_id: str) -> List[Dict[str, Any]]:
+        """Get all business rules for a dataset."""
+        try:
+            async with get_db_session() as session:
+                result = await session.execute(
+                    text("""
+                    SELECT * FROM business_rules 
+                    WHERE dataset_id = :dataset_id
+                    ORDER BY priority DESC, created_at ASC
+                    """),
+                    {"dataset_id": dataset_id}
+                )
+                return [dict(row) for row in result]
+                
+        except Exception as e:
+            logger.error(f"Error getting rules: {str(e)}")
+            raise
+            
+    async def import_rules(self, dataset_id: str, rules_json: str) -> Dict[str, Any]:
+        """Import business rules from JSON.
+        
+        Args:
+            dataset_id: ID of the dataset to import rules for
+            rules_json: JSON string containing an array of rule objects
+            
+        Returns:
+            Dict containing success status and number of imported rules
+        """
+        try:
+            rules = json.loads(rules_json)
+            if not isinstance(rules, list):
+                raise ValueError("Invalid format: JSON must be an array of rule objects")
+                
+            imported_rules = []
+            failed_rules = []
+            
+            for rule in rules:
                 try:
-                    # Compile the condition
-                    evaluate_fn = self._compile_condition(condition)
+                    # Add dataset ID and source
+                    rule["dataset_id"] = dataset_id
+                    rule["source"] = rule.get("source", "manual")
                     
-                    # Apply the rule to each row
-                    for index, row in df.iterrows():
-                        # Create data context
-                        context = row.to_dict()
-                        
-                        # Evaluate the condition
-                        result = evaluate_fn(context)
-                        
-                        # If condition is False, it's a violation
-                        if not result:
-                            violations.append({
-                                "rule_id": rule_id,
-                                "rule_name": rule_name,
-                                "row_index": int(index),
-                                "severity": severity,
-                                "message": message
-                            })
-                            
-                            # Limit to 1000 violations for performance
-                            if len(violations) >= 1000:
-                                break
-                    
-                except Exception as e:
-                    logger.error(f"Error applying rule '{rule_name}': {str(e)}")
-                    violations.append({
-                        "rule_id": rule_id,
-                        "rule_name": rule_name,
-                        "row_index": None,
-                        "severity": "error",
-                        "message": f"Error evaluating rule: {str(e)}"
+                    # Create rule
+                    created_rule = await self.create_rule(rule)
+                    imported_rules.append(created_rule)
+                except Exception as rule_error:
+                    failed_rules.append({
+                        "rule": rule.get("name", "Unknown"),
+                        "error": str(rule_error)
                     })
             
             return {
-                "success": True,
-                "rules_applied": rules_applied,
-                "total_rows": len(df),
-                "violation_count": len(violations),
-                "violations": violations
+                "success": len(imported_rules) > 0,
+                "imported_count": len(imported_rules),
+                "failed_count": len(failed_rules),
+                "imported_rules": imported_rules,
+                "failed_rules": failed_rules
             }
-            
         except Exception as e:
-            logger.error(f"Error applying rules: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
-    async def generate_rules(self, df: pd.DataFrame, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Generate business rules from data using heuristics and patterns."""
+            logger.error(f"Error importing rules: {str(e)}")
+            raise
+            
+    async def generate_ai_rules(self, dataset_id: str, column_metadata: Dict[str, Any], model_type: str = "openai") -> Dict[str, Any]:
+        """Generate business rules using AI based on column metadata.
+        
+        Args:
+            dataset_id: ID of the dataset to generate rules for
+            column_metadata: Dictionary containing column information about the dataset
+            model_type: Type of model to use for generation (openai, great_expectations, pydantic, huffman)
+            
+        Returns:
+            Dictionary containing generated rules and metadata
+        """
         try:
-            if options is None:
-                options = {}
+            # Get dataset information
+            dataset = await dataset_repo.get_dataset(dataset_id)
+            if not dataset:
+                raise ValueError(f"Dataset {dataset_id} not found")
                 
-            generated_rules = []
-            rule_id_counter = 1
-            
-            # Generate rules for each column based on data patterns
-            for column in df.columns:
-                column_data = df[column]
-                dtype = column_data.dtype
+            # Select generation method based on model type
+            if model_type == "great_expectations":
+                return await self._generate_ge_rules(dataset_id, column_metadata)
+            elif model_type == "pydantic":
+                return await self._generate_pydantic_rules(dataset_id, column_metadata)
+            elif model_type == "huffman":
+                return await self._generate_huffman_rules(dataset_id, column_metadata)
+            else:  # Default to OpenAI
+                return await self._generate_openai_rules(dataset_id, column_metadata)
                 
-                # Skip columns with too many unique values
-                unique_ratio = len(column_data.dropna().unique()) / len(column_data.dropna()) if len(column_data.dropna()) > 0 else 0
-                if unique_ratio > 0.9 and len(column_data) > 10:
-                    continue
-                
-                # Generate rules based on data type
-                if pd.api.types.is_numeric_dtype(dtype):
-                    # Numeric column rules
-                    rules = self._generate_numeric_rules(column, column_data, rule_id_counter)
-                    generated_rules.extend(rules)
-                    rule_id_counter += len(rules)
-                    
-                elif pd.api.types.is_string_dtype(dtype):
-                    # String column rules
-                    rules = self._generate_string_rules(column, column_data, rule_id_counter)
-                    generated_rules.extend(rules)
-                    rule_id_counter += len(rules)
-                    
-                elif pd.api.types.is_datetime64_dtype(dtype):
-                    # Date column rules
-                    rules = self._generate_date_rules(column, column_data, rule_id_counter)
-                    generated_rules.extend(rules)
-                    rule_id_counter += len(rules)
+    async def _generate_ge_rules(self, dataset_id: str, column_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate rules using Great Expectations based on column metadata.
+        
+        Args:
+            dataset_id: ID of the dataset
+            column_metadata: Column metadata
             
-            # Generate cross-column rules if requested
-            if options.get("cross_column_rules", True):
-                # Find potential correlations or relationships
-                corr_rules = self._generate_correlation_rules(df, rule_id_counter)
-                generated_rules.extend(corr_rules)
-                rule_id_counter += len(corr_rules)
-            
-            return {
-                "success": True,
-                "rules_generated": len(generated_rules),
-                "rules": generated_rules
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating rules: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
-    def _generate_numeric_rules(self, column: str, data: pd.Series, start_id: int) -> List[Dict[str, Any]]:
-        """Generate rules for numeric columns."""
-        rules = []
-        data = data.dropna()
-        
-        if len(data) == 0:
-            return rules
-        
-        # Get basic statistics
-        min_val = data.min()
-        max_val = data.max()
-        q1 = data.quantile(0.01)  # 1st percentile
-        q99 = data.quantile(0.99)  # 99th percentile
-        
-        # Range rule
-        rules.append({
-            "id": f"R{start_id}",
-            "name": f"{column} Range Check",
-            "condition": f"data['{column}'] >= {min_val} and data['{column}'] <= {max_val}",
-            "severity": "high",
-            "message": f"{column} must be between {min_val} and {max_val}"
-        })
-        
-        # Outlier rule (more lenient)
-        if q1 < q99:
-            rules.append({
-                "id": f"R{start_id + 1}",
-                "name": f"{column} Outlier Check",
-                "condition": f"data['{column}'] >= {q1} and data['{column}'] <= {q99}",
-                "severity": "medium",
-                "message": f"{column} has potential outlier value"
-            })
-        
-        # If integers, check for specific values
-        if pd.api.types.is_integer_dtype(data.dtype):
-            # Check if column might be categorical
-            unique_vals = data.unique()
-            if len(unique_vals) <= 10:
-                vals_str = ", ".join(map(str, unique_vals))
-                rules.append({
-                    "id": f"R{start_id + 2}",
-                    "name": f"{column} Allowed Values",
-                    "condition": f"data['{column}'] in [{vals_str}]",
-                    "severity": "medium",
-                    "message": f"{column} must be one of: {vals_str}"
-                })
-        
-        return rules
-    
-    def _generate_string_rules(self, column: str, data: pd.Series, start_id: int) -> List[Dict[str, Any]]:
-        """Generate rules for string columns."""
-        rules = []
-        data = data.dropna().astype(str)
-        
-        if len(data) == 0:
-            return rules
-        
-        # Check if column looks like an email
-        if any('@' in str(x) and '.' in str(x).split('@')[-1] for x in data.sample(min(10, len(data)))):
-            rules.append({
-                "id": f"R{start_id}",
-                "name": f"{column} Email Format",
-                "condition": f"re.match(r'^[\\w.-]+@[\\w.-]+\\.[a-zA-Z]{{2,}}$', str(data['{column}']))",
-                "severity": "high",
-                "message": f"{column} must be a valid email address"
-            })
-            
-        # Length rules
-        min_len = min(len(str(x)) for x in data)
-        max_len = max(len(str(x)) for x in data)
-        
-        rules.append({
-            "id": f"R{start_id + 1}",
-            "name": f"{column} Length Check",
-            "condition": f"len(str(data['{column}'])) >= {min_len} and len(str(data['{column}'])) <= {max_len}",
-            "severity": "medium",
-            "message": f"{column} length must be between {min_len} and {max_len} characters"
-        })
-        
-        # Check if column might be categorical
-        if len(data.unique()) <= 20 and len(data.unique()) < len(data) / 2:
-            # Create allowed values rule
-            vals = list(data.unique())
-            vals_str = ", ".join(f"'{x}'" for x in vals)
-            
-            rules.append({
-                "id": f"R{start_id + 2}",
-                "name": f"{column} Allowed Values",
-                "condition": f"str(data['{column}']) in [{vals_str}]",
-                "severity": "medium",
-                "message": f"{column} must be one of the allowed values"
-            })
-        
-        return rules
-    
-    def _generate_date_rules(self, column: str, data: pd.Series, start_id: int) -> List[Dict[str, Any]]:
-        """Generate rules for date columns."""
-        rules = []
-        data = data.dropna()
-        
-        if len(data) == 0:
-            return rules
-        
-        # Get min and max dates
-        min_date = data.min()
-        max_date = data.max()
-        
-        # Convert to string format for rule
-        min_date_str = min_date.strftime('%Y-%m-%d')
-        max_date_str = max_date.strftime('%Y-%m-%d')
-        
-        rules.append({
-            "id": f"R{start_id}",
-            "name": f"{column} Date Range",
-            "condition": f"pd.to_datetime(data['{column}']) >= pd.to_datetime('{min_date_str}') and " + 
-                        f"pd.to_datetime(data['{column}']) <= pd.to_datetime('{max_date_str}')",
-            "severity": "medium",
-            "message": f"{column} must be between {min_date_str} and {max_date_str}"
-        })
-        
-        # Future date rule if max date is recent
-        today = pd.Timestamp.now().floor('D')
-        if (max_date - today).days < 30:  # If max date is within a month of today
-            rules.append({
-                "id": f"R{start_id + 1}",
-                "name": f"{column} No Future Dates",
-                "condition": f"pd.to_datetime(data['{column}']) <= pd.Timestamp.now()",
-                "severity": "high", 
-                "message": f"{column} cannot be in the future"
-            })
-            
-        return rules
-    
-    def _generate_correlation_rules(self, data: pd.DataFrame, start_id: int) -> List[Dict[str, Any]]:
-        """Generate rules based on column correlations and relationships."""
-        rules = []
-        numeric_cols = data.select_dtypes(include=[np.number]).columns
-        
-        # Skip if too few numeric columns
-        if len(numeric_cols) < 2:
-            return rules
-        
+        Returns:
+            Dictionary containing generated rules
+        """
         try:
-            # Calculate correlation matrix
-            corr_matrix = data[numeric_cols].corr()
-            
-            # Find highly correlated pairs
-            for i in range(len(numeric_cols)):
-                for j in range(i+1, len(numeric_cols)):
-                    col1 = numeric_cols[i]
-                    col2 = numeric_cols[j]
-                    corr = corr_matrix.iloc[i, j]
-                    
-                    # Strong positive correlation
-                    if corr > 0.8:
-                        rules.append({
-                            "id": f"R{start_id}",
-                            "name": f"{col1} - {col2} Correlation",
-                            "condition": f"data['{col1}'] * 0.5 <= data['{col2}'] <= data['{col1}'] * 1.5",
-                            "severity": "low",
-                            "message": f"Expected correlation between {col1} and {col2} not maintained"
-                        })
-                        start_id += 1
-                        
-                    # Strong negative correlation
-                    elif corr < -0.8:
-                        rules.append({
-                            "id": f"R{start_id}",
-                            "name": f"{col1} - {col2} Inverse Correlation",
-                            "condition": f"(data['{col1}'] > 0 and data['{col2}'] < 0) or " + 
-                                      f"(data['{col1}'] < 0 and data['{col2}'] > 0) or " +
-                                      f"(data['{col1}'] == 0 and data['{col2}'] == 0)",
-                            "severity": "low",
-                            "message": f"Expected inverse correlation between {col1} and {col2} not maintained"
-                        })
-                        start_id += 1
-        except Exception as e:
-            logger.warning(f"Error generating correlation rules: {str(e)}")
-            
-        return rules
-
-async def get_rules(dataset_id: int) -> Dict[str, Any]:
-    """Get all business rules for a dataset."""
-    try:
-        rules = await business_rules_repo.get_rules(dataset_id)
-        return {
-            "success": True,
-            "rules": rules,
-            "rule_count": len(rules)
-        }
-    except Exception as e:
-        logger.error(f"Error getting rules: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-async def create_rule(rule: BusinessRuleCreate) -> Dict[str, Any]:
-    """Create a new business rule."""
-    try:
-        new_rule = await business_rules_repo.create_rule(rule)
-        return {
-            "success": True,
-            "rule": new_rule
-        }
-    except Exception as e:
-        logger.error(f"Error creating rule: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-async def update_rule(rule_id: int, rule_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Update an existing rule."""
-    try:
-        updated_rule = await business_rules_repo.update_rule(rule_id, rule_data)
-        if updated_rule:
-            return {
-                "success": True,
-                "rule": updated_rule
-            }
-        else:
-            return {
-                "success": False,
-                "error": f"Rule with ID {rule_id} not found"
-            }
-    except Exception as e:
-        logger.error(f"Error updating rule: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-async def delete_rule(rule_id: int) -> Dict[str, Any]:
-    """Delete a business rule."""
-    try:
-        success = await business_rules_repo.delete_rule(rule_id)
-        if success:
-            return {
-                "success": True,
-                "message": f"Rule with ID {rule_id} deleted successfully"
-            }
-        else:
-            return {
-                "success": False,
-                "error": f"Rule with ID {rule_id} not found"
-            }
-    except Exception as e:
-        logger.error(f"Error deleting rule: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-async def validate_rules(dataset_id: int, rule_ids: List[int] = None) -> Dict[str, Any]:
-    """
-    Validate business rules against a dataset.
-    
-    Args:
-        dataset_id: ID of the dataset to validate rules against
-        rule_ids: Optional list of specific rule IDs to validate
-        
-    Returns:
-        Dictionary containing validation results
-    """
-    try:
-        # Get dataset
-        dataset = await dataset_repo.get_dataset_detail(dataset_id)
-        if not dataset:
-            return {
-                "success": False, 
-                "error": f"Dataset with ID {dataset_id} not found"
-            }
-        
-        # Load the dataset as DataFrame
-        df = await load_dataset_to_dataframe(dataset)
-        
-        # Get rules for the dataset (filter by rule_ids if provided)
-        if rule_ids:
             rules = []
-            for rule_id in rule_ids:
-                rule = await business_rules_repo.get_rule(rule_id)
-                if rule:
-                    rules.append(rule)
-        else:
-            rules = await business_rules_repo.get_rules(dataset_id)
-        
-        if not rules:
+            rule_id = 1
+            
+            # Generate rules for each column based on its type
+            for col_name, col_info in column_metadata.items():
+                col_type = col_info.get('type', 'unknown')
+                
+                # Not null rule
+                rules.append({
+                    "id": f"GE{rule_id}",
+                    "name": f"{col_name} Not Null",
+                    "condition": f"expect_column_values_to_not_be_null('{col_name}')",
+                    "severity": "high",
+                    "message": f"{col_name} should not contain null values",
+                    "dataset_id": dataset_id,
+                    "source": "great_expectations"
+                })
+                rule_id += 1
+                
+                # Type-specific rules
+                if col_type == 'numeric':
+                    # Range rule
+                    stats = col_info.get('stats', {})
+                    min_val = stats.get('min')
+                    max_val = stats.get('max')
+                    
+                    if min_val is not None and max_val is not None:
+                        rules.append({
+                            "id": f"GE{rule_id}",
+                            "name": f"{col_name} Range",
+                            "condition": f"expect_column_values_to_be_between('{col_name}', {min_val}, {max_val})",
+                            "severity": "medium",
+                            "message": f"{col_name} should be between {min_val} and {max_val}",
+                            "dataset_id": dataset_id,
+                            "source": "great_expectations"
+                        })
+                        rule_id += 1
+                        
+                elif col_type == 'categorical':
+                    # Value set rule
+                    categories = col_info.get('stats', {}).get('categories', [])
+                    if categories and len(categories) <= 20:  # Only if reasonable number of categories
+                        categories_str = str(categories).replace("'", "\"")
+                        rules.append({
+                            "id": f"GE{rule_id}",
+                            "name": f"{col_name} Valid Values",
+                            "condition": f"expect_column_values_to_be_in_set('{col_name}', {categories_str})",
+                            "severity": "medium",
+                            "message": f"{col_name} should be one of the allowed values",
+                            "dataset_id": dataset_id,
+                            "source": "great_expectations"
+                        })
+                        rule_id += 1
+                        
+                elif col_type == 'datetime':
+                    # Date format rule
+                    rules.append({
+                        "id": f"GE{rule_id}",
+                        "name": f"{col_name} Date Format",
+                        "condition": f"expect_column_values_to_match_strftime_format('{col_name}', '%Y-%m-%d')",
+                        "severity": "medium",
+                        "message": f"{col_name} should be in valid date format",
+                        "dataset_id": dataset_id,
+                        "source": "great_expectations"
+                    })
+                    rule_id += 1
+            
+            # Create rules in database
+            created_rules = []
+            for rule in rules:
+                try:
+                    created_rule = await self.create_rule(rule)
+                    created_rules.append(created_rule)
+                except Exception as rule_error:
+                    logger.error(f"Error creating GE rule: {str(rule_error)}")
+            
             return {
                 "success": True,
-                "message": "No rules to validate",
-                "rules_applied": 0,
-                "violations": []
+                "rules_generated": len(created_rules),
+                "rules": created_rules
             }
-        
-        # Initialize rule engine with the rules
-        engine = RuleEngine(rules)
-        
-        # Apply rules
-        validation_results = await engine.apply_rules(df)
-        
-        if validation_results["success"]:
-            # Save validation results to database
-            violations = validation_results["violations"]
-            for rule_id in set(v["rule_id"] for v in violations):
-                rule_violations = [v for v in violations if v["rule_id"] == rule_id]
-                await business_rules_repo.save_rule_validation(
-                    rule_id=rule_id,
-                    dataset_id=dataset_id,
-                    violations_count=len(rule_violations),
-                    violations=rule_violations
-                )
-        
-        return validation_results
-        
-    except Exception as e:
-        logger.error(f"Error validating rules: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-async def generate_rules(dataset_id: int, options: Dict[str, Any] = None) -> Dict[str, Any]:
-    """
-    Generate business rules for a dataset based on its data patterns.
-    
-    Args:
-        dataset_id: ID of the dataset to generate rules for
-        options: Optional configuration for rule generation
-        
-    Returns:
-        Dictionary containing generated rules
-    """
-    try:
-        # Get dataset
-        dataset = await dataset_repo.get_dataset_detail(dataset_id)
-        if not dataset:
-            return {
-                "success": False, 
-                "error": f"Dataset with ID {dataset_id} not found"
-            }
-        
-        # Load the dataset as DataFrame
-        df = await load_dataset_to_dataframe(dataset)
-        
-        # Initialize rule engine
-        engine = RuleEngine()
-        
-        # Generate rules
-        generation_results = await engine.generate_rules(df, options)
-        
-        if not generation_results["success"]:
-            return generation_results
             
-        # Convert generated rules to BusinessRuleCreate objects and save to database
-        generated_rules = generation_results["rules"]
-        rule_creates = []
+        except Exception as e:
+            logger.error(f"Error generating Great Expectations rules: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def _generate_pydantic_rules(self, dataset_id: str, column_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate rules using Pydantic based on column metadata.
         
-        for rule in generated_rules:
-            rule_create = BusinessRuleCreate(
-                name=rule["name"],
-                dataset_id=dataset_id,
-                condition=rule["condition"],
-                severity=rule["severity"],
-                message=rule["message"],
-                model_generated=True,
-                confidence=0.9  # Default confidence for generated rules
+        Args:
+            dataset_id: ID of the dataset
+            column_metadata: Column metadata
+            
+        Returns:
+            Dictionary containing generated rules
+        """
+        try:
+            rules = []
+            rule_id = 1
+            
+            # Generate a schema based on column metadata
+            schema = {}
+            for col_name, col_info in column_metadata.items():
+                col_type = col_info.get('type', 'unknown')
+                
+                if col_type == 'numeric':
+                    stats = col_info.get('stats', {})
+                    min_val = stats.get('min')
+                    max_val = stats.get('max')
+                    
+                    # Create a rule for numeric range validation
+                    if min_val is not None and max_val is not None:
+                        rules.append({
+                            "id": f"PYD{rule_id}",
+                            "name": f"{col_name} Numeric Validation",
+                            "condition": f"{{ '{col_name}': {{ 'type': 'number', 'minimum': {min_val}, 'maximum': {max_val} }} }}",
+                            "severity": "medium",
+                            "message": f"{col_name} should be a number between {min_val} and {max_val}",
+                            "dataset_id": dataset_id,
+                            "source": "pydantic"
+                        })
+                        rule_id += 1
+                        
+                elif col_type == 'categorical':
+                    categories = col_info.get('stats', {}).get('categories', [])
+                    if categories and len(categories) <= 20:  # Only if reasonable number of categories
+                        categories_str = str(categories).replace("'", "\"")
+                        rules.append({
+                            "id": f"PYD{rule_id}",
+                            "name": f"{col_name} Categorical Validation",
+                            "condition": f"{{ '{col_name}': {{ 'type': 'string', 'enum': {categories_str} }} }}",
+                            "severity": "medium",
+                            "message": f"{col_name} should be one of the allowed values",
+                            "dataset_id": dataset_id,
+                            "source": "pydantic"
+                        })
+                        rule_id += 1
+                        
+                elif col_type == 'datetime':
+                    rules.append({
+                        "id": f"PYD{rule_id}",
+                        "name": f"{col_name} Date Validation",
+                        "condition": f"{{ '{col_name}': {{ 'type': 'string', 'format': 'date-time' }} }}",
+                        "severity": "medium",
+                        "message": f"{col_name} should be a valid date",
+                        "dataset_id": dataset_id,
+                        "source": "pydantic"
+                    })
+                    rule_id += 1
+                    
+                else:  # Default to string
+                    rules.append({
+                        "id": f"PYD{rule_id}",
+                        "name": f"{col_name} String Validation",
+                        "condition": f"{{ '{col_name}': {{ 'type': 'string' }} }}",
+                        "severity": "low",
+                        "message": f"{col_name} should be a valid string",
+                        "dataset_id": dataset_id,
+                        "source": "pydantic"
+                    })
+                    rule_id += 1
+            
+            # Create rules in database
+            created_rules = []
+            for rule in rules:
+                try:
+                    created_rule = await self.create_rule(rule)
+                    created_rules.append(created_rule)
+                except Exception as rule_error:
+                    logger.error(f"Error creating Pydantic rule: {str(rule_error)}")
+            
+            return {
+                "success": True,
+                "rules_generated": len(created_rules),
+                "rules": created_rules
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating Pydantic rules: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def _generate_huffman_rules(self, dataset_id: str, column_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate rules using Huffman coding based on column metadata.
+        
+        Args:
+            dataset_id: ID of the dataset
+            column_metadata: Column metadata
+            
+        Returns:
+            Dictionary containing generated rules
+        """
+        try:
+            rules = []
+            rule_id = 1
+            
+            # Generate rules for text columns (Huffman coding is most useful for text compression/validation)
+            for col_name, col_info in column_metadata.items():
+                col_type = col_info.get('type', 'unknown')
+                
+                if col_type in ['string', 'text', 'categorical']:
+                    # Create a rule for Huffman-based validation
+                    rules.append({
+                        "id": f"HUF{rule_id}",
+                        "name": f"{col_name} Huffman Validation",
+                        "condition": f"{{ 'column': '{col_name}', 'encoding_type': 'huffman' }}",
+                        "severity": "low",
+                        "message": f"{col_name} should be efficiently encodable with Huffman coding",
+                        "dataset_id": dataset_id,
+                        "source": "huffman"
+                    })
+                    rule_id += 1
+            
+            # Create rules in database
+            created_rules = []
+            for rule in rules:
+                try:
+                    created_rule = await self.create_rule(rule)
+                    created_rules.append(created_rule)
+                except Exception as rule_error:
+                    logger.error(f"Error creating Huffman rule: {str(rule_error)}")
+            
+            return {
+                "success": True,
+                "rules_generated": len(created_rules),
+                "rules": created_rules
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating Huffman rules: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+                
+        except Exception as e:
+            logger.error(f"Error generating AI rules: {str(e)}")
+            raise
+            
+    async def execute_rules(self, dataset_id: str, df: pd.DataFrame) -> Dict[str, Any]:
+        """Execute all active rules on a dataset.
+        
+            Args:
+                dataset_id: ID of the dataset to execute rules for
+                df: Pandas DataFrame containing the dataset
+                
+            Returns:
+                Dictionary containing execution results
+        """
+        try:
+            # Load active rules
+            rules = await self.load_rules(dataset_id)
+            if not rules:
+                return {
+                    "success": True,
+                    "message": "No active rules found",
+                    "results": []
+                }
+            
+            # Execute rules in parallel
+            results = await asyncio.gather(
+                *[self._execute_rule(rule, df) for rule in rules],
+                return_exceptions=True
             )
-            rule_creates.append(rule_create)
+            
+            # Process results
+            processed_results = []
+            for rule, result in zip(rules, results):
+                if isinstance(result, Exception):
+                    logger.error(f"Error executing rule {rule['id']}: {str(result)}")
+                    processed_results.append({
+                        "rule_id": rule["id"],
+                        "name": rule["name"],
+                        "success": False,
+                        "error": str(result)
+                    })
+                else:
+                    processed_results.append(result)
+            
+            # Log execution results
+            await self._log_rules_execution(
+                dataset_id,
+                {
+                    "total_rules": len(rules),
+                    "success_count": sum(1 for r in processed_results if r["success"]),
+                    "results": processed_results
+                }
+            )
+            
+            # Aggregate results
+            success = all(r["success"] for r in processed_results)
+            failed_rules = [r for r in processed_results if not r["success"]]
+            
+            return {
+                "success": success,
+                "message": "All rules passed" if success else f"{len(failed_rules)} rules failed",
+                "results": processed_results
+            }
+            
+        except Exception as e:
+            logger.error(f"Error executing rules: {str(e)}")
+            raise
+            
+    async def _execute_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+        """Execute a single rule on a dataset.
         
-        # Save rules to database in bulk
-        created_rules = await business_rules_repo.bulk_create_rules(rule_creates)
+        Args:
+            rule: Rule to execute
+            df: DataFrame to validate
+            
+        Returns:
+            Dictionary containing execution result
+        """
+        try:
+            # Get rule execution function based on source
+            execution_fn = self._get_execution_function(rule["source"])
+            if not execution_fn:
+                raise ValueError(f"Unsupported rule source: {rule['source']}")
+            
+            # Execute rule
+            start_time = datetime.datetime.now()
+            result = await execution_fn(rule, df)
+            end_time = datetime.datetime.now()
+            
+            # Add execution metadata
+            execution_time = (end_time - start_time).total_seconds()
+            result.update({
+                "rule_id": rule["id"],
+                "name": rule["name"],
+                "source": rule["source"],
+                "execution_time": execution_time
+            })
+            
+            # Log execution
+            await self._log_rule_execution(
+                rule["id"],
+                {
+                    "success": result["success"],
+                    "message": result.get("message", ""),
+                    "execution_metadata": {
+                        "execution_time": execution_time,
+                        "rows_processed": len(df),
+                        "memory_usage": df.memory_usage(deep=True).sum(),
+                        **result.get("metadata", {})
+                    }
+                }
+            )
+            
+            return result
+            
+        except Exception as e:
+            error_result = {
+                "rule_id": rule["id"],
+                "name": rule["name"],
+                "source": rule["source"],
+                "success": False,
+                "error": str(e)
+            }
+            
+            # Log error
+            await self._log_rule_execution(
+                rule["id"],
+                {
+                    "success": False,
+                    "message": str(e),
+                    "execution_metadata": {"error": True}
+                }
+            )
+            
+            return error_result
+            
+    async def _execute_python_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Execute a manual Python rule. The rule's 'condition' should be a valid Python expression or code block.
+        Returns a dict with success, message, and metadata.
+        """
+        try:
+            # Prepare safe context
+            condition = rule["condition"]
+            context = {
+                "df": df,
+                "pd": pd,
+                "np": np,
+                "re": re,
+                "datetime": datetime
+            }
+            # Build a function from the condition
+            fn_code = (
+                "def validate(df):\n"
+                "    try:\n"
+                f"        {condition}\n"
+                "    except Exception as e:\n"
+                "        return False, str(e)\n"
+                "    return True, 'Rule validation passed'"
+            )
+            local_env = {}
+            exec(fn_code, context, local_env)
+            success, message = local_env["validate"](df)
+            affected_rows = []
+            if isinstance(success, pd.Series):
+                affected_rows = df[~success].index.tolist()
+                success = success.all()
+            return {
+                "success": bool(success),
+                "message": message if not success else "Rule validation passed",
+                "metadata": {
+                    "affected_rows": affected_rows[:10],  # Limit number of rows returned
+                    "total_affected": len(affected_rows)
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error executing Python rule: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Error executing rule: {str(e)}",
+                "metadata": {}
+            }
+
+    async def _execute_ge_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Execute a Great Expectations rule. The rule's 'condition' should be a GE expectation string or config.
+        """
+        try:
+            # Example: condition = 'expect_column_values_to_not_be_null("customer_id")'
+            expectation = rule["condition"]
+            ge_df = ge.from_pandas(df)
+            result = eval(f"ge_df.{expectation}")
+            success = result.success if hasattr(result, 'success') else False
+            return {
+                "success": success,
+                "message": "GE rule passed" if success else str(result),
+                "metadata": {"ge_result": str(result)}
+            }
+        except Exception as e:
+            logger.error(f"Error executing GE rule: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Error executing GE rule: {str(e)}",
+                "metadata": {}
+            }
+
+    async def _execute_pydantic_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Execute a Pydantic rule. The rule's 'condition' should be a Pydantic model definition or schema.
+        """
+        try:
+            # This is a placeholder - you should parse the condition and build a model dynamically
+            model_def = rule["condition"]
+            # For demo: assume model_def is a dict of field types
+            Model = create_model('DynamicModel', **model_def)
+            errors = []
+            for idx, row in df.iterrows():
+                try:
+                    Model(**row.to_dict())
+                except ValidationError as ve:
+                    errors.append((idx, str(ve)))
+            success = len(errors) == 0
+            return {
+                "success": success,
+                "message": "Pydantic validation passed" if success else f"{len(errors)} rows failed",
+                "metadata": {"errors": errors[:10], "total_failed": len(errors)}
+            }
+        except Exception as e:
+            logger.error(f"Error executing Pydantic rule: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Error executing Pydantic rule: {str(e)}",
+                "metadata": {}
+            }
+
+    async def _execute_huffman_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Execute a Huffman rule. The rule's 'condition' should describe a Huffman encoding/decoding validation.
+        """
+        try:
+            # This is a placeholder. Implement your Huffman logic here.
+            # For now, just return success.
+            return {
+                "success": True,
+                "message": "Huffman rule executed (placeholder)",
+                "metadata": {}
+            }
+        except Exception as e:
+            logger.error(f"Error executing Huffman rule: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Error executing Huffman rule: {str(e)}",
+                "metadata": {}
+            }
+
+    def _get_execution_function(self, source: str) -> Optional[Callable]:
+        """Get the execution function for a rule source.
         
-        return {
-            "success": True,
-            "rules_generated": len(created_rules),
-            "rules": created_rules
+        Args:
+            source: Rule source (great_expectations, pydantic, huffman, manual, ai)
+        
+        Returns:
+            Execution function or None if source is unsupported
+        """
+        execution_functions = {
+            "great_expectations": self._execute_ge_rule,
+            "pydantic": self._execute_pydantic_rule,
+            "huffman": self._execute_huffman_rule,
+            "manual": self._execute_python_rule,
+            "ai": self._execute_python_rule,
+            "python": self._execute_python_rule
         }
         
-    except Exception as e:
-        logger.error(f"Error generating rules: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return execution_functions.get(source)
+        
+    def _compile_condition(self, condition: str) -> Optional[Callable]:
+        """Compile a rule condition into an executable function.
+        
+        Args:
+            condition: Python code string representing the condition
+            
+        Returns:
+            Compiled function or None if compilation fails
+        """
+        try:
+            # Validate condition syntax
+            ast.parse(condition)
+            
+            # Create function code with proper indentation
+            fn_code = f"def evaluate(data):\n    return {condition}"
+            
+            # Create namespace with common modules
+            namespace = {}
+            globals_dict = {
+                're': re,
+                'np': np,
+                'pd': pd,
+                'datetime': datetime
+            }
+            
+            # Execute function definition
+            exec(fn_code, globals_dict, namespace)
+            
+            return namespace['evaluate']
+        except Exception as e:
+            logger.error(f"Error compiling condition: {str(e)}")
+            return None

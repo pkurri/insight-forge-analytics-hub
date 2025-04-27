@@ -67,7 +67,10 @@ export const businessRulesService = {
     const endpoint = `datasets/${datasetId}/business-rules`;
     
     try {
-      const response = await callApi(endpoint, 'POST', { rules });
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ rules })
+      });
       if (response.success) {
         return response;
       }
@@ -88,6 +91,147 @@ export const businessRulesService = {
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to save business rules"
+      };
+    }
+  },
+
+  /**
+   * Update a business rule
+   */
+  updateBusinessRule: async (datasetId: string, ruleId: string, rule: Partial<BusinessRule>): Promise<ApiResponse<any>> => {
+    const endpoint = `datasets/${datasetId}/business-rules/${ruleId}`;
+    
+    try {
+      const response = await callApi(endpoint, {
+        method: 'PUT',
+        body: JSON.stringify(rule)
+      });
+      if (response.success) {
+        return response;
+      }
+      
+      // Mock successful response
+      console.log(`Falling back to mock data for: ${endpoint}`);
+      await new Promise(resolve => setTimeout(resolve, 600));
+      
+      return {
+        success: true,
+        data: {
+          message: 'Business rule updated successfully',
+          rule_id: ruleId
+        }
+      };
+    } catch (error) {
+      console.error("Error updating business rule:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to update business rule"
+      };
+    }
+  },
+
+  /**
+   * Delete a business rule
+   */
+  deleteBusinessRule: async (datasetId: string, ruleId: string): Promise<ApiResponse<any>> => {
+    const endpoint = `datasets/${datasetId}/business-rules/${ruleId}`;
+    
+    try {
+      const response = await callApi(endpoint, {
+        method: 'DELETE'
+      });
+      if (response.success) {
+        return response;
+      }
+      
+      // Mock successful response
+      console.log(`Falling back to mock data for: ${endpoint}`);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      return {
+        success: true,
+        data: {
+          message: 'Business rule deleted successfully',
+          rule_id: ruleId
+        }
+      };
+    } catch (error) {
+      console.error("Error deleting business rule:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to delete business rule"
+      };
+    }
+  },
+
+  /**
+   * Import business rules from JSON
+   */
+  importBusinessRules: async (datasetId: string, rulesJson: string): Promise<ApiResponse<any>> => {
+    const endpoint = `datasets/${datasetId}/business-rules/import`;
+    
+    try {
+      // Parse JSON to validate it before sending
+      const rules = JSON.parse(rulesJson);
+      
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ rules })
+      });
+      if (response.success) {
+        return response;
+      }
+      
+      // Mock successful response
+      console.log(`Falling back to mock data for: ${endpoint}`);
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      return {
+        success: true,
+        data: {
+          message: `${rules.length} business rules imported successfully`,
+          rules_imported: rules.length
+        }
+      };
+    } catch (error) {
+      console.error("Error importing business rules:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to import business rules"
+      };
+    }
+  },
+
+  /**
+   * Export business rules to JSON
+   */
+  exportBusinessRules: async (datasetId: string): Promise<ApiResponse<any>> => {
+    const endpoint = `datasets/${datasetId}/business-rules/export`;
+    
+    try {
+      const response = await callApi(endpoint);
+      if (response.success) {
+        return response;
+      }
+      
+      // Get rules and format them for export
+      const rulesResponse = await businessRulesService.getBusinessRules(datasetId);
+      if (!rulesResponse.success) {
+        throw new Error("Failed to fetch rules for export");
+      }
+      
+      return {
+        success: true,
+        data: {
+          rules: rulesResponse.data,
+          export_time: new Date().toISOString()
+        }
+      };
+    } catch (error) {
+      console.error("Error exporting business rules:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to export business rules"
       };
     }
   }

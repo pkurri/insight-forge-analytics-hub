@@ -7,38 +7,60 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from "@/hooks/use-toast";
+import { pipelineService } from '@/api/services/pipeline/pipelineService';
 import { pythonApi } from '@/api/pythonIntegration';
-import { Stepper, Step } from '@/components/ui/stepper';
+import { Stepper } from '@/components/ui/stepper';
 import { Card } from '@/components/ui/card';
+
+interface PipelineResponse {
+  success: boolean;
+  data?: {
+    id: string;
+  };
+  error?: string;
+}
+
+interface PipelineStep {
+  label: string;
+  description: string;
+  icon?: React.ReactNode;
+}
+
+interface PipelineStatus {
+  current_stage: 'validate' | 'transform' | 'enrich' | 'load';
+  progress: number;
+  status: 'running' | 'completed' | 'failed';
+}
 
 const PipelineUploadForm: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [dataSource, setDataSource] = useState("local");
-  const [fileType, setFileType] = useState("csv");
-  const [apiEndpoint, setApiEndpoint] = useState("");
-  const [dbConnection, setDbConnection] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [currentStep, setCurrentStep] = useState(0);
+  const [dataSource, setDataSource] = useState<'local' | 'api' | 'database'>('local');
+  const [fileType, setFileType] = useState<string>('csv');
+  const [apiEndpoint, setApiEndpoint] = useState<string>('');
+  const [dbConnection, setDbConnection] = useState<string>('');
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [currentStep, setCurrentStep] = useState<number>(0);
   const [datasetId, setDatasetId] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const { toast } = useToast();
 
-  const pipelineSteps = [
-    { label: "Upload", description: "Upload data file" },
-    { label: "Validate", description: "Validate data integrity" },
-    { label: "Transform", description: "Apply transformations" },
-    { label: "Enrich", description: "Add derived fields" },
-    { label: "Load", description: "Save processed data" },
+  const pipelineSteps: PipelineStep[] = [
+    { label: "Upload", description: "Upload data file", icon: <UploadCloud className="h-4 w-4" /> },
+    { label: "Validate", description: "Validate data integrity", icon: <AlertCircle className="h-4 w-4" /> },
+    { label: "Business Rules", description: "Apply business rules", icon: <Check className="h-4 w-4" /> },
+    { label: "Transform", description: "Apply transformations", icon: <File className="h-4 w-4" /> },
+    { label: "Enrich", description: "Add derived fields", icon: <Table className="h-4 w-4" /> },
+    { label: "Load", description: "Save processed data", icon: <Check className="h-4 w-4" /> }
   ];
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     if (e.target.files && e.target.files[0]) {
       setSelectedFile(e.target.files[0]);
     }
   };
 
-  const handleUpload = async () => {
+  const handleUpload = async (): Promise<void> => {
     if (dataSource === "local" && !selectedFile) {
       toast({
         title: "No file selected",
@@ -83,42 +105,104 @@ const PipelineUploadForm: React.FC = () => {
     try {
       let response;
       
+      const formData = new FormData();
+      
       if (dataSource === "local" && selectedFile) {
-        // Upload local file
-        response = await pythonApi.uploadDataToPipeline(selectedFile, fileType);
+        formData.append('file', selectedFile);
+        formData.append('file_type', fileType);
+        formData.append('clean_data', 'true');
+        formData.append('validate_data', 'true');
       } else if (dataSource === "api") {
-        // Fetch from API
-        response = await pythonApi.fetchDataFromExternalApi(apiEndpoint, fileType);
+        formData.append('api_endpoint', apiEndpoint);
+        formData.append('output_format', fileType);
       } else if (dataSource === "database") {
-        // Import from database
-        response = await pythonApi.fetchDataFromDatabase(dbConnection, fileType);
+        formData.append('connection_id', dbConnection);
+        formData.append('output_format', fileType);
       } else {
         throw new Error("Invalid data source");
       }
       
+      response = await pipelineService.uploadData(formData);
+      
       clearInterval(progressInterval);
       
-      if (response.success) {
+      if (response.success && response.data) {
+        setDatasetId(response.data.id);
+        setCurrentStep(1); // Move to validation step
         setUploadProgress(100);
-        setDatasetId(response.data.dataset_id);
-        setCurrentStep(1);
         
         toast({
-          title: "Upload completed",
-          description: `Your data has been successfully uploaded. Proceeding to validation.`,
+          title: "Upload successful",
+          description: "Data uploaded successfully. Starting pipeline processing...",
         });
+
+        // Start monitoring pipeline progress
+        setIsProcessing(true);
+        await monitorPipelineProgress(response.data.id);
       } else {
-        throw new Error(response.error || "Data upload failed");
+        throw new Error(response.error || "Upload failed");
       }
     } catch (error) {
       clearInterval(progressInterval);
+      console.error("Upload error:", error);
+      
       toast({
         title: "Upload failed",
-        description: error instanceof Error ? error.message : "An unexpected error occurred",
+        description: error instanceof Error ? error.message : "Failed to upload data",
         variant: "destructive",
       });
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const monitorPipelineProgress = async (pipelineId: string): Promise<void> => {
+    try {
+      let isComplete = false;
+      while (!isComplete) {
+        const status = await pipelineService.getPipelineStatus(pipelineId);
+        
+        if (status.success && status.data) {
+          const { current_stage, progress, status: pipelineStatus } = status.data as PipelineStatus;
+          
+          // Update UI based on pipeline status
+          switch (current_stage) {
+            case 'validate':
+              setCurrentStep(1);
+              break;
+            case 'transform':
+              setCurrentStep(3);
+              break;
+            case 'enrich':
+              setCurrentStep(4);
+              break;
+            case 'load':
+              setCurrentStep(5);
+              break;
+          }
+
+          if (pipelineStatus === 'completed') {
+            isComplete = true;
+            setIsProcessing(false);
+            toast({
+              title: "Pipeline completed",
+              description: "Data processing completed successfully",
+            });
+          } else if (pipelineStatus === 'failed') {
+            throw new Error("Pipeline processing failed");
+          }
+        }
+
+        // Wait before next status check
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    } catch (error) {
+      setIsProcessing(false);
+      toast({
+        title: "Pipeline failed",
+        description: error instanceof Error ? error.message : "Failed to process data",
+        variant: "destructive",
+      });
     }
   };
   
@@ -147,8 +231,30 @@ const PipelineUploadForm: React.FC = () => {
           description: `Passed ${validationResponse.data.validation_results.passed_rules} out of ${validationResponse.data.validation_results.total_rules} validation rules.`,
         });
         
+        // Move to business rules step after validation
         setCurrentStep(2);
       } else if (currentStep === 2) {
+        // Business Rules step
+        toast({
+          title: "Processing",
+          description: "Applying business rules...",
+        });
+        
+        const businessRulesResponse = await pythonApi.validateWithBusinessRules(datasetId);
+        
+        if (!businessRulesResponse.success) {
+          throw new Error(businessRulesResponse.error || "Business rules validation failed");
+        }
+        
+        const { validation_summary } = businessRulesResponse.data;
+        
+        toast({
+          title: "Business rules validation complete",
+          description: `Passed ${validation_summary.passed_rules} out of ${validation_summary.total_rules} business rules with ${validation_summary.total_violations} violations.`,
+        });
+        
+        setCurrentStep(3);
+      } else if (currentStep === 3) {
         // Transform step
         toast({
           title: "Processing",
@@ -166,8 +272,8 @@ const PipelineUploadForm: React.FC = () => {
           description: `Applied ${transformResponse.data.transformation_results.transformations_applied.length} transformations and added ${transformResponse.data.transformation_results.new_columns_added.length} new columns.`,
         });
         
-        setCurrentStep(3);
-      } else if (currentStep === 3) {
+        setCurrentStep(4);
+      } else if (currentStep === 4) {
         // Enrich step
         toast({
           title: "Processing",
@@ -185,8 +291,8 @@ const PipelineUploadForm: React.FC = () => {
           description: `Applied ${enrichResponse.data.enrichment_results.enrichments_applied.length} enrichments and added ${enrichResponse.data.enrichment_results.new_columns_added.length} new fields.`,
         });
         
-        setCurrentStep(4);
-      } else if (currentStep === 4) {
+        setCurrentStep(5);
+      } else if (currentStep === 5) {
         // Load step
         toast({
           title: "Processing",
@@ -354,15 +460,22 @@ const PipelineUploadForm: React.FC = () => {
     <div className="space-y-6">
       <div className="mb-8">
         <Stepper currentStep={currentStep} orientation="horizontal">
-          {pipelineSteps.map((step, index) => (
-            <Step 
-              key={index} 
-              description={step.description} 
-              icon={index === currentStep ? undefined : (index < currentStep ? <Check className="h-4 w-4" /> : undefined)}
-            >
-              {step.label}
-            </Step>
-          ))}
+          <div className="grid grid-cols-5 gap-4 w-full">
+            {pipelineSteps.map((step, index) => (
+              <div
+                key={index}
+                className={`flex items-center gap-2 ${
+                  currentStep >= index ? 'text-primary' : 'text-muted-foreground'
+                }`}
+              >
+                {step.icon}
+                <div className="flex flex-col">
+                  <span className="font-medium">{step.label}</span>
+                  <span className="text-xs">{step.description}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </Stepper>
       </div>
       
