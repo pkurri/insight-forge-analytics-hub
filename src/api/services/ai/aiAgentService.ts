@@ -1,5 +1,5 @@
 import { ApiResponse } from '../../api';
-import { callApi } from '../core/apiService';
+import { callApi } from '../../utils/apiUtils';
 
 /**
  * AI Agent Service

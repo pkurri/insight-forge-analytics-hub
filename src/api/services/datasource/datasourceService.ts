@@ -38,7 +38,7 @@ export const datasourceService = {
    */
   getApiConnections: async (): Promise<ApiResponse> => {
     try {
-      return await callApi('/datasource/api', 'GET');
+      return await callApi('/datasource/api', { method: 'GET' });
     } catch (error) {
       console.error('Error fetching API connections:', error);
       return {
@@ -54,7 +54,7 @@ export const datasourceService = {
    */
   getDbConnections: async (): Promise<ApiResponse> => {
     try {
-      return await callApi('/datasource/db', 'GET');
+      return await callApi('/datasource/db', { method: 'GET' });
     } catch (error) {
       console.error('Error fetching database connections:', error);
       return {
@@ -70,7 +70,7 @@ export const datasourceService = {
    */
   createApiConnection: async (connection: Omit<ApiConnection, 'id' | 'createdAt'>): Promise<ApiResponse> => {
     try {
-      return await callApi('/datasource/api', 'POST', connection);
+      return await callApi('/datasource/api', { method: 'POST', body: JSON.stringify(connection) });
     } catch (error) {
       console.error('Error creating API connection:', error);
       return {
@@ -86,7 +86,7 @@ export const datasourceService = {
    */
   createDbConnection: async (connection: Omit<DbConnection, 'id' | 'createdAt'>): Promise<ApiResponse> => {
     try {
-      return await callApi('/datasource/db', 'POST', connection);
+      return await callApi('/datasource/db', { method: 'POST', body: JSON.stringify(connection) });
     } catch (error) {
       console.error('Error creating database connection:', error);
       return {
@@ -102,7 +102,7 @@ export const datasourceService = {
    */
   deleteApiConnection: async (id: string): Promise<ApiResponse> => {
     try {
-      return await callApi(`/datasource/api/${id}`, 'DELETE');
+      return await callApi(`/datasource/api/${id}`, { method: 'DELETE' });
     } catch (error) {
       console.error('Error deleting API connection:', error);
       return {
@@ -118,7 +118,7 @@ export const datasourceService = {
    */
   deleteDbConnection: async (id: string): Promise<ApiResponse> => {
     try {
-      return await callApi(`/datasource/db/${id}`, 'DELETE');
+      return await callApi(`/datasource/db/${id}`, { method: 'DELETE' });
     } catch (error) {
       console.error('Error deleting database connection:', error);
       return {
@@ -130,11 +130,48 @@ export const datasourceService = {
   },
 
   /**
-   * Test an API connection
+   * Update an existing API connection
    */
-  testApiConnection: async (connection: Omit<ApiConnection, 'id' | 'createdAt'>): Promise<ApiResponse> => {
+  updateApiConnection: async (id: string, connection: Omit<ApiConnection, 'id' | 'createdAt'>): Promise<ApiResponse> => {
     try {
-      return await callApi('/datasource/api/test', 'POST', connection);
+      return await callApi(`/datasource/api/${id}`, { method: 'PUT', body: JSON.stringify(connection) });
+    } catch (error) {
+      console.error('Error updating API connection:', error);
+      return {
+        success: false,
+        error: 'Failed to update API connection',
+        data: null
+      };
+    }
+  },
+
+  /**
+   * Update an existing database connection
+   */
+  updateDbConnection: async (id: string, connection: Omit<DbConnection, 'id' | 'createdAt'>): Promise<ApiResponse> => {
+    try {
+      return await callApi(`/datasource/db/${id}`, { method: 'PUT', body: JSON.stringify(connection) });
+    } catch (error) {
+      console.error('Error updating database connection:', error);
+      return {
+        success: false,
+        error: 'Failed to update database connection',
+        data: null
+      };
+    }
+  },
+
+  /**
+   * Test an API connection by id
+   */
+  testApiConnection: async (id: string): Promise<ApiResponse> => {
+    try {
+      // Fetch the connection first
+      const connResp = await callApi(`/datasource/api/${id}`, { method: 'GET' });
+      if (!connResp.success || !connResp.data) {
+        return { success: false, error: 'API connection not found', data: null };
+      }
+      return await callApi('/datasource/api/test', { method: 'POST', body: JSON.stringify(connResp.data) });
     } catch (error) {
       console.error('Error testing API connection:', error);
       return {
@@ -146,11 +183,16 @@ export const datasourceService = {
   },
 
   /**
-   * Test a database connection
+   * Test a database connection by id
    */
-  testDbConnection: async (connection: Omit<DbConnection, 'id' | 'createdAt'>): Promise<ApiResponse> => {
+  testDbConnection: async (id: string): Promise<ApiResponse> => {
     try {
-      return await callApi('/datasource/db/test', 'POST', connection);
+      // Fetch the connection first
+      const connResp = await callApi(`/datasource/db/${id}`, { method: 'GET' });
+      if (!connResp.success || !connResp.data) {
+        return { success: false, error: 'DB connection not found', data: null };
+      }
+      return await callApi('/datasource/db/test', { method: 'POST', body: JSON.stringify(connResp.data) });
     } catch (error) {
       console.error('Error testing database connection:', error);
       return {

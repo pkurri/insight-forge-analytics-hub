@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -15,6 +14,7 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import { Plus, Trash2, Database, Globe, Key, Loader2 } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { api } from '@/api/api';
+import { datasourceService } from '@/api/services/datasource/datasourceService';
 
 // Schema for API connection form
 const apiFormSchema = z.object({
@@ -41,6 +41,18 @@ const dbFormSchema = z.object({
   ssl: z.boolean().default(false),
   options: z.string().optional(),
 });
+
+interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+
+interface Dataset {
+  id: string;
+  name: string;
+  createdAt: string;
+}
 
 interface ApiConnection {
   id: string;
@@ -70,6 +82,26 @@ interface DbConnection {
   createdAt: string;
 }
 
+interface ApiClient {
+  callApi: <T = any>(endpoint: string, method?: "GET" | "POST" | "PUT" | "DELETE", data?: any) => Promise<ApiResponse<T>>;
+  datasets: {
+    getDatasets: () => Promise<ApiResponse<Dataset[]>>;
+    getDataset: (id: string) => Promise<ApiResponse<Dataset>>;
+    uploadDataset: (file: File, name: string) => Promise<ApiResponse<Dataset>>;
+    deleteDataset: (id: string) => Promise<ApiResponse<void>>;
+  };
+  pipeline: {
+    getApiConnections: () => Promise<ApiResponse<ApiConnection[]>>;
+    getDbConnections: () => Promise<ApiResponse<DbConnection[]>>;
+    createApiConnection: (data: Omit<ApiConnection, 'id' | 'createdAt'>) => Promise<ApiResponse<ApiConnection>>;
+    createDbConnection: (data: Omit<DbConnection, 'id' | 'createdAt'>) => Promise<ApiResponse<DbConnection>>;
+    deleteApiConnection: (id: string) => Promise<ApiResponse<void>>;
+    deleteDbConnection: (id: string) => Promise<ApiResponse<void>>;
+    testApiConnection: (id: string) => Promise<ApiResponse<{status: string}>>;
+    testDbConnection: (id: string) => Promise<ApiResponse<{status: string}>>;
+  };
+}
+
 const DataSourceConfig: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>("api");
   const [showApiDialog, setShowApiDialog] = useState<boolean>(false);
@@ -77,6 +109,9 @@ const DataSourceConfig: React.FC = () => {
   const [apiConnections, setApiConnections] = useState<ApiConnection[]>([]);
   const [dbConnections, setDbConnections] = useState<DbConnection[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [editingApiConnection, setEditingApiConnection] = useState<ApiConnection | null>(null);
+  const [editingDbConnection, setEditingDbConnection] = useState<DbConnection | null>(null);
+  const [testingConnectionId, setTestingConnectionId] = useState<string | null>(null);
   const { toast } = useToast();
   
   // Fetch existing connections when component mounts
@@ -84,22 +119,35 @@ const DataSourceConfig: React.FC = () => {
     const fetchConnections = async () => {
       setIsLoading(true);
       try {
-        // Fetch API connections
-        const apiResponse = await api.pipeline.getApiConnections();
+        const [apiResponse, dbResponse] = await Promise.all([
+          datasourceService.getApiConnections(),
+          datasourceService.getDbConnections()
+        ]);
+
         if (apiResponse.success) {
           setApiConnections(apiResponse.data || []);
+        } else {
+          toast({
+            title: 'Error',
+            description: apiResponse.error || 'Failed to fetch API connections',
+            variant: 'destructive'
+          });
         }
-        
-        // Fetch DB connections
-        const dbResponse = await api.pipeline.getDbConnections();
+
         if (dbResponse.success) {
           setDbConnections(dbResponse.data || []);
+        } else {
+          toast({
+            title: 'Error',
+            description: dbResponse.error || 'Failed to fetch DB connections',
+            variant: 'destructive'
+          });
         }
       } catch (error) {
         console.error('Error fetching connections:', error);
         toast({
           title: 'Error',
-          description: 'Failed to fetch existing connections',
+          description: 'An unexpected error occurred while fetching connections',
           variant: 'destructive'
         });
       } finally {
@@ -145,31 +193,47 @@ const DataSourceConfig: React.FC = () => {
   const onApiSubmit = async (values: z.infer<typeof apiFormSchema>) => {
     try {
       setIsLoading(true);
-      // Save to backend
-      const response = await api.pipeline.createApiConnection(values);
+      // Ensure all required fields are present for type safety
+      const apiPayload: Omit<ApiConnection, 'id' | 'createdAt'> = {
+        name: values.name,
+        url: values.url,
+        authType: values.authType,
+        username: values.username ?? '',
+        password: values.password ?? '',
+        apiKey: values.apiKey ?? '',
+        apiKeyName: values.apiKeyName ?? '',
+        bearerToken: values.bearerToken ?? '',
+        headers: values.headers ?? ''
+      };
+      const response = editingApiConnection
+        ? await api.datasource.updateApiConnection(editingApiConnection.id, apiPayload)
+        : await api.datasource.createApiConnection(apiPayload);
       
       if (response.success && response.data) {
-        // Add the new connection to state
-        setApiConnections([...apiConnections, response.data]);
+        setApiConnections(editingApiConnection
+          ? apiConnections.map(conn => conn.id === editingApiConnection.id ? response.data! : conn)
+          : [...apiConnections, response.data]);
+        
         setShowApiDialog(false);
+        setEditingApiConnection(null);
         apiForm.reset();
         
         toast({
-          title: "API Connection Added",
-          description: `Successfully created connection to ${values.name}`,
+          title: editingApiConnection ? "API Connection Updated" : "API Connection Added",
+          description: `Successfully ${editingApiConnection ? 'updated' : 'created'} connection to ${values.name}`,
         });
       } else {
         toast({
           title: "Error",
-          description: response.error || 'Failed to create API connection',
+          description: response.error || 'Failed to save API connection',
           variant: 'destructive'
         });
       }
     } catch (error) {
-      console.error('Error creating API connection:', error);
+      console.error('Error saving API connection:', error);
       toast({
         title: "Error",
-        description: 'Failed to create API connection',
+        description: 'Failed to save API connection',
         variant: 'destructive'
       });
     } finally {
@@ -181,7 +245,19 @@ const DataSourceConfig: React.FC = () => {
     try {
       setIsLoading(true);
       // Save to backend
-      const response = await api.pipeline.createDbConnection(values);
+      // Ensure all required fields are present for type safety
+      const dbPayload: Omit<DbConnection, 'id' | 'createdAt'> = {
+        name: values.name,
+        connectionType: values.connectionType,
+        host: values.host,
+        port: values.port,
+        database: values.database,
+        username: values.username ?? '',
+        password: values.password ?? '',
+        ssl: values.ssl,
+        options: values.options ?? ''
+      };
+      const response = await api.datasource.createDbConnection(dbPayload);
       
       if (response.success && response.data) {
         // Add the new connection to state
@@ -215,19 +291,17 @@ const DataSourceConfig: React.FC = () => {
   const deleteApiConnection = async (id: string) => {
     try {
       setIsLoading(true);
-      // Delete from backend
-      const response = await api.pipeline.deleteApiConnection(id);
+      const response = await api.datasource.deleteApiConnection(id);
       
       if (response.success) {
-        // Remove from state
         setApiConnections(apiConnections.filter(conn => conn.id !== id));
         toast({
-          title: "Connection Removed",
-          description: "API connection has been deleted",
+          title: 'Success',
+          description: 'API connection deleted successfully',
         });
       } else {
         toast({
-          title: "Error",
+          title: 'Error',
           description: response.error || 'Failed to delete API connection',
           variant: 'destructive'
         });
@@ -235,8 +309,8 @@ const DataSourceConfig: React.FC = () => {
     } catch (error) {
       console.error('Error deleting API connection:', error);
       toast({
-        title: "Error",
-        description: 'Failed to delete API connection',
+        title: 'Error',
+        description: 'An unexpected error occurred',
         variant: 'destructive'
       });
     } finally {
@@ -248,7 +322,7 @@ const DataSourceConfig: React.FC = () => {
     try {
       setIsLoading(true);
       // Delete from backend
-      const response = await api.pipeline.deleteDbConnection(id);
+      const response = await api.datasource.deleteDbConnection(id);
       
       if (response.success) {
         // Remove from state
@@ -276,15 +350,44 @@ const DataSourceConfig: React.FC = () => {
     }
   };
   
+  const testConnection = async (type: 'api' | 'db', id: string) => {
+    try {
+      setTestingConnectionId(id);
+      const response = type === 'api' 
+        ? await api.datasource.testApiConnection(id)
+        : await api.datasource.testDbConnection(id);
+      
+      if (response.success) {
+        toast({
+          title: 'Connection Test',
+          description: `Connection test ${response.data?.status === 'success' ? 'passed' : 'failed'}`,
+          variant: response.data?.status === 'success' ? 'default' : 'destructive'
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: response.error || 'Failed to test connection',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      console.error('Error testing connection:', error);
+      toast({
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive'
+      });
+    } finally {
+      setTestingConnectionId(null);
+    }
+  };
+  
   if (isLoading) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Data Source Configuration</CardTitle>
-        </CardHeader>
-        <CardContent className="flex items-center justify-center p-8">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <span className="ml-2">Loading connections...</span>
+        <CardContent className="flex flex-col justify-center items-center h-64 gap-2">
+          <Loader2 className="animate-spin h-8 w-8 text-muted-foreground" />
+          <span className="text-muted-foreground">Loading connections...</span>
         </CardContent>
       </Card>
     );
@@ -314,7 +417,10 @@ const DataSourceConfig: React.FC = () => {
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-[500px]">
                   <DialogHeader>
-                    <DialogTitle>Add New API Connection</DialogTitle>
+                    <DialogTitle>{editingApiConnection ? "Edit API Connection" : "Add API Connection"}</DialogTitle>
+                    <button aria-label="Close dialog" className="absolute right-4 top-4" onClick={() => { setShowApiDialog(false); setEditingApiConnection(null); }}>
+                      ×
+                    </button>
                   </DialogHeader>
                   
                   <Form {...apiForm}>
@@ -477,48 +583,57 @@ const DataSourceConfig: React.FC = () => {
               </Dialog>
             </div>
             
-            {apiConnections.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>URL</TableHead>
-                    <TableHead>Auth Type</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {apiConnections.map((conn) => (
-                    <TableRow key={conn.id}>
-                      <TableCell className="font-medium">{conn.name}</TableCell>
-                      <TableCell>{conn.url}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center">
-                          {conn.authType === "none" && "None"}
-                          {conn.authType === "basic" && "Basic Auth"}
-                          {conn.authType === "bearer" && "Bearer Token"}
-                          {conn.authType === "api_key" && "API Key"}
-                          {conn.authType !== "none" && (
-                            <Key className="ml-2 h-4 w-4 text-muted-foreground" />
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => deleteApiConnection(conn.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead>Name</TableHead>
+      <TableHead>URL</TableHead>
+      <TableHead>Auth Type</TableHead>
+      <TableHead>Created At</TableHead>
+      <TableHead>Status</TableHead>
+      <TableHead>Actions</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    {apiConnections.length === 0 ? (
+      <TableRow>
+        <TableCell colSpan={6} className="text-center text-muted-foreground">
+          <div className="flex flex-col items-center gap-2">
+            <Globe className="h-6 w-6 opacity-50" />
+            <span>No API connections found.</span>
+          </div>
+        </TableCell>
+      </TableRow>
+    ) : (
+      apiConnections.map((conn) => (
+        <TableRow key={conn.id}>
+          <TableCell>{conn.name}</TableCell>
+          <TableCell>{conn.url}</TableCell>
+          <TableCell>{conn.authType}</TableCell>
+          <TableCell>{conn.createdAt}</TableCell>
+          <TableCell>
+            {testingConnectionId === conn.id ? (
+              <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="animate-spin h-4 w-4 inline" /> Testing...</span>
             ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Globe className="mx-auto h-12 w-12 opacity-20 mb-2" />
-                <p>No API connections configured</p>
-                <p className="text-sm">Add a connection to get started</p>
-              </div>
+              <span className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5">Ready</span>
             )}
+          </TableCell>
+          <TableCell className="flex gap-2">
+            <Button aria-label="Edit" onClick={() => { setEditingApiConnection(conn); setShowApiDialog(true); }}>
+  Edit
+</Button>
+<Button aria-label="Delete" onClick={() => deleteApiConnection(conn.id)}>
+  <Trash2 className="h-4 w-4" />
+</Button>
+<Button aria-label="Test Connection" onClick={() => testConnection('api', conn.id)} disabled={testingConnectionId === conn.id}>
+  Test
+</Button>
+          </TableCell>
+        </TableRow>
+      ))
+    )}
+  </TableBody>
+</Table>
           </TabsContent>
           
           <TabsContent value="database" className="space-y-4">
@@ -533,11 +648,17 @@ const DataSourceConfig: React.FC = () => {
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-[500px]">
                   <DialogHeader>
-                    <DialogTitle>Add New Database Connection</DialogTitle>
-                  </DialogHeader>
+  <DialogTitle>{editingDbConnection ? "Edit Database Connection" : "Add Database Connection"}</DialogTitle>
+  <button aria-label="Close dialog" className="absolute right-4 top-4" onClick={() => { setShowDbDialog(false); setEditingDbConnection(null); }}>
+    ×
+  </button>
+</DialogHeader>
                   
                   <Form {...dbForm}>
                     <form onSubmit={dbForm.handleSubmit(onDbSubmit)} className="space-y-4 py-4">
+  {editingDbConnection && (
+    <input type="hidden" value={editingDbConnection.id} />
+  )}
                       <FormField
                         control={dbForm.control}
                         name="name"
@@ -698,41 +819,59 @@ const DataSourceConfig: React.FC = () => {
               </Dialog>
             </div>
             
-            {dbConnections.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Host</TableHead>
-                    <TableHead>Database</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {dbConnections.map((conn) => (
-                    <TableRow key={conn.id}>
-                      <TableCell className="font-medium">{conn.name}</TableCell>
-                      <TableCell>
-                        <div className="capitalize">{conn.connectionType}</div>
-                      </TableCell>
-                      <TableCell>{conn.host}:{conn.port}</TableCell>
-                      <TableCell>{conn.database}</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => deleteDbConnection(conn.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead>Name</TableHead>
+      <TableHead>Type</TableHead>
+      <TableHead>Host</TableHead>
+      <TableHead>Database</TableHead>
+      <TableHead>Status</TableHead>
+      <TableHead>Actions</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    {dbConnections.length === 0 ? (
+      <TableRow>
+        <TableCell colSpan={6} className="text-center text-muted-foreground">
+          <div className="flex flex-col items-center gap-2">
+            <Database className="h-6 w-6 opacity-50" />
+            <span>No database connections found.</span>
+          </div>
+        </TableCell>
+      </TableRow>
+    ) : (
+      dbConnections.map((conn) => (
+        <TableRow key={conn.id}>
+          <TableCell>{conn.name}</TableCell>
+          <TableCell>
+            <div className="capitalize">{conn.connectionType}</div>
+          </TableCell>
+          <TableCell>{conn.host}:{conn.port}</TableCell>
+          <TableCell>{conn.database}</TableCell>
+          <TableCell>
+            {testingConnectionId === conn.id ? (
+              <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="animate-spin h-4 w-4 inline" /> Testing...</span>
             ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Database className="mx-auto h-12 w-12 opacity-20 mb-2" />
-                <p>No database connections configured</p>
-                <p className="text-sm">Add a connection to get started</p>
-              </div>
+              <span className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5">Ready</span>
+            )}
+          </TableCell>
+          <TableCell className="flex gap-2">
+            <Button aria-label="Edit" onClick={() => { setEditingDbConnection(conn); setShowDbDialog(true); }}>
+  Edit
+</Button>
+<Button aria-label="Delete" onClick={() => deleteDbConnection(conn.id)}>
+  <Trash2 className="h-4 w-4" />
+</Button>
+<Button aria-label="Test Connection" onClick={() => testConnection('db', conn.id)} disabled={testingConnectionId === conn.id}>
+  Test
+</Button>
+          </TableCell>
+        </TableRow>
+      ))
+    )}
+  </TableBody>
+</Table>  </div>
             )}
           </TabsContent>
         </Tabs>

@@ -23,13 +23,14 @@ export const pipelineService = {
   /**
    * Upload data to the pipeline
    */
-  uploadData: async (formData: FormData): Promise<ApiResponse<any>> => {
+  uploadData: async (formData: FormData, config?: { onUploadProgress?: (progressEvent: any) => void }): Promise<ApiResponse<any>> => {
     const endpoint = 'pipeline/upload';
     
     try {
       const response = await callApi(endpoint, {
         method: 'POST',
-        body: formData
+        body: formData,
+        onUploadProgress: config?.onUploadProgress
       });
       return response;
     } catch (error) {

@@ -1,6 +1,7 @@
 import { modelService } from './services/ai/modelService';
 import { embeddingService } from './services/ai/embeddingService';
 import { aiAgentService } from './services/ai/aiAgentService';
+import { businessRulesService } from './services/businessRules/businessRulesService';
 
 /**
  * API Response interface
@@ -173,7 +174,17 @@ const datasets = {
    */
   deleteDataset: async (id: string): Promise<ApiResponse> => {
     return callApi(`datasets/${id}`, 'DELETE');
-  }
+  },
+  
+  /**
+   * Delete a business rule
+   * @param datasetId Dataset ID
+   * @param ruleId Business rule ID
+   * @returns Promise with delete result
+   */
+  deleteBusinessRule: async (datasetId: string, ruleId: string): Promise<ApiResponse> => {
+    return callApi(`datasets/${datasetId}/business-rules/${ruleId}`, 'DELETE');
+  },
 };
 
 /**
@@ -202,6 +213,10 @@ const getAiAssistantResponse = async (
 /**
  * Export API functions
  */
+import { pipelineService } from './services/pipeline/pipelineService';
+import { datasourceService } from './services/datasource/datasourceService';
+import { datasetService } from './services/datasets/datasetService';
+
 export const api = {
   callApi,
   datasets,
@@ -209,6 +224,10 @@ export const api = {
   models: modelService,
   embeddings: embeddingService,
   agents: aiAgentService,
+  pipeline: pipelineService,
+  datasource: datasourceService,
+  dataset: datasetService,
+  businessRules: businessRulesService,
   
   // Dashboard API
   getDashboardMetrics: async (): Promise<ApiResponse> => {

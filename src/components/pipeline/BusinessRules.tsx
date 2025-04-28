@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -7,32 +7,30 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Save, RefreshCw, Sparkles, AlertTriangle, Info, Check, X } from 'lucide-react';
+import { PlusCircle, Save, RefreshCw, Sparkles, AlertTriangle, Info, Check, X, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { pythonApi } from '@/api/pythonIntegration';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { api } from '@/api/api';
+import type { BusinessRule } from '@/api/services/businessRules/businessRulesService';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-interface Rule {
-  id: string;
-  name: string;
-  description?: string;
-  condition: string;
-  severity: 'low' | 'medium' | 'high';
-  message: string;
-  enabled?: boolean;
-  confidence?: number;
-  model_generated?: boolean;
+type RuleSeverity = 'low' | 'medium' | 'high';
+
+interface BusinessRulesResponse {
+  success: boolean;
+  data?: BusinessRule[];
+  error?: string;
 }
 
 const BusinessRules: React.FC = () => {
   const { toast } = useToast();
-  const [jsonInput, setJsonInput] = useState<string>('');
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [rules, setRules] = useState<BusinessRule[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [selectedDataset, setSelectedDataset] = useState<string>("ds001");
+  const [jsonInput, setJsonInput] = useState('');
   const [showAddRuleDialog, setShowAddRuleDialog] = useState(false);
   
-  const [newRule, setNewRule] = useState<Rule>({
+  const [newRule, setNewRule] = useState<BusinessRule>({
     id: '',
     name: '',
     description: '',
@@ -41,205 +39,96 @@ const BusinessRules: React.FC = () => {
     message: '',
     enabled: true
   });
-  
-  const [rules, setRules] = useState<Rule[]>([
-    {
-      id: '1',
-      name: 'Missing Values Check',
-      description: 'Flag records with null values in critical fields',
-      condition: 'column.isNull("customer_id") || column.isNull("order_date")',
-      severity: 'high',
-      message: 'Missing critical data in required fields',
-      enabled: true
-    },
-    {
-      id: '2',
-      name: 'Date Range Validation',
-      description: 'Ensure order dates are within acceptable range',
-      condition: 'column.date("order_date") < "2023-01-01" || column.date("order_date") > currentDate()',
-      severity: 'medium',
-      message: 'Order date outside acceptable range',
-      enabled: true
+
+  const fetchRules = useCallback(async () => {
+    if (!selectedDataset) return;
+    
+    setIsLoading(true);
+    try {
+      const response = await api.businessRules.getBusinessRules(selectedDataset);
+      
+      if (response.success) {
+        setRules(response.data as BusinessRule[] || []);
+      } else {
+        toast({
+          title: 'Failed to load rules',
+          description: response.error || 'Unknown error occurred',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch business rules',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
     }
-  ]);
+  }, [selectedDataset, toast]);
 
   useEffect(() => {
-    // Fetch rules from API when dataset changes
-    const fetchRules = async () => {
-      if (!selectedDataset) return;
-      
-      try {
-        const response = await api.getBusinessRules(selectedDataset);
-        if (response.success && response.data) {
-          // Map the API response to our component's rule format
-          const fetchedRules = response.data.map(rule => ({
-            id: rule.id,
-            name: rule.name,
-            description: rule.description || '',
-            condition: rule.condition,
-            severity: rule.severity || 'medium',
-            message: rule.message || rule.description || '',
-            enabled: rule.active
-          }));
-          setRules(fetchedRules);
-        } else {
-          // If API fails, set empty rules array
-          setRules([]);
-          toast({
-            title: "Failed to fetch rules",
-            description: response.error || "Could not load business rules",
-            variant: "destructive"
-          });
-        }
-      } catch (error) {
-        setRules([]);
-        toast({
-          title: "Error",
-          description: "An unexpected error occurred while fetching rules.",
-          variant: "destructive"
-        });
-      }
-    };
-    
     fetchRules();
-  }, [selectedDataset]);
+  }, [fetchRules]);
 
-  const handleImportJSON = () => {
+  const handleSaveRules = async () => {
+    setIsLoading(true);
     try {
-      const importedRules = JSON.parse(jsonInput);
-      if (Array.isArray(importedRules)) {
-        setRules(importedRules);
-        toast({
-          title: "Rules imported successfully",
-          description: `${importedRules.length} rules have been imported.`
-        });
-      } else {
-        throw new Error("Invalid format. JSON must be an array of rule objects.");
-      }
-    } catch (error) {
-      toast({
-        title: "Import failed",
-        description: error instanceof Error ? error.message : "Invalid JSON format",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const handleExportRules = async () => {
-    try {
-      // Call the API to get the export data
-      const response = await api.exportBusinessRules(selectedDataset);
-      
-      if (response.success && response.data) {
-        const jsonStr = JSON.stringify(response.data.rules, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `business_rules_${selectedDataset}_${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        
-        toast({
-          title: "Rules exported",
-          description: `${response.data.rules.length} rules have been exported to JSON.`
-        });
-      } else {
-        toast({
-          title: "Export failed",
-          description: response.error || "Failed to export rules",
-          variant: "destructive"
-        });
-      }
-    } catch (error) {
-      toast({
-        title: "Export error",
-        description: "An unexpected error occurred during export.",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const handleDeleteRule = async (id: string) => {
-    // Find the rule to delete
-    const ruleToDelete = rules.find(rule => rule.id === id);
-    if (!ruleToDelete) return;
-    
-    // Remove locally first for immediate UI feedback
-    setRules(rules.filter(rule => rule.id !== id));
-    
-    // Then delete on the server
-    try {
-      const response = await api.deleteBusinessRule(selectedDataset, id);
+      const response = await api.businessRules.saveBusinessRules(selectedDataset, rules);
       
       if (response.success) {
         toast({
-          title: "Rule deleted",
-          description: "The rule has been removed from your rule set."
+          title: 'Success',
+          description: 'Business rules saved successfully'
         });
       } else {
-        // Revert the change if the server update failed
-        setRules(rules);
-        toast({
-          title: "Delete failed",
-          description: response.error || "Failed to delete rule",
-          variant: "destructive"
-        });
+        throw new Error(response.error || 'Failed to save rules');
       }
     } catch (error) {
-      // Revert the change if there was an error
-      setRules(rules);
       toast({
-        title: "Delete error",
-        description: "An unexpected error occurred while deleting the rule.",
-        variant: "destructive"
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to save rules',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleImport = () => {
+    try {
+      const parsedRules = JSON.parse(jsonInput);
+      if (!Array.isArray(parsedRules)) {
+        throw new Error('Invalid format: Expected array of rules');
+      }
+      setRules(parsedRules);
+      toast({
+        title: 'Success',
+        description: `${parsedRules.length} rules imported`
+      });
+    } catch (error) {
+      toast({
+        title: 'Import failed',
+        description: error instanceof Error ? error.message : 'Invalid JSON',
+        variant: 'destructive'
       });
     }
   };
 
-  const handleImportRules = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const handleExport = () => {
+    const dataStr = JSON.stringify(rules, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
     
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const content = e.target?.result as string;
-        
-        // Call the API to import the rules
-        const response = await api.importBusinessRules(selectedDataset, content);
-        
-        if (response.success) {
-          // Refresh the rules list after import
-          const rulesResponse = await api.getBusinessRules(selectedDataset);
-          if (rulesResponse.success && rulesResponse.data) {
-            setRules(rulesResponse.data);
-          }
-          
-          toast({
-            title: "Rules imported",
-            description: response.data?.message || "Rules have been imported successfully."
-          });
-        } else {
-          toast({
-            title: "Import failed",
-            description: response.error || "Failed to import rules",
-            variant: "destructive"
-          });
-        }
-      } catch (error) {
-        toast({
-          title: "Import failed",
-          description: "Failed to parse the imported file.",
-          variant: "destructive"
-        });
-      }
-    };
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `business_rules_${new Date().toISOString()}.json`;
+    link.click();
     
-    reader.readAsText(file);
+    toast({
+      title: 'Exported',
+      description: 'Business rules exported to JSON'
+    });
   };
 
   const handleAddRule = async () => {
@@ -279,7 +168,7 @@ const BusinessRules: React.FC = () => {
     // Then save to the server
     try {
       // We'll use saveBusinessRules to add a new rule
-      const response = await api.saveBusinessRules(selectedDataset, [...rules, ruleToAdd]);
+      const response = await api.businessRules.saveBusinessRules(selectedDataset, [...rules, ruleToAdd]);
       
       if (response.success) {
         toast({
@@ -306,25 +195,54 @@ const BusinessRules: React.FC = () => {
     }
   };
 
+  const handleDeleteRule = async (id: string) => {
+    // Find the rule to delete
+    const ruleToDelete = rules.find(rule => rule.id === id);
+    if (!ruleToDelete) return;
+    
+    try {
+      const updatedRules = rules.filter(rule => rule.id !== id);
+      const response = await api.businessRules.saveBusinessRules(selectedDataset, updatedRules);
+      
+      if (response.success) {
+        setRules(updatedRules);
+        toast({
+          title: "Rule deleted",
+          description: "The rule has been removed from your rule set."
+        });
+      } else {
+        toast({
+          title: "Delete failed",
+          description: response.error || "Failed to delete rule",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Delete error",
+        description: "An unexpected error occurred while deleting the rule.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const handleToggleRule = async (id: string) => {
     // Find the rule to toggle
     const ruleToToggle = rules.find(rule => rule.id === id);
     if (!ruleToToggle) return;
     
     // Update locally first for immediate UI feedback
-    setRules(rules.map(rule => 
-      rule.id === id ? { ...rule, enabled: !rule.enabled } : rule
-    ));
+    const updatedRules = rules.map(rule => 
+      rule.id === id ? {...rule, enabled: !rule.enabled} : rule
+    );
     
     // Then update on the server
     try {
-      const response = await api.updateBusinessRule(
-        selectedDataset, 
-        id, 
-        { active: !ruleToToggle.enabled }
-      );
+      const response = await api.businessRules.saveBusinessRules(selectedDataset, updatedRules);
       
-      if (!response.success) {
+      if (response.success) {
+        setRules(updatedRules);
+      } else {
         // Revert the change if the server update failed
         setRules(rules);
         toast({
@@ -345,7 +263,7 @@ const BusinessRules: React.FC = () => {
   };
 
   const handleGenerateRule = async () => {
-    setIsGenerating(true);
+    setIsLoading(true);
     
     toast({
       title: "Generating rules",
@@ -380,7 +298,7 @@ const BusinessRules: React.FC = () => {
         setRules([...rules, ...formattedRules]);
         
         // Save to server
-        await api.saveBusinessRules(selectedDataset, [...rules, ...formattedRules]);
+        await api.businessRules.saveBusinessRules(selectedDataset, [...rules, ...formattedRules]);
         
         toast({
           title: "Rules generated successfully",
@@ -400,7 +318,7 @@ const BusinessRules: React.FC = () => {
         variant: "destructive"
       });
     } finally {
-      setIsGenerating(false);
+      setIsLoading(false);
     }
   };
 
@@ -411,7 +329,7 @@ const BusinessRules: React.FC = () => {
     });
     
     try {
-      const response = await api.saveBusinessRules(selectedDataset, rules);
+      const response = await api.businessRules.saveBusinessRules(selectedDataset, rules);
       
       if (response.success) {
         toast({
@@ -552,13 +470,13 @@ const BusinessRules: React.FC = () => {
                 />
               </div>
               <div className="flex space-x-2">
-                <Button onClick={handleImportJSON}>
+                <Button onClick={handleImport}>
                   <Check className="h-4 w-4 mr-2" />
                   Import Rules
                 </Button>
                 <button
                   className={buttonVariants({ variant: 'outline' })}
-                  onClick={handleExportJSON}
+                  onClick={handleExport}
                 >
                   <Save className="h-4 w-4 mr-2" />
                   Export Current Rules
@@ -640,9 +558,9 @@ const BusinessRules: React.FC = () => {
               <Button 
                 onClick={handleGenerateRule} 
                 className="w-full" 
-                disabled={isGenerating}
+                disabled={isLoading}
               >
-                {isGenerating ? (
+                {isLoading ? (
                   <>
                     <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                     Generating Rules...

@@ -1,10 +1,21 @@
-
 import { callApi } from '../../utils/apiUtils';
-import { ApiResponse, BusinessRule } from '../../api';
+import { ApiResponse } from '../../api';
 
 /**
  * Business Rules Service - Handles business rule operations
  */
+export interface BusinessRule {
+  id: string;
+  name: string;
+  description?: string;
+  condition: string;
+  severity: 'low' | 'medium' | 'high';
+  message: string;
+  active: boolean;
+  confidence?: number;
+  lastUpdated?: string;
+}
+
 export const businessRulesService = {
   /**
    * Get business rules for a dataset

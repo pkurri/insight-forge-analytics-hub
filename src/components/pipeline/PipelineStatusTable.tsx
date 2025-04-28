@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { pipelineService } from '@/api/services/pipeline/pipelineService';
@@ -52,7 +51,7 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) 
           return {
             id: run.id,
             name: `Pipeline Run ${run.id.substring(0, 8)}`,
-            status: run.status,
+            status: run.status === 'pending' ? 'queued' : run.status,
             type: run.current_stage,
             progress: run.progress,
             startTime: run.created_at,
@@ -188,7 +187,7 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) 
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                 {job.endTime ? 
-                  new Date(new Date(job.endTime) - new Date(job.startTime)).toISOString().substr(11, 8) : 
+                  new Date(new Date(job.endTime).getTime() - new Date(job.startTime).getTime()).toISOString().substr(11, 8) : 
                   'In progress'}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
