@@ -19,8 +19,9 @@ import MessageList from './MessageList';
 import ModelSelector from './ModelSelector';
 import DatasetSelector from './DatasetSelector';
 import ChatSuggestions, { ChatSuggestion } from './ChatSuggestions';
-import { AIModel, modelService } from '@/api/services/ai/modelService';
-import { embeddingService } from '@/api/services/ai/embeddingService';
+// Use all AI services via the central API object
+// import { AIModel, api.modelService } from '@/api/services/ai/api.modelService';
+// import { api.embeddingService } from '@/api/services/ai/api.embeddingService';
 
 export interface Message {
   id: string;
@@ -93,7 +94,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   
   // Model and dataset selection state
   const [modelId, setModelId] = useState(selectedModel || 'mistral-7b-instruct');
-  const [availableModels, setAvailableModels] = useState<AIModel[]>([]);
+  const [availableModels, setAvailableModels] = useState<any[]>([]); // Use type from api.modelService if available
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [availableDatasets, setAvailableDatasets] = useState<Array<{id: string, name: string, rows: number, columns: number, lastUpdated: string}>>([]);
   const [isLoadingDatasets, setIsLoadingDatasets] = useState(false);
@@ -121,7 +122,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const fetchModels = async () => {
       setIsLoadingModels(true);
       try {
-        const response = await modelService.getAvailableModels('chat');
+        const response = await api.modelService.getAvailableModels('chat');
         if (response.success && response.data) {
           setAvailableModels(response.data);
           // Set default model if none selected
@@ -221,7 +222,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       // Generate embeddings for semantic search context
       let searchContext = {};
       try {
-        const embeddingResponse = await embeddingService.generateEmbeddings({ 
+        const embeddingResponse = await api.embeddingService.generateEmbeddings({ 
           text: input,
           model: 'sentence-transformers/all-MiniLM-L6-v2'
         });
@@ -229,7 +230,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (embeddingResponse.success && embeddingResponse.data) {
           // Search for similar content if dataset is selected
           if (currentDataset && currentDataset !== 'all') {
-            const searchResponse = await embeddingService.searchSimilarVectors(
+            const searchResponse = await api.embeddingService.searchSimilarVectors(
               input, 
               currentDataset, 
               3

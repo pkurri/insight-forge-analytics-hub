@@ -4,7 +4,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { pythonApi } from '@/api/pythonIntegration';
+// import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 
@@ -69,41 +69,44 @@ const PipelineAnalytics: React.FC<PipelineAnalyticsProps> = ({ datasetId }) => {
   useEffect(() => {
     if (!selectedDataset) return;
     
-    const fetchAnalyticsData = async () => {
+    const fetchDataQuality = async (datasetId: string) => {
       setIsLoading(true);
+      toast({
+        title: "Python Analytics Unavailable",
+        description: "Backend Python analytics integration is not currently supported.",
+        variant: "destructive"
+      });
+      setIsLoading(false);
+      return;
+    };
+
+    const fetchProcessingTime = async (datasetId: string) => {
+      setIsLoading(true);
+      toast({
+        title: "Python Analytics Unavailable",
+        description: "Backend Python analytics integration is not currently supported.",
+        variant: "destructive"
+      });
+      setIsLoading(false);
+      return;
+    };
+
+    const fetchTimeSeries = async (datasetId: string) => {
+      setIsLoading(true);
+      toast({
+        title: "Python Analytics Unavailable",
+        description: "Backend Python analytics integration is not currently supported.",
+        variant: "destructive"
+      });
+      setIsLoading(false);
+      return;
+    };
+
+    const fetchAnalyticsData = async () => {
       try {
-        // Fetch data quality metrics
-        const qualityResponse = await pythonApi.getDataQuality(selectedDataset);
-        if (qualityResponse.success && qualityResponse.data) {
-          const { clean_percentage, missing_values_percentage, error_percentage, anomaly_percentage } = qualityResponse.data;
-          setDataQualityData([
-            { name: 'Clean', value: clean_percentage || 85 },
-            { name: 'Missing Values', value: missing_values_percentage || 8 },
-            { name: 'Errors', value: error_percentage || 4 },
-            { name: 'Anomalies', value: anomaly_percentage || 3 },
-          ]);
-        }
-        
-        // Fetch pipeline processing times
-        const processingResponse = await pythonApi.getPipelineMetrics(selectedDataset);
-        if (processingResponse.success && processingResponse.data) {
-          const { stage_metrics } = processingResponse.data;
-          if (stage_metrics && Array.isArray(stage_metrics)) {
-            setProcessingTimeData(stage_metrics.map(stage => ({
-              stage: stage.name,
-              time: stage.processing_time_seconds
-            })));
-          }
-        }
-        
-        // Fetch time series data
-        const timeSeriesResponse = await pythonApi.getTimeSeriesMetrics(selectedDataset);
-        if (timeSeriesResponse.success && timeSeriesResponse.data) {
-          const { time_series } = timeSeriesResponse.data;
-          if (time_series && Array.isArray(time_series)) {
-            setTimeSeriesData(time_series);
-          }
-        }
+        await fetchDataQuality(selectedDataset);
+        await fetchProcessingTime(selectedDataset);
+        await fetchTimeSeries(selectedDataset);
       } catch (error) {
         console.error('Error fetching analytics data:', error);
         toast({
@@ -115,8 +118,19 @@ const PipelineAnalytics: React.FC<PipelineAnalyticsProps> = ({ datasetId }) => {
         setIsLoading(false);
       }
     };
-    
-    fetchAnalyticsData();
+
+    try {
+      fetchAnalyticsData();
+    } catch (error) {
+      console.error('Error fetching analytics data:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch analytics data',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   }, [selectedDataset]);
 
   const COLORS = ['#4ade80', '#facc15', '#f87171', '#60a5fa'];

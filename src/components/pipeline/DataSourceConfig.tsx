@@ -404,7 +404,7 @@ const DataSourceConfig: React.FC = () => {
             <TabsTrigger value="api">External APIs</TabsTrigger>
             <TabsTrigger value="database">Databases</TabsTrigger>
           </TabsList>
-          
+
           <TabsContent value="api" className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-medium">API Connections</h3>
@@ -871,13 +871,74 @@ const DataSourceConfig: React.FC = () => {
       ))
     )}
   </TableBody>
-</Table>  </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
-  );
-};
+</Table>
+          </div>
+        </TabsContent>
+        <TabsContent value="database" className="space-y-4">
+          <div>
+            {/* Database connections table and controls here */}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Host</TableHead>
+                  <TableHead>Database</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {dbConnections.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                      <div className="flex flex-col items-center gap-2">
+                        <Database className="h-6 w-6 opacity-50" />
+                        <span>No database connections found.</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  dbConnections.map((conn) => (
+                    <TableRow key={conn.id}>
+                      <TableCell>{conn.name}</TableCell>
+                      <TableCell>
+                        <div className="capitalize">{conn.connectionType}</div>
+                      </TableCell>
+                      <TableCell>{conn.host}:{conn.port}</TableCell>
+                      <TableCell>{conn.database}</TableCell>
+                      <TableCell>
+                        {testingConnectionId === conn.id ? (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="animate-spin h-4 w-4 inline" /> Testing...</span>
+                        ) : (
+                          <span className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5">Ready</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="flex gap-2">
+                        <Button aria-label="Edit" onClick={() => { setEditingDbConnection(conn); setShowDbDialog(true); }}>
+                          Edit
+                        </Button>
+                        <Button aria-label="Delete" onClick={() => deleteDbConnection(conn.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                        <Button aria-label="Test Connection" onClick={() => testConnection('db', conn.id)} disabled={testingConnectionId === conn.id}>
+                          Test
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+      </Tabs>
+    </CardContent>
+  </Card>
+);
+}
+
+export default DataSourceConfig;
+
 
 export default DataSourceConfig;

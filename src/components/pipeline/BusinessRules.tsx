@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { PlusCircle, Save, RefreshCw, Sparkles, AlertTriangle, Info, Check, X, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { pythonApi } from '@/api/pythonIntegration';
+// import { pythonApi } from '@/api/pythonIntegration'; // Removed: No longer available, see handleGenerateRule for status handling.
 import { api } from '@/api/api';
 import type { BusinessRule } from '@/api/services/businessRules/businessRulesService';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -264,21 +264,16 @@ const BusinessRules: React.FC = () => {
 
   const handleGenerateRule = async () => {
     setIsLoading(true);
-    
     toast({
-      title: "Generating rules",
-      description: "Analyzing data patterns with AI models..."
+      title: "AI Rule Generation Unavailable",
+      description: "Automatic business rule generation via AI is not currently supported. Please define rules manually.",
+      variant: "destructive"
     });
-    
-    try {
-      const response = await pythonApi.generateBusinessRules(selectedDataset, {
-        use_ml: true,
-        confidence_threshold: 0.7
-      });
-      
-      if (response.success && response.data) {
-        const generatedRules = response.data.rules;
-        
+    setIsLoading(false);
+    // If/when AI-based rule generation is restored, implement here.
+    return;
+    // Previous implementation called pythonApi.generateBusinessRules, which is no longer available.
+
         // Map the generated rules to our format
         const formattedRules = generatedRules.map(rule => ({
           id: rule.id || `ai-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -300,27 +295,8 @@ const BusinessRules: React.FC = () => {
         // Save to server
         await api.businessRules.saveBusinessRules(selectedDataset, [...rules, ...formattedRules]);
         
-        toast({
-          title: "Rules generated successfully",
-          description: `${formattedRules.length} new rules have been created based on data patterns.`
-        });
-      } else {
-        toast({
-          title: "Rule generation failed",
-          description: response.error || "Failed to generate rules",
-          variant: "destructive"
-        });
       }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "An unexpected error occurred while generating rules.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    };
 
   const handleSaveRulesToAPI = async () => {
     toast({
@@ -334,12 +310,12 @@ const BusinessRules: React.FC = () => {
       if (response.success) {
         toast({
           title: "Rules saved successfully",
-          description: response.data?.message || `${rules.length} rules have been saved.`
+          description: response && response.data && response.data.message ? response.data.message : `${rules.length} rules have been saved.`
         });
       } else {
         toast({
           title: "Failed to save rules",
-          description: response.error || "An unknown error occurred",
+          description: response && response.error ? response.error : "An unknown error occurred",
           variant: "destructive"
         });
       }

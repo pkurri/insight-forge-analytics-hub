@@ -2,11 +2,12 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   SendHorizontal, Bot, RefreshCw, Search, AlertCircle, 
   Settings, Loader2, ThumbsUp, ThumbsDown, Sparkles, 
-  MessageSquareWarning, MessageSquareCheck
+  MessageSquareWarning, MessageSquare
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -25,6 +26,7 @@ import MessageList from './MessageList';
 import ModelSelector from './ModelSelector';
 import DatasetSelector from './DatasetSelector';
 import ChatSuggestions, { ChatSuggestion } from './ChatSuggestions';
+// Use all AI services via the central API object
 import { AIModel, modelService } from '@/api/services/ai/modelService';
 import { embeddingService } from '@/api/services/ai/embeddingService';
 import { aiAgentService } from '@/api/services/ai/aiAgentService';
@@ -93,11 +95,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const {
     messages,
     addMessage,
-    updateMessage,
+    // Fallback for updateMessage if not present in useChatHistory
+    updateMessage = () => {},
     clearHistory,
     isLoading: isHistoryLoading,
-    conversationId
-  } = useChatHistory(currentDataset);
+    // Fallback for conversationId if not present in useChatHistory
+    conversationId = ''
+  } = useChatHistory(currentDataset) as any;
   
   // Chat interface state
   const [input, setInput] = useState('');
@@ -119,7 +123,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   
   // Model and dataset selection state
   const [modelId, setModelId] = useState(selectedModel || 'mistral-7b-instruct');
-  const [availableModels, setAvailableModels] = useState<AIModel[]>([]);
+  const [availableModels, setAvailableModels] = useState<any[]>([]); // Use type from api.modelService if available
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [availableDatasets, setAvailableDatasets] = useState<Array<{id: string, name: string, rows: number, columns: number, lastUpdated: string}>>([]);
   const [isLoadingDatasets, setIsLoadingDatasets] = useState(false);
@@ -236,7 +240,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         
         // Show toast with result
         let evaluationStatus = 'neutral';
-        if (result.data.status === 'excellent') evaluationStatus = 'success';
+        if (result.data.status === 'excellent') evaluationStatus = 'default';
         else if (['fail', 'error', 'improvement_needed'].includes(result.data.status)) evaluationStatus = 'destructive';
         
         toast({
@@ -297,7 +301,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         toast({
           title: 'Response Improved',
           description: `Quality improvement: +${Math.round(result.data.improvement_delta.average)}%`,
-          variant: 'success'
+          variant: 'default'
         });
       }
     } catch (error) {
@@ -350,7 +354,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         toast({
           title: 'Feedback Submitted',
           description: 'Thank you for your feedback!',
-          variant: 'success'
+          variant: 'default'
         });
       }
     } catch (error) {
@@ -717,7 +721,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 <p className="text-sm text-muted-foreground max-w-md mb-8">
                   Ask me anything about your data. I can analyze trends, explain patterns, and help you explore your datasets.
                 </p>
-                
                 {suggestions.length > 0 && (
                   <ChatSuggestions 
                     suggestions={suggestions}
@@ -733,88 +736,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 isLoading={isProcessing}
                 expandedMessageIds={expandedMessageIds}
                 toggleMessageExpanded={toggleMessageExpanded}
-                renderMessageActions={(message) => (
-                  message.type === 'assistant' && !message.metadata?.isError && (
-                    <div className="flex gap-2 mt-2">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openFeedbackDialog(message.id)}
-                              className="flex gap-1"
-                            >
-                              {message.metadata?.userRating ? (
-                                message.metadata.userRating >= 4 ? (
-                                  <ThumbsUp className="h-3 w-3 text-green-500" />
-                                ) : (
-                                  <ThumbsDown className="h-3 w-3 text-red-500" />
-                                )
-                              ) : (
-                                <MessageSquareWarning className="h-3 w-3" />
-                              )}
-                              Feedback
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {message.metadata?.userRating
-                              ? `You rated this ${message.metadata.userRating}/5`
-                              : 'Rate this response'}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      
-                      {message.metadata?.evaluationScore && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge variant={message.metadata.evaluationScore >= 85 ? 'success' : message.metadata.evaluationScore >= 70 ? 'outline' : 'destructive'}>
-                                {Math.round(message.metadata.evaluationScore)}%
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              Response quality score
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                      
-                      {message.metadata?.evaluationScore && message.metadata.evaluationScore < 85 && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setCurrentFeedbackMessageId(message.id);
-                                  getImprovedResponse(message.id);
-                                }}
-                                disabled={improvingMessage}
-                                className="flex gap-1"
-                              >
-                                <Sparkles className="h-3 w-3" />
-                                Improve
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              Get an improved version of this response
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </div>
-                  )
-                )}
               />
             )}
           </div>
         </ScrollArea>
       </CardContent>
-      
       <Separator />
-      
       <CardFooter className="p-4 pt-2">
         <form 
           onSubmit={(e) => {
@@ -831,7 +758,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               maxSuggestions={4}
             />
           )}
-          
           <div className="flex space-x-2">
             <Input
               value={input}

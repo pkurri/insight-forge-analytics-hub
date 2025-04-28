@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { pipelineService } from '@/api/services/pipeline/pipelineService';
+import { api } from '@/api/api';
+// import { api.pipelineService } from '@/api/services/pipeline/api.pipelineService';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 
@@ -37,7 +38,7 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) 
   const fetchPipelineRuns = async (datasetId: string) => {
     setIsLoading(true);
     try {
-      const response = await pipelineService.getPipelineRuns(datasetId);
+      const response = await api.pipelineService.getPipelineRuns(datasetId);
       
       if (response.success && response.data) {
         // Transform pipeline data to match our component's format

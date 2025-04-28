@@ -3,10 +3,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Info } from 'lucide-react';
-import { AIModel } from '@/api/services/ai/modelService';
+// import { AIModel } from '@/api/services/ai/modelService'; // Use types from central api object if available
 
 interface ModelSelectorProps {
-  models: AIModel[];
+  models: any[]; // Use type from api.modelService if available
   selectedModel: string;
   onModelChange: (modelId: string) => void;
   isLoading?: boolean;
@@ -24,7 +24,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   isLoading = false,
   className = "",
 }) => {
-  const [filteredModels, setFilteredModels] = useState<AIModel[]>(models);
+  const [filteredModels, setFilteredModels] = useState<any[]>(models); // Use type from api.modelService if available
   const [selectedType, setSelectedType] = useState<string>('all');
 
   // Filter models when the type selection changes

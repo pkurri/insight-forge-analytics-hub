@@ -2,6 +2,10 @@ import { modelService } from './services/ai/modelService';
 import { embeddingService } from './services/ai/embeddingService';
 import { aiAgentService } from './services/ai/aiAgentService';
 import { businessRulesService } from './services/businessRules/businessRulesService';
+import { aiService } from './services/aiService';
+import { analyticsService } from './services/analyticsService';
+import { monitoringService } from './services/monitoringService';
+import { validationService } from './services/validationService';
 
 /**
  * API Response interface
@@ -218,6 +222,16 @@ import { datasourceService } from './services/datasource/datasourceService';
 import { datasetService } from './services/datasets/datasetService';
 
 export const api = {
+  aiService,
+  analyticsService,
+  monitoringService,
+  validationService,
+  datasourceService,
+  modelService,
+  embeddingService,
+  aiAgentService,
+  businessRulesService,
+  pipelineService,
   callApi,
   datasets,
   getAiAssistantResponse,

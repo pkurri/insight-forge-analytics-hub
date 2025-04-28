@@ -6,8 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from "@/hooks/use-toast";
-import { pipelineService } from '@/api/services/pipeline/pipelineService';
-import { pythonApi } from '@/api/pythonIntegration';
+import { api } from '@/api/api';
+// import { api.pipelineService } from '@/api/services/pipeline/api.pipelineService';
+// import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
 import { Stepper, Step } from '@/components/ui/stepper';
 import { Card } from '@/components/ui/card';
 
@@ -132,7 +133,7 @@ const PipelineUploadForm: React.FC = () => {
       }
       
       // Real progress tracking with axios
-      const response = await pipelineService.uploadData(formData, {
+      const response = await api.pipelineService.uploadData(formData, {
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
             const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -174,7 +175,7 @@ const PipelineUploadForm: React.FC = () => {
       let isComplete = false;
       
       while (!isComplete) {
-        const status = await pipelineService.getPipelineStatus(pipelineId);
+        const status = await api.pipelineService.getPipelineStatus(pipelineId);
         
         if (status.success && status.data) {
           const { current_stage, progress, status: pipelineStatus, message } = status.data;

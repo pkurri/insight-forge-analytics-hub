@@ -7,8 +7,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { pythonApi } from '@/api/pythonIntegration';
+// import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useToast } from '@/hooks/use-toast';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 /**
  * Message interface defining the structure of chat messages
@@ -45,6 +47,7 @@ interface ChatInterfaceProps {
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
+  const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -95,8 +98,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
   
   /**
    * Send a user message to the AI assistant and handle the response
-   * 
-   * AI Processing Flow:
+   *
    * 1. User question is captured and sent to the backend
    * 2. Backend vector DB retrieves relevant context from datasets
    * 3. AI model generates an answer based on retrieved context
@@ -121,36 +123,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
     try {
       // Send question to Python backend via API
       // This triggers the AI-powered vector search and response generation
-      const response = await pythonApi.askQuestion(activeDataset, input);
-      
-      if (response.success && response.data) {
-        const assistantMessage: Message = {
-          id: `assistant-${Date.now()}`,
-          type: 'assistant',
-          content: response.data.answer,
-          metadata: {
-            confidence: response.data.confidence,
-            sources: response.data.sources,
-            processing_time: response.data.processing_time,
-            tokens_used: response.data.tokens_used || 0,
-            embedding_count: response.data.embedding_count || 0
-          },
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
-      } else {
-        // Handle error
-        const errorMessage: Message = {
-          id: `error-${Date.now()}`,
-          type: 'system',
-          content: response.error || 'Sorry, I encountered an error processing your question.',
-          metadata: { isError: true },
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, errorMessage]);
-      }
+      toast({
+        title: "AI Chat Unavailable",
+        description: "AI-powered chat is not currently supported due to missing backend integration.",
+        variant: "destructive"
+      });
+      return;
+      // Previous implementation called pythonApi.askQuestion, which is no longer available.
+      // Uncomment and implement the below once backend is available:
+      // const response = await pythonApi.askQuestion(input, activeDataset);
+      // if (response.success && response.data) { ... }
     } catch (error) {
       // Handle exception
       const errorMessage: Message = {
