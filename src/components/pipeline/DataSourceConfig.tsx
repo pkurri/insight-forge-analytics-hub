@@ -97,8 +97,8 @@ interface ApiClient {
     createDbConnection: (data: Omit<DbConnection, 'id' | 'createdAt'>) => Promise<ApiResponse<DbConnection>>;
     deleteApiConnection: (id: string) => Promise<ApiResponse<void>>;
     deleteDbConnection: (id: string) => Promise<ApiResponse<void>>;
-    testApiConnection: (id: string) => Promise<ApiResponse<{status: string}>>;
-    testDbConnection: (id: string) => Promise<ApiResponse<{status: string}>>;
+    testApiConnection: (id: string) => Promise<ApiResponse<{ status: string }>>;
+    testDbConnection: (id: string) => Promise<ApiResponse<{ status: string }>>;
   };
 }
 
@@ -113,7 +113,7 @@ const DataSourceConfig: React.FC = () => {
   const [editingDbConnection, setEditingDbConnection] = useState<DbConnection | null>(null);
   const [testingConnectionId, setTestingConnectionId] = useState<string | null>(null);
   const { toast } = useToast();
-  
+
   // Fetch existing connections when component mounts
   useEffect(() => {
     const fetchConnections = async () => {
@@ -154,10 +154,10 @@ const DataSourceConfig: React.FC = () => {
         setIsLoading(false);
       }
     };
-    
+
     fetchConnections();
   }, []);
-  
+
   // API form
   const apiForm = useForm<z.infer<typeof apiFormSchema>>({
     resolver: zodResolver(apiFormSchema),
@@ -173,7 +173,7 @@ const DataSourceConfig: React.FC = () => {
       headers: "",
     },
   });
-  
+
   // DB form
   const dbForm = useForm<z.infer<typeof dbFormSchema>>({
     resolver: zodResolver(dbFormSchema),
@@ -189,7 +189,7 @@ const DataSourceConfig: React.FC = () => {
       options: "",
     },
   });
-  
+
   const onApiSubmit = async (values: z.infer<typeof apiFormSchema>) => {
     try {
       setIsLoading(true);
@@ -208,16 +208,16 @@ const DataSourceConfig: React.FC = () => {
       const response = editingApiConnection
         ? await api.datasource.updateApiConnection(editingApiConnection.id, apiPayload)
         : await api.datasource.createApiConnection(apiPayload);
-      
+
       if (response.success && response.data) {
         setApiConnections(editingApiConnection
           ? apiConnections.map(conn => conn.id === editingApiConnection.id ? response.data! : conn)
           : [...apiConnections, response.data]);
-        
+
         setShowApiDialog(false);
         setEditingApiConnection(null);
         apiForm.reset();
-        
+
         toast({
           title: editingApiConnection ? "API Connection Updated" : "API Connection Added",
           description: `Successfully ${editingApiConnection ? 'updated' : 'created'} connection to ${values.name}`,
@@ -240,7 +240,7 @@ const DataSourceConfig: React.FC = () => {
       setIsLoading(false);
     }
   };
-  
+
   const onDbSubmit = async (values: z.infer<typeof dbFormSchema>) => {
     try {
       setIsLoading(true);
@@ -258,13 +258,13 @@ const DataSourceConfig: React.FC = () => {
         options: values.options ?? ''
       };
       const response = await api.datasource.createDbConnection(dbPayload);
-      
+
       if (response.success && response.data) {
         // Add the new connection to state
         setDbConnections([...dbConnections, response.data]);
         setShowDbDialog(false);
         dbForm.reset();
-        
+
         toast({
           title: "Database Connection Added",
           description: `Successfully created connection to ${values.name}`,
@@ -287,12 +287,12 @@ const DataSourceConfig: React.FC = () => {
       setIsLoading(false);
     }
   };
-  
+
   const deleteApiConnection = async (id: string) => {
     try {
       setIsLoading(true);
       const response = await api.datasource.deleteApiConnection(id);
-      
+
       if (response.success) {
         setApiConnections(apiConnections.filter(conn => conn.id !== id));
         toast({
@@ -317,13 +317,13 @@ const DataSourceConfig: React.FC = () => {
       setIsLoading(false);
     }
   };
-  
+
   const deleteDbConnection = async (id: string) => {
     try {
       setIsLoading(true);
       // Delete from backend
       const response = await api.datasource.deleteDbConnection(id);
-      
+
       if (response.success) {
         // Remove from state
         setDbConnections(dbConnections.filter(conn => conn.id !== id));
@@ -349,14 +349,14 @@ const DataSourceConfig: React.FC = () => {
       setIsLoading(false);
     }
   };
-  
+
   const testConnection = async (type: 'api' | 'db', id: string) => {
     try {
       setTestingConnectionId(id);
-      const response = type === 'api' 
+      const response = type === 'api'
         ? await api.datasource.testApiConnection(id)
         : await api.datasource.testDbConnection(id);
-      
+
       if (response.success) {
         toast({
           title: 'Connection Test',
@@ -381,7 +381,7 @@ const DataSourceConfig: React.FC = () => {
       setTestingConnectionId(null);
     }
   };
-  
+
   if (isLoading) {
     return (
       <Card>
@@ -392,7 +392,7 @@ const DataSourceConfig: React.FC = () => {
       </Card>
     );
   }
-  
+
   return (
     <Card>
       <CardHeader>
@@ -422,7 +422,7 @@ const DataSourceConfig: React.FC = () => {
                       ×
                     </button>
                   </DialogHeader>
-                  
+
                   <Form {...apiForm}>
                     <form onSubmit={apiForm.handleSubmit(onApiSubmit)} className="space-y-4 py-4">
                       <FormField
@@ -438,7 +438,7 @@ const DataSourceConfig: React.FC = () => {
                           </FormItem>
                         )}
                       />
-                      
+
                       <FormField
                         control={apiForm.control}
                         name="url"
@@ -452,7 +452,7 @@ const DataSourceConfig: React.FC = () => {
                           </FormItem>
                         )}
                       />
-                      
+
                       <FormField
                         control={apiForm.control}
                         name="authType"
@@ -476,7 +476,7 @@ const DataSourceConfig: React.FC = () => {
                           </FormItem>
                         )}
                       />
-                      
+
                       {apiForm.watch("authType") === "basic" && (
                         <>
                           <FormField
@@ -492,7 +492,7 @@ const DataSourceConfig: React.FC = () => {
                               </FormItem>
                             )}
                           />
-                          
+
                           <FormField
                             control={apiForm.control}
                             name="password"
@@ -508,7 +508,7 @@ const DataSourceConfig: React.FC = () => {
                           />
                         </>
                       )}
-                      
+
                       {apiForm.watch("authType") === "bearer" && (
                         <FormField
                           control={apiForm.control}
@@ -524,7 +524,7 @@ const DataSourceConfig: React.FC = () => {
                           )}
                         />
                       )}
-                      
+
                       {apiForm.watch("authType") === "api_key" && (
                         <>
                           <FormField
@@ -540,7 +540,7 @@ const DataSourceConfig: React.FC = () => {
                               </FormItem>
                             )}
                           />
-                          
+
                           <FormField
                             control={apiForm.control}
                             name="apiKey"
@@ -556,7 +556,7 @@ const DataSourceConfig: React.FC = () => {
                           />
                         </>
                       )}
-                      
+
                       <FormField
                         control={apiForm.control}
                         name="headers"
@@ -573,7 +573,7 @@ const DataSourceConfig: React.FC = () => {
                           </FormItem>
                         )}
                       />
-                      
+
                       <DialogFooter>
                         <Button type="submit">Save Connection</Button>
                       </DialogFooter>
@@ -582,331 +582,35 @@ const DataSourceConfig: React.FC = () => {
                 </DialogContent>
               </Dialog>
             </div>
-            
-            <Table>
-  <TableHeader>
-    <TableRow>
-      <TableHead>Name</TableHead>
-      <TableHead>URL</TableHead>
-      <TableHead>Auth Type</TableHead>
-      <TableHead>Created At</TableHead>
-      <TableHead>Status</TableHead>
-      <TableHead>Actions</TableHead>
-    </TableRow>
-  </TableHeader>
-  <TableBody>
-    {apiConnections.length === 0 ? (
-      <TableRow>
-        <TableCell colSpan={6} className="text-center text-muted-foreground">
-          <div className="flex flex-col items-center gap-2">
-            <Globe className="h-6 w-6 opacity-50" />
-            <span>No API connections found.</span>
-          </div>
-        </TableCell>
-      </TableRow>
-    ) : (
-      apiConnections.map((conn) => (
-        <TableRow key={conn.id}>
-          <TableCell>{conn.name}</TableCell>
-          <TableCell>{conn.url}</TableCell>
-          <TableCell>{conn.authType}</TableCell>
-          <TableCell>{conn.createdAt}</TableCell>
-          <TableCell>
-            {testingConnectionId === conn.id ? (
-              <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="animate-spin h-4 w-4 inline" /> Testing...</span>
-            ) : (
-              <span className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5">Ready</span>
-            )}
-          </TableCell>
-          <TableCell className="flex gap-2">
-            <Button aria-label="Edit" onClick={() => { setEditingApiConnection(conn); setShowApiDialog(true); }}>
-  Edit
-</Button>
-<Button aria-label="Delete" onClick={() => deleteApiConnection(conn.id)}>
-  <Trash2 className="h-4 w-4" />
-</Button>
-<Button aria-label="Test Connection" onClick={() => testConnection('api', conn.id)} disabled={testingConnectionId === conn.id}>
-  Test
-</Button>
-          </TableCell>
-        </TableRow>
-      ))
-    )}
-  </TableBody>
-</Table>
-          </TabsContent>
-          
-          <TabsContent value="database" className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-medium">Database Connections</h3>
-              <Dialog open={showDbDialog} onOpenChange={setShowDbDialog}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Database Connection
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[500px]">
-                  <DialogHeader>
-  <DialogTitle>{editingDbConnection ? "Edit Database Connection" : "Add Database Connection"}</DialogTitle>
-  <button aria-label="Close dialog" className="absolute right-4 top-4" onClick={() => { setShowDbDialog(false); setEditingDbConnection(null); }}>
-    ×
-  </button>
-</DialogHeader>
-                  
-                  <Form {...dbForm}>
-                    <form onSubmit={dbForm.handleSubmit(onDbSubmit)} className="space-y-4 py-4">
-  {editingDbConnection && (
-    <input type="hidden" value={editingDbConnection.id} />
-  )}
-                      <FormField
-                        control={dbForm.control}
-                        name="name"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Connection Name</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Product Database" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={dbForm.control}
-                        name="connectionType"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Database Type</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select database type" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="postgresql">PostgreSQL</SelectItem>
-                                <SelectItem value="mysql">MySQL</SelectItem>
-                                <SelectItem value="sqlserver">SQL Server</SelectItem>
-                                <SelectItem value="oracle">Oracle</SelectItem>
-                                <SelectItem value="mongodb">MongoDB</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <div className="grid grid-cols-2 gap-4">
-                        <FormField
-                          control={dbForm.control}
-                          name="host"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Host</FormLabel>
-                              <FormControl>
-                                <Input placeholder="localhost" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        
-                        <FormField
-                          control={dbForm.control}
-                          name="port"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Port</FormLabel>
-                              <FormControl>
-                                <Input placeholder="5432" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                      
-                      <FormField
-                        control={dbForm.control}
-                        name="database"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Database Name</FormLabel>
-                            <FormControl>
-                              <Input placeholder="my_database" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <div className="grid grid-cols-2 gap-4">
-                        <FormField
-                          control={dbForm.control}
-                          name="username"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Username</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        
-                        <FormField
-                          control={dbForm.control}
-                          name="password"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Password</FormLabel>
-                              <FormControl>
-                                <Input type="password" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                      
-                      <FormField
-                        control={dbForm.control}
-                        name="ssl"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
-                            <div className="space-y-0.5">
-                              <FormLabel>SSL Connection</FormLabel>
-                              <FormDescription>
-                                Use SSL/TLS for the database connection
-                              </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={dbForm.control}
-                        name="options"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Additional Options</FormLabel>
-                            <FormControl>
-                              <Input placeholder="?sslmode=require&timeout=10" {...field} />
-                            </FormControl>
-                            <FormDescription>
-                              Additional connection string parameters
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <DialogFooter>
-                        <Button type="submit">Save Connection</Button>
-                      </DialogFooter>
-                    </form>
-                  </Form>
-                </DialogContent>
-              </Dialog>
-            </div>
-            
-            <Table>
-  <TableHeader>
-    <TableRow>
-      <TableHead>Name</TableHead>
-      <TableHead>Type</TableHead>
-      <TableHead>Host</TableHead>
-      <TableHead>Database</TableHead>
-      <TableHead>Status</TableHead>
-      <TableHead>Actions</TableHead>
-    </TableRow>
-  </TableHeader>
-  <TableBody>
-    {dbConnections.length === 0 ? (
-      <TableRow>
-        <TableCell colSpan={6} className="text-center text-muted-foreground">
-          <div className="flex flex-col items-center gap-2">
-            <Database className="h-6 w-6 opacity-50" />
-            <span>No database connections found.</span>
-          </div>
-        </TableCell>
-      </TableRow>
-    ) : (
-      dbConnections.map((conn) => (
-        <TableRow key={conn.id}>
-          <TableCell>{conn.name}</TableCell>
-          <TableCell>
-            <div className="capitalize">{conn.connectionType}</div>
-          </TableCell>
-          <TableCell>{conn.host}:{conn.port}</TableCell>
-          <TableCell>{conn.database}</TableCell>
-          <TableCell>
-            {testingConnectionId === conn.id ? (
-              <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="animate-spin h-4 w-4 inline" /> Testing...</span>
-            ) : (
-              <span className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5">Ready</span>
-            )}
-          </TableCell>
-          <TableCell className="flex gap-2">
-            <Button aria-label="Edit" onClick={() => { setEditingDbConnection(conn); setShowDbDialog(true); }}>
-  Edit
-</Button>
-<Button aria-label="Delete" onClick={() => deleteDbConnection(conn.id)}>
-  <Trash2 className="h-4 w-4" />
-</Button>
-<Button aria-label="Test Connection" onClick={() => testConnection('db', conn.id)} disabled={testingConnectionId === conn.id}>
-  Test
-</Button>
-          </TableCell>
-        </TableRow>
-      ))
-    )}
-  </TableBody>
-</Table>
-          </div>
-        </TabsContent>
-        <TabsContent value="database" className="space-y-4">
-          <div>
-            {/* Database connections table and controls here */}
+
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Host</TableHead>
-                  <TableHead>Database</TableHead>
+                  <TableHead>URL</TableHead>
+                  <TableHead>Auth Type</TableHead>
+                  <TableHead>Created At</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {dbConnections.length === 0 ? (
+                {apiConnections.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center text-muted-foreground">
                       <div className="flex flex-col items-center gap-2">
-                        <Database className="h-6 w-6 opacity-50" />
-                        <span>No database connections found.</span>
+                        <Globe className="h-6 w-6 opacity-50" />
+                        <span>No API connections found.</span>
                       </div>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  dbConnections.map((conn) => (
+                  apiConnections.map((conn) => (
                     <TableRow key={conn.id}>
                       <TableCell>{conn.name}</TableCell>
-                      <TableCell>
-                        <div className="capitalize">{conn.connectionType}</div>
-                      </TableCell>
-                      <TableCell>{conn.host}:{conn.port}</TableCell>
-                      <TableCell>{conn.database}</TableCell>
+                      <TableCell>{conn.url}</TableCell>
+                      <TableCell>{conn.authType}</TableCell>
+                      <TableCell>{conn.createdAt}</TableCell>
                       <TableCell>
                         {testingConnectionId === conn.id ? (
                           <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="animate-spin h-4 w-4 inline" /> Testing...</span>
@@ -915,13 +619,13 @@ const DataSourceConfig: React.FC = () => {
                         )}
                       </TableCell>
                       <TableCell className="flex gap-2">
-                        <Button aria-label="Edit" onClick={() => { setEditingDbConnection(conn); setShowDbDialog(true); }}>
+                        <Button aria-label="Edit" onClick={() => { setEditingApiConnection(conn); setShowApiDialog(true); }}>
                           Edit
                         </Button>
-                        <Button aria-label="Delete" onClick={() => deleteDbConnection(conn.id)}>
+                        <Button aria-label="Delete" onClick={() => deleteApiConnection(conn.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
-                        <Button aria-label="Test Connection" onClick={() => testConnection('db', conn.id)} disabled={testingConnectionId === conn.id}>
+                        <Button aria-label="Test Connection" onClick={() => testConnection('api', conn.id)} disabled={testingConnectionId === conn.id}>
                           Test
                         </Button>
                       </TableCell>
@@ -930,15 +634,12 @@ const DataSourceConfig: React.FC = () => {
                 )}
               </TableBody>
             </Table>
-          </div>
-        </TabsContent>
-      </Tabs>
-    </CardContent>
-  </Card>
-);
+          </TabsContent>
+
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
 }
-
-export default DataSourceConfig;
-
 
 export default DataSourceConfig;

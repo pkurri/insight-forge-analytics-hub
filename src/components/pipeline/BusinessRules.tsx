@@ -37,7 +37,7 @@ const BusinessRules: React.FC = () => {
     condition: '',
     severity: 'medium',
     message: '',
-    enabled: true
+    active: true
   });
 
   const fetchRules = useCallback(async () => {
@@ -101,7 +101,7 @@ const BusinessRules: React.FC = () => {
       if (!Array.isArray(parsedRules)) {
         throw new Error('Invalid format: Expected array of rules');
       }
-      setRules(parsedRules);
+      setRules(Array.isArray(parsedRules) ? parsedRules : []);
       toast({
         title: 'Success',
         description: `${parsedRules.length} rules imported`
@@ -145,13 +145,13 @@ const BusinessRules: React.FC = () => {
       ...newRule,
       id: newRule.id || `manual-${Date.now()}`,
       dataset_id: selectedDataset,
-      active: newRule.enabled,
+      active: newRule.active,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
     
     // Add locally first for immediate UI feedback
-    setRules([...rules, ruleToAdd]);
+    setRules(prev => [...prev, ruleToAdd]);
     setShowAddRuleDialog(false);
     
     // Reset the form
@@ -162,7 +162,7 @@ const BusinessRules: React.FC = () => {
       condition: '',
       severity: 'medium',
       message: '',
-      enabled: true
+      active: true
     });
     
     // Then save to the server
@@ -233,7 +233,7 @@ const BusinessRules: React.FC = () => {
     
     // Update locally first for immediate UI feedback
     const updatedRules = rules.map(rule => 
-      rule.id === id ? {...rule, enabled: !rule.enabled} : rule
+      rule.id === id ? {...rule, active: !rule.active} : rule
     );
     
     // Then update on the server
@@ -262,7 +262,8 @@ const BusinessRules: React.FC = () => {
     }
   };
 
-  const handleGenerateRule = async () => {
+  // AI Rule Generation is currently disabled. This is a placeholder for future implementation.
+  const handleGenerateRule = async (): Promise<void> => {
     setIsLoading(true);
     toast({
       title: "AI Rule Generation Unavailable",
@@ -272,31 +273,7 @@ const BusinessRules: React.FC = () => {
     setIsLoading(false);
     // If/when AI-based rule generation is restored, implement here.
     return;
-    // Previous implementation called pythonApi.generateBusinessRules, which is no longer available.
-
-        // Map the generated rules to our format
-        const formattedRules = generatedRules.map(rule => ({
-          id: rule.id || `ai-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          name: rule.name,
-          description: rule.message || "",
-          condition: rule.condition,
-          severity: rule.severity || "medium",
-          message: rule.message,
-          enabled: true,
-          dataset_id: selectedDataset,
-          active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }));
-        
-        // Update local state
-        setRules([...rules, ...formattedRules]);
-        
-        // Save to server
-        await api.businessRules.saveBusinessRules(selectedDataset, [...rules, ...formattedRules]);
-        
-      }
-    };
+  }
 
   const handleSaveRulesToAPI = async () => {
     toast({
@@ -349,13 +326,14 @@ const BusinessRules: React.FC = () => {
                 <PlusCircle className="h-4 w-4 mr-2" />
                 Add Rule
               </Button>
-              <button
-                className={buttonVariants({ variant: 'outline', className: 'mb-2' })}
+              <Button
+                variant="outline"
+                className="mb-2"
                 onClick={handleSaveRulesToAPI}
               >
                 <Save className="h-4 w-4 mr-2" />
                 Save Rules
-              </button>
+              </Button>
             </div>
           </div>
           
@@ -385,15 +363,15 @@ const BusinessRules: React.FC = () => {
                       variant="ghost" 
                       size="sm" 
                       onClick={() => handleToggleRule(rule.id)}
-                      className={rule.enabled === false ? 'text-muted-foreground' : 'text-primary'}
+                      className={rule.active === false ? 'text-muted-foreground' : 'text-primary'}
                     >
-                      {rule.enabled === false ? 'Disabled' : 'Active'}
+                      {rule.active === false ? 'Disabled' : 'Active'}
                     </Button>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
-                {rule.confidence && (
+                {typeof rule.confidence === 'number' && (
                   <div className="mb-3 flex items-center text-xs">
                     <Info className="h-3 w-3 mr-1 text-blue-500" />
                     <span>

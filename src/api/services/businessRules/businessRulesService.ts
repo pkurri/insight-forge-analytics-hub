@@ -14,6 +14,7 @@ export interface BusinessRule {
   active: boolean;
   confidence?: number;
   lastUpdated?: string;
+  model_generated?: boolean;
 }
 
 export const businessRulesService = {
