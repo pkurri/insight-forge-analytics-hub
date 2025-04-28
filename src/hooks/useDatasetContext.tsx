@@ -1,10 +1,9 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api } from '@/api/api';
-import { DatasetSummary } from '@/api/api';
+import { api, Dataset } from '@/api/api';
 
 interface DatasetContextType {
-  datasets: DatasetSummary[];
+  datasets: Dataset[];
   activeDataset: string;
   setActiveDataset: (datasetId: string) => void;
   isLoading: boolean;
@@ -22,11 +21,9 @@ const DatasetContext = createContext<DatasetContextType>({
   refreshDatasets: async () => {},
 });
 
-/**
- * Provider component to wrap application and provide dataset context
- */
-export const DatasetProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
+// Provider component to wrap application and provide dataset context
+export const DatasetProvider = ({ children }: { children: React.ReactNode }) => {
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [activeDataset, setActiveDataset] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +34,7 @@ export const DatasetProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setError(null);
     
     try {
-      const response = await api.getDatasets();
+      const response = await api.datasets.getDatasets();
       
       if (response.success && response.data) {
         setDatasets(response.data);
@@ -62,7 +59,7 @@ export const DatasetProvider: React.FC<{ children: React.ReactNode }> = ({ child
     loadDatasets();
   }, []);
 
-  const value = {
+  const contextValue = {
     datasets,
     activeDataset,
     setActiveDataset,
@@ -72,15 +69,13 @@ export const DatasetProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   return (
-    <DatasetContext.Provider value={value}>
+    <DatasetContext.Provider value={contextValue}>
       {children}
     </DatasetContext.Provider>
   );
 };
 
-/**
- * Hook to use dataset context in components
- */
+// Hook to use dataset context in components
 export const useDatasetContext = () => {
   return useContext(DatasetContext);
 };
