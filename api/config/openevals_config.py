@@ -90,11 +90,11 @@ CATEGORY_THRESHOLDS = {
 COMPONENT_FILE_PATTERNS = {
     ComponentType.API_ENDPOINT: ["api/routes/*.py", "api/endpoints/*.py"],
     ComponentType.UI_COMPONENT: ["src/components/**/*.tsx", "src/components/**/*.jsx"],
-    ComponentType.DATA_PROCESSOR: ["api/services/dataset_*.py", "api/data/**/*.py"],
+    ComponentType.DATA_PROCESSOR: ["services/dataset_*.py", "api/data/**/*.py"],
     ComponentType.AUTH_SYSTEM: ["api/auth/*.py", "src/auth/**/*.ts"],
     ComponentType.DATABASE: ["api/db/*.py", "api/models/*.py"],
     ComponentType.UTILS: ["api/utils/*.py", "src/utils/*.ts"],
-    ComponentType.AI_MODEL: ["api/services/ai_*.py", "api/services/*_model.py"],
+    ComponentType.AI_MODEL: ["services/ai_*.py", "services/*_model.py"],
 }
 
 class OpenEvalsConfig:

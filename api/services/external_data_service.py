@@ -139,7 +139,7 @@ async def fetch_from_database(
     try:
         # Get database connection details
         # In a real application, this would fetch from a connection store
-        from api.services.db_connection_service import get_connection_config
+        from services.db_connection_service import get_connection_config
         
         connection_config = await get_connection_config(connection_id)
         if not connection_config:

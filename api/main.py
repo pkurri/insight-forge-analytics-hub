@@ -14,6 +14,7 @@ from routes.dataset_router import router as dataset_router
 from routes.project_eval_router import router as project_eval_router
 from routes.dashboard_router import router as dashboard_router
 from routes.analytics_router import router as analytics_router
+from routes.conversation_analytics_router import router as conversation_analytics_router
 
 # Configure logging
 logging.basicConfig(
@@ -100,6 +101,7 @@ app.include_router(openevals_runtime_router)
 app.include_router(dataset_router, prefix="/datasets")
 app.include_router(project_eval_router, prefix="/project-eval")
 app.include_router(dashboard_router, prefix="/dashboard")
+app.include_router(conversation_analytics_router, prefix="/conversation-analytics")
 app.include_router(analytics_router, prefix="/analytics")
 
 # Add startup event

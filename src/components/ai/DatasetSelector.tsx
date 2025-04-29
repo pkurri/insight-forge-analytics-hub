@@ -6,9 +6,9 @@ import { Database, Globe } from 'lucide-react';
 export interface Dataset {
   id: string;
   name: string;
-  rows: number;
-  columns: number;
-  lastUpdated: string;
+  rows?: number;
+  columns?: number;
+  lastUpdated?: string;
   source?: string;
 }
 

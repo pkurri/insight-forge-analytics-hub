@@ -4,28 +4,46 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import ARRAY, FLOAT
-from api.config.settings import get_settings
-from api.models.dataset import Dataset, DatasetMetadata
-from api.utils.db import get_db_connection
+from config.settings import get_settings
+from models.dataset import Dataset, DatasetMetadata
+from utils.db import get_db_connection
 import faiss
 import asyncpg
 import pandas as pd
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from api.config.settings import get_settings
 
 class DatabaseService:
     def __init__(self):
         self.settings = get_settings()
         self.engine = create_async_engine(
-            f'postgresql+asyncpg://{self.settings.DB_USER}:{self.settings.DB_PASSWORD}@{self.settings.DB_HOST}:{self.settings.DB_PORT}/{self.settings.DB_NAME}'
+            f'postgresql+asyncpg://{self.settings.DB_USER}:{self.settings.DB_PASSWORD}@{self.settings.DB_HOST}:{self.settings.DB_PORT}/{self.settings.DB_NAME}',
+            pool_size=10, max_overflow=20, pool_timeout=30, pool_recycle=1800
         )
         self.async_session = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
 
-    def __init__(self, connection_config: Dict[str, Any]):
-        self.config = connection_config
-        self.pool = None
-        self.vector_dimension = 768  # Default for many embedding models
+    async def get_async_session(self):
+        async with self.async_session() as session:
+            yield session
 
+    async def search_similar_vectors(self, table_name: str, query_vector, limit: int = 10):
+        """
+        Search for similar vectors using pgvector (<=> operator)
+        """
+        from sqlalchemy import text
+        sql = text(f"""
+            SELECT id, content, embedding <=> :query_vector AS distance
+            FROM {table_name}
+            ORDER BY distance ASC
+            LIMIT :limit
+        """)
+        async with self.async_session() as session:
+            result = await session.execute(sql, {"query_vector": query_vector.tolist(), "limit": limit})
+            return result.fetchall()
     async def initialize(self):
         """Initialize the database connection pool"""
         self.pool = await asyncpg.create_pool(

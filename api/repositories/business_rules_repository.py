@@ -7,8 +7,8 @@ import logging
 from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
 
-from api.utils.db import execute_query, execute_transaction
-from api.models.dataset import BusinessRule, BusinessRuleCreate, BusinessRuleSeverity
+from utils.db import execute_query, execute_transaction
+from models.dataset import BusinessRule, BusinessRuleCreate, BusinessRuleSeverity
 
 logger = logging.getLogger(__name__)
 

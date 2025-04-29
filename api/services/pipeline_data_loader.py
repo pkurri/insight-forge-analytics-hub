@@ -18,11 +18,11 @@ import uuid
 from functools import lru_cache
 
 # Import business rules service
-from api.services.business_rules_service import BusinessRulesService
+from services.business_rules_service import BusinessRulesService
 
 # Import local services
-from api.services.cache_service import get_cached_response, cache_response
-from api.services.ai_schema_service import detect_schema, validate_with_ai_schema
+from services.cache_service import get_cached_response, cache_response
+from services.ai_schema_service import detect_schema, validate_with_ai_schema
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

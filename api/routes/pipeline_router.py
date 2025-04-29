@@ -5,19 +5,19 @@ import tempfile
 import os
 import shutil
 
-from api.models.dataset import PipelineRun, PipelineStep, PipelineRunStatus, PipelineStepType
-from api.repositories.pipeline_repository import get_pipeline_repository
-from api.repositories.dataset_repository import get_dataset_repository
-from api.services.pipeline_service import run_pipeline_step
-from api.routes.auth_router import get_current_user_or_api_key
-from api.services.file_service import process_uploaded_file
-from api.services.data_cleaning_service import DataCleaningService
-from api.services.validation_service import ValidationService
-from api.services.database_service import DatabaseService
-from api.services.analytics_service import get_data_profile, detect_anomalies
-from api.config.settings import get_settings
-from api.services.ai_models import AIModelService
-from api.services.vector_store import VectorStoreService
+from models.dataset import PipelineRun, PipelineStep, PipelineRunStatus, PipelineStepType
+from repositories.pipeline_repository import get_pipeline_repository
+from repositories.dataset_repository import get_dataset_repository
+from services.pipeline_service import run_pipeline_step
+from routes.auth_router import get_current_user_or_api_key
+from services.file_service import process_uploaded_file
+from services.data_cleaning_service import DataCleaningService
+from services.validation_service import ValidationService
+from services.database_service import DatabaseService
+from services.analytics_service import get_data_profile, detect_anomalies
+from config.settings import get_settings
+from services.ai_models import AIModelService
+from services.vector_store import VectorStoreService
 
 settings = get_settings()
 
@@ -284,7 +284,7 @@ async def fetch_data_from_api(
     dataset_repo = Depends(get_dataset_repository)
 ):
     """Fetch data from an external API for pipeline processing."""
-    from api.services.external_data_service import fetch_from_api
+    from services.external_data_service import fetch_from_api
     
     # Create dataset name if not provided
     if not name:
@@ -333,7 +333,7 @@ async def fetch_data_from_database(
     dataset_repo = Depends(get_dataset_repository)
 ):
     """Fetch data from a database for pipeline processing."""
-    from api.services.external_data_service import fetch_from_database
+    from services.external_data_service import fetch_from_database
     
     if not query and not table_name:
         raise HTTPException(
@@ -386,7 +386,7 @@ async def validate_data_in_pipeline(
     dataset_repo = Depends(get_dataset_repository)
 ):
     """Validate data in the pipeline."""
-    from api.services.validation_service import validate_dataset
+    from services.validation_service import validate_dataset
     
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)
@@ -412,7 +412,7 @@ async def transform_data_in_pipeline(
     dataset_repo = Depends(get_dataset_repository)
 ):
     """Transform data in the pipeline."""
-    from api.services.transformation_service import transform_dataset
+    from services.transformation_service import transform_dataset
     
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)
@@ -438,7 +438,7 @@ async def enrich_data_in_pipeline(
     dataset_repo = Depends(get_dataset_repository)
 ):
     """Enrich data in the pipeline."""
-    from api.services.enrichment_service import enrich_dataset
+    from services.enrichment_service import enrich_dataset
     
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)
@@ -465,7 +465,7 @@ async def load_data_in_pipeline(
     dataset_repo = Depends(get_dataset_repository)
 ):
     """Load processed data to destination."""
-    from api.services.loading_service import load_dataset
+    from services.loading_service import load_dataset
     
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)

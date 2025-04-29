@@ -12,10 +12,10 @@ import openai
 from uuid import uuid4
 from transformers import pipeline
 
-from api.config.settings import get_settings
-from api.repositories.chat_repository import ChatRepository
-from api.repositories.dataset_repository import DatasetRepository
-from api.services.vector_store import VectorStoreService
+from config.settings import get_settings
+from repositories.chat_repository import ChatRepository
+from repositories.dataset_repository import DatasetRepository
+from services.vector_store import VectorStoreService
 
 # Initialize repositories and services
 chat_repo = ChatRepository()

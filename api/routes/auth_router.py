@@ -5,10 +5,10 @@ from datetime import timedelta
 from typing import Optional
 from jose import JWTError, jwt
 
-from api.models.user import Token, TokenData, UserCreate, UserResponse, UserUpdate, APIKeyCreate, APIKeyResponse
-from api.services.auth import authenticate_user, create_access_token, create_api_key
-from api.repositories.user_repository import get_user_repository
-from api.config.settings import get_settings
+from models.user import Token, TokenData, UserCreate, UserResponse, UserUpdate, APIKeyCreate, APIKeyResponse
+from services.auth import authenticate_user, create_access_token, create_api_key
+from repositories.user_repository import get_user_repository
+from config.settings import get_settings
 
 settings = get_settings()
 router = APIRouter()

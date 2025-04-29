@@ -4,9 +4,9 @@ import pandas as pd
 import numpy as np
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from api.config.database import get_db_session
-from api.config.redis_config import get_redis_client
-from api.services.analytics_service import (
+from config.database import get_db_session
+from config.redis_config import get_redis_client
+from services.analytics_service import (
     process_dataset,
     clean_dataset,
     detect_anomalies,
@@ -18,8 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import numpy as np
 
-from api.models.db_models import Dataset, DatasetColumn, DatasetEmbedding, PipelineRun
-from api.models.dataset import DatasetCreate, DatasetStatus
+from models.db_models import Dataset, DatasetColumn, DatasetEmbedding, PipelineRun
+from models.dataset import DatasetCreate, DatasetStatus
 
 class DatasetRepository:
     """Repository for dataset-related database operations."""

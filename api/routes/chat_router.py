@@ -8,14 +8,14 @@ from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 
-from api.services.chat_service import (
+from services.chat_service import (
     get_chat_sessions,
     get_chat_session,
     create_chat_session,
     delete_chat_session,
     send_message
 )
-from api.routes.auth_router import get_current_user_or_api_key
+from repositories.chat_repository import get_chat_repository_user_or_api_key
 
 router = APIRouter()
 

@@ -3,10 +3,10 @@ from datetime import datetime
 from typing import Optional, List
 import asyncpg
 
-from api.models.user import UserCreate, UserDB, UserUpdate, APIKeyResponse
-from api.services.auth import get_password_hash
-from api.config.settings import get_settings
-from api.utils.db import get_db_pool
+from models.user import UserCreate, UserDB, UserUpdate, APIKeyResponse
+from services.auth import get_password_hash
+from config.settings import get_settings
+from utils.db import get_db_pool
 
 settings = get_settings()
 

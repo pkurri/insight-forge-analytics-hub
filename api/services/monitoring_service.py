@@ -14,7 +14,7 @@ from prometheus_client import Gauge, Counter, Histogram, Summary, generate_lates
 # Setup Prometheus metrics
 PIPELINE_RUNS_TOTAL = Counter('pipeline_runs_total', 'Total number of pipeline runs', ['status'])
 PIPELINE_PROCESSING_TIME = Histogram('pipeline_processing_time_seconds', 'Time taken to process pipelines', ['pipeline_type'])
-API_REQUESTS_TOTAL = Counter('api_requests_total', 'Total API requests', ['endpoint', 'method', 'status'])
+API_REQUESTS_TOTAL = Counter('requests_total', 'Total API requests', ['endpoint', 'method', 'status'])
 DATASET_SIZE_BYTES = Gauge('dataset_size_bytes', 'Size of datasets in bytes', ['dataset_id'])
 
 # In-memory storage for metrics, alerts and logs (in production this would use a proper database)
@@ -40,7 +40,7 @@ async def record_metric(name: str, value: float, labels: Dict[str, str] = None):
         PIPELINE_RUNS_TOTAL.labels(status=labels.get("status", "unknown")).inc()
     elif name == "pipeline_processing_time":
         PIPELINE_PROCESSING_TIME.labels(pipeline_type=labels.get("pipeline_type", "unknown")).observe(value)
-    elif name == "api_request":
+    elif name == "request":
         API_REQUESTS_TOTAL.labels(
             endpoint=labels.get("endpoint", "unknown"),
             method=labels.get("method", "unknown"),
@@ -312,7 +312,7 @@ def generate_sample_alerts() -> List[Dict[str, Any]]:
             "id": "alert-002",
             "severity": "medium",
             "message": "API response time degradation detected",
-            "component": "api-gateway",
+            "component": "gateway",
             "timestamp": now.isoformat(),
             "status": "active"
         },
@@ -361,7 +361,7 @@ def generate_sample_logs() -> List[Dict[str, Any]]:
             "level": "ERROR",
             "component": "enrichment-service",
             "message": "Failed to enrich data with external API",
-            "details": {"dataset_id": "ds-8720", "api": "geocoding-service", "status_code": 503}
+            "details": {"dataset_id": "ds-8720", "service": "geocoding-service", "status_code": 503}
         },
         {
             "id": "log-004",

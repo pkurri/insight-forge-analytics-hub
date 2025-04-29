@@ -9,12 +9,12 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 import logging
 
-from api.models.dataset import Dataset, BusinessRule, BusinessRuleCreate
-from api.repositories.dataset_repository import get_dataset_repository
-from api.repositories.analytics_repository import AnalyticsRepository
-from api.repositories.business_rules_repository import BusinessRulesRepository
-from api.repositories.monitoring_repository import MonitoringRepository
-from api.services.analytics_service import (
+from models.dataset import Dataset, BusinessRule, BusinessRuleCreate
+from repositories.dataset_repository import get_dataset_repository
+from repositories.analytics_repository import AnalyticsRepository
+from repositories.business_rules_repository import BusinessRulesRepository
+from repositories.monitoring_repository import MonitoringRepository
+from services.analytics_service import (
     get_data_profile, 
     detect_anomalies,
     query_vector_database,
@@ -22,7 +22,7 @@ from api.services.analytics_service import (
     clean_dataset,
     process_dataset
 )
-from api.services.business_rules_service import (
+from services.business_rules_service import (
     get_rules,
     create_rule,
     update_rule,
@@ -30,7 +30,7 @@ from api.services.business_rules_service import (
     validate_rules,
     generate_rules
 )
-from api.routes.auth_router import get_current_user_or_api_key
+from routes.auth_router import get_current_user_or_api_key
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -86,18 +86,16 @@ async def profile_dataset(
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Generate and return data profile for a dataset."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Get data profile
-    profile_data = await get_data_profile(dataset_id)
-    return profile_data
+    """Generate and return data profile for a dataset (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await get_data_profile(dataset_id)
+    return await get_cached_or_compute(redis, f"profile:{dataset_id}", compute)
 
 @router.post("/{dataset_id}/process")
 async def process_dataset_data(
@@ -106,18 +104,16 @@ async def process_dataset_data(
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Process a dataset using specified cleaning method and operations."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Process dataset
-    result = await process_dataset(dataset_id, config.dict())
-    return result
+    """Process a dataset using specified cleaning method and operations (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await process_dataset(dataset_id, config.dict())
+    return await get_cached_or_compute(redis, f"process:{dataset_id}:{hash(str(config.dict()))}", compute)
 
 @router.post("/{dataset_id}/clean")
 async def clean_dataset_data(
@@ -126,18 +122,16 @@ async def clean_dataset_data(
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Clean a dataset using specified cleaning method and operations."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Clean dataset
-    result = await clean_dataset(dataset_id, config.dict())
-    return result
+    """Clean a dataset using specified cleaning method and operations (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await clean_dataset(dataset_id, config.dict())
+    return await get_cached_or_compute(redis, f"clean:{dataset_id}:{hash(str(config.dict()))}", compute)
 
 @router.post("/{dataset_id}/anomalies")
 async def detect_dataset_anomalies(
@@ -146,18 +140,16 @@ async def detect_dataset_anomalies(
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Detect and return anomalies in a dataset."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Detect anomalies
-    anomalies = await detect_anomalies(dataset_id, config.dict())
-    return anomalies
+    """Detect and return anomalies in a dataset (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await detect_anomalies(dataset_id, config.dict())
+    return await get_cached_or_compute(redis, f"anomalies:{dataset_id}:{hash(str(config.dict()))}", compute)
 
 @router.post("/{dataset_id}/vectorize")
 async def vectorize_dataset(
@@ -165,18 +157,16 @@ async def vectorize_dataset(
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Create vector embeddings for a dataset and store in vector database."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Create vector embeddings
-    result = await create_vector_embeddings(dataset_id)
-    return result
+    """Create vector embeddings for a dataset and store in vector database (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await create_vector_embeddings(dataset_id)
+    return await get_cached_or_compute(redis, f"vectorize:{dataset_id}", compute)
 
 @router.post("/{dataset_id}/query")
 async def query_dataset(
@@ -185,18 +175,16 @@ async def query_dataset(
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Query a dataset using natural language and vector search."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Query vector database
-    results = await query_vector_database(dataset_id, request.query)
-    return results
+    """Query a dataset using natural language and vector search (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await query_vector_database(dataset_id, request.query)
+    return await get_cached_or_compute(redis, f"query:{dataset_id}:{hash(request.query)}", compute)
 
 @router.get("/{dataset_id}/rules")
 async def get_dataset_rules(
@@ -351,6 +339,55 @@ async def generate_dataset_rules(
     return result
 
 # Dataset analytics endpoints
+
+import json
+from api.config.redis_config import get_redis_client, close_redis_connection
+from api.services.database_service import DatabaseService
+from fastapi import APIRouter
+from sqlalchemy import text
+
+db_service = DatabaseService()
+
+async def get_cached_or_compute(redis, cache_key, compute_fn, expire=300):
+    cached = await redis.get(cache_key)
+    if cached:
+        await close_redis_connection(redis)
+        return json.loads(cached)
+    result = await compute_fn()
+    await redis.set(cache_key, json.dumps(result), ex=expire)
+    await close_redis_connection(redis)
+    return result
+
+@router.get("/dataset-analytics/{dataset_id}")
+async def get_dataset_analytics(dataset_id: int, current_user = Depends(get_current_user_or_api_key)):
+    """Get comprehensive analytics for a specific dataset (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        async for session in db_service.get_async_session():
+            return await analytics_repo.get_dataset_analytics(session, dataset_id)
+    return await get_cached_or_compute(redis, f"dataset_analytics:{dataset_id}", compute)
+
+@router.get("/global-analytics")
+async def get_global_analytics(current_user = Depends(get_current_user_or_api_key)):
+    """Get global analytics across all datasets (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        async for session in db_service.get_async_session():
+            return await analytics_repo.get_global_analytics(session)
+    return await get_cached_or_compute(redis, "global_analytics", compute)
+
+@router.get("/health")
+async def healthcheck():
+    """Healthcheck for Redis and Postgres connectivity."""
+    try:
+        redis = await get_redis_client()
+        await redis.ping()
+        await close_redis_connection(redis)
+        async for session in db_service.get_async_session():
+            await session.execute(text("SELECT 1"))
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
 
 @router.get("/dataset/{dataset_id}")
 async def get_dataset_analytics(dataset_id: int, current_user = Depends(get_current_user_or_api_key)):

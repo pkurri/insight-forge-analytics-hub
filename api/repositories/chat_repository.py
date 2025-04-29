@@ -10,11 +10,11 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from api.config.database import get_db_session
-from api.config.redis_config import get_redis_client
+from config.database import get_db_session
+from config.redis_config import get_redis_client
 import json
 import pickle
-from api.config.settings import get_settings
+from config.settings import get_settings
 
 # Get settings
 settings = get_settings()

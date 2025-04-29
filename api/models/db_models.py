@@ -6,6 +6,36 @@ from .dataset import DatasetStatus, FileType, PipelineRunStatus, BusinessRuleSev
 
 Base = declarative_base()
 
+class Conversation(Base):
+    __tablename__ = 'conversations'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    started_at = Column(DateTime, default=datetime.utcnow)
+    ended_at = Column(DateTime)
+    metadata = Column(JSON, default={})
+    messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
+    evaluations = relationship("Evaluation", back_populates="conversation", cascade="all, delete-orphan")
+    user = relationship("User", back_populates="conversations")
+
+class Message(Base):
+    __tablename__ = 'messages'
+    id = Column(Integer, primary_key=True)
+    conversation_id = Column(Integer, ForeignKey('conversations.id'))
+    sender = Column(String, nullable=False)  # 'user' or 'bot'
+    content = Column(String, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    conversation = relationship("Conversation", back_populates="messages")
+
+class Evaluation(Base):
+    __tablename__ = 'evaluations'
+    id = Column(Integer, primary_key=True)
+    conversation_id = Column(Integer, ForeignKey('conversations.id'))
+    feedback = Column(String)
+    rating = Column(Integer)
+    category = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    conversation = relationship("Conversation", back_populates="evaluations")
+
 class Dataset(Base):
     __tablename__ = 'datasets'
 

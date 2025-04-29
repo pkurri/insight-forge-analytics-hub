@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Optional
 from sentence_transformers import SentenceTransformer
-from api.config.settings import get_settings
+from config.settings import get_settings
 from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 import json
 

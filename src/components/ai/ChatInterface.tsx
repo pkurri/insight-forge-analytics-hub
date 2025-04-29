@@ -81,27 +81,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   className = "",
   selectedModel = "",
 }) => {
-  // Get dataset context if available
+  // Get dataset context (always present, enforced by useDatasetContext)
   const { datasets, activeDataset, setActiveDataset } = useDatasetContext();
-  
-  // Local state for handling active dataset if context not available
-  const [localActiveDataset, setLocalActiveDataset] = useState<string>(defaultDataset || 'all');
-  
-  // Use the context dataset if available, otherwise use local state
-  const currentDataset = activeDataset || localActiveDataset;
-  const handleSetDataset = setActiveDataset || setLocalActiveDataset;
+  // Use context-driven dataset selection everywhere
+  const currentDataset = activeDataset;
+  const handleSetDataset = setActiveDataset; // Always use context setter
   
   // Chat history hook manages messages and persistence
   const {
     messages,
     addMessage,
-    // Fallback for updateMessage if not present in useChatHistory
     updateMessage = () => {},
     clearHistory,
     isLoading: isHistoryLoading,
-    // Fallback for conversationId if not present in useChatHistory
     conversationId = ''
-  } = useChatHistory(currentDataset) as any;
+  } = useChatHistory(currentDataset) as any; // currentDataset comes from context
   
   // Chat interface state
   const [input, setInput] = useState('');
@@ -121,12 +115,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [showImprovedResponseDialog, setShowImprovedResponseDialog] = useState(false);
   const [improvedResponse, setImprovedResponse] = useState('');
   
-  // Model and dataset selection state
+  // Model selection state (dataset selection is now context-driven only)
   const [modelId, setModelId] = useState(selectedModel || 'mistral-7b-instruct');
   const [availableModels, setAvailableModels] = useState<any[]>([]); // Use type from api.modelService if available
   const [isLoadingModels, setIsLoadingModels] = useState(false);
-  const [availableDatasets, setAvailableDatasets] = useState<Array<{id: string, name: string, rows: number, columns: number, lastUpdated: string}>>([]);
-  const [isLoadingDatasets, setIsLoadingDatasets] = useState(false);
   
   // References and utilities
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -146,7 +138,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [isProcessing, processingCallback]);
   
-  // Fetch available models and datasets on mount
+  // Fetch available models on mount (datasets are managed by context)
   useEffect(() => {
     const fetchModels = async () => {
       setIsLoadingModels(true);
@@ -170,30 +162,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         setIsLoadingModels(false);
       }
     };
-    
-    const fetchDatasets = async () => {
-      setIsLoadingDatasets(true);
-      try {
-        const response = await api.datasets.getDatasets();
-        if (response.success && response.data) {
-          const formattedDatasets = response.data.map(ds => ({
-            id: ds.id,
-            name: ds.name,
-            rows: ds.rows,
-            columns: ds.columns || 0,
-            lastUpdated: ds.updated_at || new Date().toISOString()
-          }));
-          setAvailableDatasets(formattedDatasets);
-        }
-      } catch (error) {
-        console.error('Error fetching datasets:', error);
-      } finally {
-        setIsLoadingDatasets(false);
-      }
-    };
-    
     fetchModels();
-    fetchDatasets();
   }, [modelId, toast]);
 
   // Scroll to bottom when messages change
@@ -701,10 +670,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           {/* Dataset Selector */}
           {showDatasetSelector && (
             <DatasetSelector
-              datasets={availableDatasets}
+              datasets={datasets}
               selectedDataset={currentDataset}
               onDatasetChange={handleSetDataset}
-              isLoading={isLoadingDatasets}
+              isLoading={isLoading}
               className="flex-grow"
             />
           )}

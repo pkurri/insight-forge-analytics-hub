@@ -12,14 +12,15 @@ import os
 import shutil
 import logging
 
-from api.services.pipeline_data_loader import (
+from models.dataset import Dataset, DatasetDetail
+from services.pipeline_data_loader import (
     load_data_file, 
     validate_dataset, 
     prepare_for_vectors,
     store_in_pgvector, 
     test_pipeline
 )
-from api.services.cache_service import cache_response, get_cached_response
+from services.cache_service import cache_response, get_cached_response
 
 # Configure logging
 logger = logging.getLogger(__name__)

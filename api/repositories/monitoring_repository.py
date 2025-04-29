@@ -7,7 +7,7 @@ import logging
 from typing import Dict, List, Any, Optional, Union
 from datetime import datetime, timedelta
 
-from api.utils.db import execute_query, execute_transaction
+from utils.db import execute_query, execute_transaction
 
 logger = logging.getLogger(__name__)
 

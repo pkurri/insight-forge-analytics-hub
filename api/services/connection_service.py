@@ -15,9 +15,9 @@ from sqlalchemy import create_engine
 import psycopg2
 import mysql.connector
 
-from api.config.settings import get_settings
-from api.repositories.dataset_repository import DatasetRepository
-from api.services.pipeline_service import DataPipeline
+from config.settings import get_settings
+from repositories.dataset_repository import DatasetRepository
+from services.pipeline_service import DataPipeline
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

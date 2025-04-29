@@ -63,7 +63,7 @@ const MessageList: React.FC<MessageListProps> = ({
                   
                   <div className="prose-sm dark:prose-invert prose-p:leading-relaxed prose-pre:p-0">
                     <ReactMarkdown>
-                      {message.content}
+                      {typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}
                     </ReactMarkdown>
                   </div>
                   
@@ -102,7 +102,7 @@ const MessageList: React.FC<MessageListProps> = ({
                             <div className="flex flex-wrap gap-1">
                               {message.metadata.sources.map((source, idx) => (
                                 <Badge key={idx} variant="outline" className="text-xs">
-                                  {source}
+                                  {typeof source === 'string' ? source : JSON.stringify(source)}
                                 </Badge>
                               ))}
                             </div>
@@ -116,7 +116,7 @@ const MessageList: React.FC<MessageListProps> = ({
                               {message.metadata.insights.map((insight, idx) => (
                                 <div key={idx} className="flex items-start space-x-1 text-xs">
                                   <Lightbulb className="h-3 w-3 mt-0.5 text-amber-500" />
-                                  <span>{insight}</span>
+                                  <span>{typeof insight === 'string' ? insight : JSON.stringify(insight)}</span>
                                 </div>
                               ))}
                             </div>

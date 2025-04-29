@@ -11,13 +11,14 @@ from pydantic import BaseModel, Field
 import pandas as pd
 import logging
 
-from api.models.dataset import Dataset
-from api.repositories.dataset_repository import get_dataset_repository
-from api.utils.file_utils import load_dataset_to_dataframe
-from api.routes.auth_router import get_current_user_or_api_key
+from models.dataset import Dataset
+from repositories.dataset_repository import get_dataset_repository
+from utils.file_utils import load_dataset_to_dataframe
+from routes.auth_router import get_current_user_or_api_key
 
 # Import data cleaning and validation modules
 try:
+    from src.python.data_cleaning import DataCleaningAgent, DataValidationAgent
     from src.api.python.data_cleaning import DataCleaningAgent, DataValidationAgent
     data_modules_available = True
 except ImportError:
@@ -186,7 +187,7 @@ async def get_dataset_profiling_and_validation(
         raise HTTPException(status_code=404, detail="Dataset not found")
     
     # First get the profile data
-    from api.services.analytics_service import get_data_profile
+    from services.analytics_service import get_data_profile
     profile_data = await get_data_profile(dataset_id)
     
     # Then get validation with default settings
@@ -244,7 +245,7 @@ async def run_data_pipeline(
     # Execute pipeline steps
     if "profile" in steps:
         try:
-            from api.services.analytics_service import get_data_profile
+            from services.analytics_service import get_data_profile
             profile_data = await get_data_profile(dataset_id)
             pipeline_results["results"]["profile"] = profile_data
             pipeline_results["steps_completed"].append("profile")
@@ -284,7 +285,7 @@ async def run_data_pipeline(
     
     if "anomalies" in steps:
         try:
-            from api.services.analytics_service import detect_anomalies
+            from services.analytics_service import detect_anomalies
             anomaly_results = await detect_anomalies(dataset_id, {"method": "isolation_forest"})
             
             pipeline_results["results"]["anomalies"] = anomaly_results

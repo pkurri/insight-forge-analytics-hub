@@ -14,9 +14,9 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.ensemble import IsolationForest
 
-from api.config.settings import get_settings
-from api.repositories.dataset_repository import DatasetRepository
-from api.models.dataset import DatasetStatus
+from config.settings import get_settings
+from repositories.dataset_repository import DatasetRepository
+from models.dataset import DatasetStatus
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
