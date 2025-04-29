@@ -1,13 +1,11 @@
 """Business Rules Service Module
 
-This module handles business rules management and execution, including:
-- Manual rule creation and management
-- AI-generated rules using OpenAI
-- Great Expectations integration
-- Pydantic model validation
-- Huffman coding based rules
+This module provides the BusinessRulesService class for managing business rules, including:
+- Manual and AI-assisted rule creation
 - Rule import/export via JSON
 - Rule execution and logging
+- Integration with OpenAI, Hugging Face, Great Expectations, and Pydantic
+- Support for extensible rule sources and validation frameworks
 """
 
 import logging
@@ -24,13 +22,14 @@ from openai import OpenAI
 import great_expectations as ge
 from pydantic import BaseModel, ValidationError, create_model
 from transformers import pipeline as hf_pipeline
+from sqlalchemy import text
 from sqlalchemy.sql import text
 
 from api.config.settings import get_settings
 from api.models.dataset import DatasetStatus
 from api.repositories.business_rules_repository import BusinessRulesRepository
 from api.repositories.dataset_repository import DatasetRepository
-from api.database.connection import get_db_session
+from api.db.connection import get_db_session
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -40,97 +39,119 @@ rules_repo = BusinessRulesRepository()
 dataset_repo = DatasetRepository()
 
 class BusinessRulesService:
-    """Service for managing and executing business rules.
-    
-    This service provides functionality for:
-    - Creating, updating, and deleting business rules
-    - Importing and exporting rules via JSON
-    - Generating rules using AI and various validation frameworks
-    - Executing rules on datasets
-    - Logging rule execution results
     """
-    
+    Service for managing and executing business rules.
+
+    Features:
+    - Create, update, and delete business rules
+    - Import/export rules via JSON
+    - Generate rules using AI (OpenAI, Hugging Face), Great Expectations, and Pydantic
+    - Execute rules on datasets
+    - Log rule execution results
+    - Extensible for additional rule sources and validation logic
+    """
+
     def __init__(self):
-        """Initialize the service components."""
+        """
+        Initialize the service components, including AI and validation frameworks.
+        """
         # Initialize OpenAI client if API key is available
         self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
-        
-        # Initialize validation frameworks
+
+        # Initialize Great Expectations context for validation
         self.ge_context = ge.get_context()
         # Initialize Hugging Face pipeline for text classification
         self.hf_model_name = getattr(settings, 'HF_MODEL_NAME', 'distilbert-base-uncased')
         self.hf_classifier = hf_pipeline('text-classification', model=self.hf_model_name)
-        
-        # Cache for loaded rules
+
+        # Cache for loaded rules per dataset
         self.rules_cache = {}
             
     async def load_rules(self, dataset_id: str) -> List[Dict[str, Any]]:
-        """Load all active rules for a dataset.
-        
+        """
+        Load all active rules for a dataset, using cache if available.
+
         Args:
             dataset_id: ID of the dataset to load rules for
-            
         Returns:
             List of active rules for the dataset
         """
         try:
-            # Check cache first
+            # Use cache to avoid redundant DB queries
             if dataset_id in self.rules_cache:
                 return self.rules_cache[dataset_id]
-            
-            # Get rules from database
+            # Fetch rules from repository
             rules = await rules_repo.get_rules_by_dataset(dataset_id)
-            
-            # Cache rules for faster access
             self.rules_cache[dataset_id] = rules
             return rules
-            
         except Exception as e:
             logger.error(f"Error loading rules: {str(e)}")
             return []
             
     async def create_rule(self, rule_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new business rule.
-        
+        """
+        Create a new business rule, validating and enriching the rule as needed.
+
         Args:
             rule_data: Dictionary containing rule information:
                 - name: Rule name
                 - description: Rule description
-                - condition: Rule condition
+                - condition: Rule condition (expression or validation)
                 - severity: Rule severity (low, medium, high)
                 - message: Error message when rule fails
                 - source: Rule source (manual, great_expectations, pydantic, huggingface, ai)
                 - dataset_id: ID of the dataset this rule applies to
                 - metadata: Additional rule metadata
-        
         Returns:
             Created rule object
+        Raises:
+            ValueError: If rule format or condition is invalid
+            Exception: For any other errors during rule creation
         """
         try:
-            # Validate rule format
+            # Validate rule format (structure, required fields)
             if not self._validate_rule_format(rule_data):
                 raise ValueError("Invalid rule format")
-            
-            # Generate rule ID
+
+            # Assign a unique rule ID
             rule_data["id"] = str(uuid.uuid4())
-            
-            # Handle different rule sources
+
+            # Handle rule source-specific enrichment
             source = rule_data.get("source", "manual")
             if source == "great_expectations":
                 rule_data = await self._create_ge_rule(rule_data)
             elif source == "pydantic":
                 rule_data = await self._create_pydantic_rule(rule_data)
-            elif source == "huggingface" or source == "hf":
+            elif source in ("huggingface", "hf"):
                 rule_data = await self._create_hf_rule(rule_data)
             elif source == "ai":
                 rule_data = await self._create_ai_rule(rule_data)
-            
-            # Validate condition
+
+            # Validate the rule's condition (syntax/logic)
             if not await self._validate_condition(rule_data["condition"]):
                 raise ValueError("Invalid rule condition")
-            
-            # Create rule in database
+
+            # Persist rule in the database
             rule = await rules_repo.create_rule(rule_data)
+
+            # Update cache if present
+            dataset_id = rule_data["dataset_id"]
+            if dataset_id in self.rules_cache:
+                self.rules_cache[dataset_id].append(rule)
+
+            # Log rule creation event
+            await self._log_rule_execution(
+                rule["id"],
+                {
+                    "success": True,
+                    "message": "Rule created successfully",
+                    "execution_metadata": {"action": "create"}
+                }
+            )
+            return rule
+        except Exception as e:
+            logger.error(f"Error creating rule: {str(e)}")
+            raise
             
             # Update cache
             dataset_id = rule_data["dataset_id"]
@@ -154,14 +175,25 @@ class BusinessRulesService:
             raise
             
     async def update_rule(self, rule_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
-        """Update an existing business rule."""
+        """
+        Update an existing business rule.
+
+        Args:
+            rule_id: ID of the rule to update
+            updates: Dictionary of fields to update
+        Returns:
+            Updated rule object
+        Raises:
+            ValueError: If the updated condition is invalid
+            Exception: For any other errors during update
+        """
         try:
             updates["updated_at"] = datetime.now().isoformat()
-            
+            # If condition is updated, validate it
             if "condition" in updates:
                 if not await self._validate_condition(updates["condition"]):
                     raise ValueError("Invalid rule condition")
-            
+            # Perform update in DB
             async with get_db_session() as session:
                 set_clause = ", ".join([f"{k} = :{k}" for k in updates.keys()])
                 await session.execute(
@@ -169,9 +201,7 @@ class BusinessRulesService:
                     {**updates, "rule_id": rule_id}
                 )
                 await session.commit()
-            
             return await self.get_rule(rule_id)
-            
         except Exception as e:
             logger.error(f"Error updating rule: {str(e)}")
             raise
@@ -192,6 +222,140 @@ class BusinessRulesService:
             raise
             
     async def get_rule(self, rule_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a specific business rule by ID.
+
+        Args:
+            rule_id: ID of the rule to retrieve
+        Returns:
+            Rule object as a dictionary, or None if not found
+        Raises:
+            Exception: For any errors during retrieval
+        """
+        try:
+            async with get_db_session() as session:
+                result = await session.execute(
+                    text("SELECT * FROM business_rules WHERE id = :rule_id"),
+                    {"rule_id": rule_id}
+                )
+                row = result.first()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Error getting rule: {str(e)}")
+            raise
+            
+    async def get_rules(self, dataset_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve all business rules for a dataset.
+
+        Args:
+            dataset_id: ID of the dataset
+        Returns:
+            List of rule objects as dictionaries
+        Raises:
+            Exception: For any errors during retrieval
+        """
+        try:
+            async with get_db_session() as session:
+                result = await session.execute(
+                    text("""
+                    SELECT * FROM business_rules 
+                    WHERE dataset_id = :dataset_id
+                    ORDER BY priority DESC, created_at ASC
+                    """),
+                    {"dataset_id": dataset_id}
+                )
+                return [dict(row) for row in result]
+        except Exception as e:
+            logger.error(f"Error getting rules: {str(e)}")
+            raise
+            
+    async def import_rules(self, dataset_id: str, rules_json: str) -> Dict[str, Any]:
+        """
+        Import business rules from a JSON array.
+
+        Args:
+            dataset_id: ID of the dataset to import rules for
+            rules_json: JSON string containing an array of rule objects
+        Returns:
+            Dict containing success status, imported/failed counts, and rule details
+        Raises:
+            Exception: For any errors during import
+        """
+        try:
+            rules = json.loads(rules_json)
+            if not isinstance(rules, list):
+                raise ValueError("Invalid format: JSON must be an array of rule objects")
+            imported_rules = []
+            failed_rules = []
+            for rule in rules:
+                try:
+                    rule["dataset_id"] = dataset_id
+                    rule["source"] = rule.get("source", "manual")
+                    created_rule = await self.create_rule(rule)
+                    imported_rules.append(created_rule)
+                except Exception as rule_error:
+                    failed_rules.append({
+                        "rule": rule.get("name", "Unknown"),
+                        "error": str(rule_error)
+                    })
+            return {
+                "success": len(imported_rules) > 0,
+                "imported_count": len(imported_rules),
+                "failed_count": len(failed_rules),
+                "imported_rules": imported_rules,
+                "failed_rules": failed_rules
+            }
+        except Exception as e:
+            logger.error(f"Error importing rules: {str(e)}")
+            raise
+        
+    async def generate_ai_rules(self, dataset_id: str, column_metadata: Dict[str, Any], model_type: str = "openai") -> Dict[str, Any]:
+        """Generate business rules using AI based on column metadata.
+        
+        Args:
+            dataset_id: ID of the dataset to generate rules for
+            column_metadata: Dictionary containing column information about the dataset
+            model_type: Type of model to use for generation (openai, great_expectations, pydantic, huggingface)
+        Returns:
+            Dictionary containing generated rules and metadata
+        """
+        try:
+            # Get dataset information
+            dataset = await dataset_repo.get_dataset(dataset_id)
+            if not dataset:
+                raise ValueError(f"Dataset {dataset_id} not found")
+            # Select generation method based on model type
+            if model_type == "great_expectations":
+                return await self._generate_ge_rules(dataset_id, column_metadata)
+            elif model_type == "pydantic":
+                return await self._generate_pydantic_rules(dataset_id, column_metadata)
+            elif model_type == "huggingface" or model_type == "hf":
+                return await self._generate_hf_rules(dataset_id, column_metadata)
+            else:  # Default to OpenAI
+                return await self._generate_openai_rules(dataset_id, column_metadata)
+        except Exception as e:
+            logger.error(f"Error generating AI rules: {str(e)}")
+            return {"success": False, "error": str(e)}
+        
+        raise
+        
+    async def delete_rule(self, rule_id: str) -> bool:
+        """Delete a business rule."""
+        try:
+            async with get_db_session() as session:
+                await session.execute(
+                    text("DELETE FROM business_rules WHERE id = :rule_id"),
+                    {"rule_id": rule_id}
+                )
+                await session.commit()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting rule: {str(e)}")
+            raise
+        
+    async def get_rule(self, rule_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific business rule."""
         try:
             async with get_db_session() as session:
@@ -201,21 +365,20 @@ class BusinessRulesService:
                 )
                 row = result.first()
                 return dict(row) if row else None
-                
         except Exception as e:
             logger.error(f"Error getting rule: {str(e)}")
             raise
-            
+        
     async def get_rules(self, dataset_id: str) -> List[Dict[str, Any]]:
         """Get all business rules for a dataset."""
         try:
             async with get_db_session() as session:
                 result = await session.execute(
-                    text("""
-                    SELECT * FROM business_rules 
-                    WHERE dataset_id = :dataset_id
-                    ORDER BY priority DESC, created_at ASC
-                    """),
+                    text(f"""
+                SELECT * FROM {settings.DB_SCHEMA}.business_rules 
+                WHERE dataset_id = :dataset_id
+                ORDER BY priority DESC, created_at ASC
+                """),
                     {"dataset_id": dataset_id}
                 )
                 return [dict(row) for row in result]
@@ -265,127 +428,11 @@ class BusinessRulesService:
                 "failed_rules": failed_rules
             }
         except Exception as e:
-            logger.error(f"Error importing rules: {str(e)}")
-            raise
-        
-    async def generate_ai_rules(self, dataset_id: str, column_metadata: Dict[str, Any], model_type: str = "openai") -> Dict[str, Any]:
-        """Generate business rules using AI based on column metadata.
-        
-        Args:
-            dataset_id: ID of the dataset to generate rules for
-            column_metadata: Dictionary containing column information about the dataset
-            model_type: Type of model to use for generation (openai, great_expectations, pydantic, huggingface)
-        Returns:
-            Dictionary containing generated rules and metadata
-        """
-        try:
-            # Get dataset information
-            dataset = await dataset_repo.get_dataset(dataset_id)
-            if not dataset:
-                raise ValueError(f"Dataset {dataset_id} not found")
-            # Select generation method based on model type
-            if model_type == "great_expectations":
-                return await self._generate_ge_rules(dataset_id, column_metadata)
-            elif model_type == "pydantic":
-                return await self._generate_pydantic_rules(dataset_id, column_metadata)
-            elif model_type == "huggingface" or model_type == "hf":
-                return await self._generate_hf_rules(dataset_id, column_metadata)
-            else:  # Default to OpenAI
-                return await self._generate_openai_rules(dataset_id, column_metadata)
-        except Exception as e:
-            logger.error(f"Error generating AI rules: {str(e)}")
-            return {"success": False, "error": str(e)}
-        
-        raise
-        
-async def delete_rule(self, rule_id: str) -> bool:
-    """Delete a business rule."""
-    try:
-        async with get_db_session() as session:
-            await session.execute(
-                text("DELETE FROM business_rules WHERE id = :rule_id"),
-                {"rule_id": rule_id}
-            )
-            await session.commit()
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error deleting rule: {str(e)}")
-        raise
-        
-async def get_rule(self, rule_id: str) -> Optional[Dict[str, Any]]:
-    """Get a specific business rule."""
-    try:
-        async with get_db_session() as session:
-            result = await session.execute(
-                text("SELECT * FROM business_rules WHERE id = :rule_id"),
-                {"rule_id": rule_id}
-            )
-            row = result.first()
-            return dict(row) if row else None
-            
-    except Exception as e:
-        logger.error(f"Error getting rule: {str(e)}")
-        raise
-        
-async def get_rules(self, dataset_id: str) -> List[Dict[str, Any]]:
-    """Get all business rules for a dataset."""
-    try:
-        async with get_db_session() as session:
-            result = await session.execute(
-                text("""
-            SELECT * FROM business_rules 
-            WHERE dataset_id = :dataset_id
-            ORDER BY priority DESC, created_at ASC
-            """),
-                {"dataset_id": dataset_id}
-            )
-            return [dict(row) for row in result]
-            
-    except Exception as e:
-        logger.error(f"Error getting rules: {str(e)}")
-        raise
-        
-async def import_rules(self, dataset_id: str, rules_json: str) -> Dict[str, Any]:
-    """Import business rules from JSON.
-    
-    Args:
-        dataset_id: ID of the dataset to import rules for
-        rules_json: JSON string containing an array of rule objects
-        
-    Returns:
-        Dict containing success status and number of imported rules
-    """
-    try:
-        rules = json.loads(rules_json)
-        if not isinstance(rules, list):
-            raise ValueError("Invalid format: JSON must be an array of rule objects")
-            
-        imported_rules = []
-        failed_rules = []
-        
-        for rule in rules:
-            try:
-                # Add dataset ID and source
-                rule["dataset_id"] = dataset_id
-                rule["source"] = rule.get("source", "manual")
-                
-                # Create rule
-                created_rule = await self.create_rule(rule)
-                imported_rules.append(created_rule)
-            except Exception as rule_error:
-                failed_rules.append({
-                    "rule": rule.get("name", "Unknown"),
-                    "error": str(rule_error)
-                })
-        
-        return {
-            "success": len(imported_rules) > 0,
-            "imported_count": len(imported_rules),
-            "failed_count": len(failed_rules),
-            "imported_rules": imported_rules,
-            "failed_rules": failed_rules
-        }
+            logger.error(f"Error generating import rules: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
             
     async def _generate_ge_rules(self, dataset_id: str, column_metadata: Dict[str, Any]) -> Dict[str, Any]:

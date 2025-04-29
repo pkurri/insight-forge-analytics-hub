@@ -7,7 +7,8 @@ import logging
 from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
 
-from api.utils.db import execute_query, execute_transaction
+from api.db.connection import get_db_session
+from sqlalchemy import text
 from api.models.dataset import BusinessRule, BusinessRuleCreate, BusinessRuleSeverity
 
 logger = logging.getLogger(__name__)
@@ -17,13 +18,13 @@ class BusinessRulesRepository:
     
     async def get_rules(self, dataset_id: int) -> List[Dict[str, Any]]:
         """Get all business rules for a dataset."""
-        query = """
-        SELECT id, name, dataset_id, condition, severity, message, is_active,
-               model_generated, confidence, created_at, updated_at
-        FROM business_rules
-        WHERE dataset_id = $1
-        ORDER BY created_at DESC
-        """
+        query = text(f"""
+            SELECT id, name, dataset_id, condition, severity, message, is_active,
+                   model_generated, confidence, created_at, updated_at
+            FROM {DB_SCHEMA}.business_rules
+            WHERE dataset_id = :dataset_id
+            ORDER BY created_at DESC
+            """)
         
         try:
             results = await execute_query(query, dataset_id)
@@ -34,12 +35,12 @@ class BusinessRulesRepository:
     
     async def get_rule(self, rule_id: int) -> Optional[Dict[str, Any]]:
         """Get a specific business rule by ID."""
-        query = """
-        SELECT id, name, dataset_id, condition, severity, message, is_active,
-               model_generated, confidence, created_at, updated_at
-        FROM business_rules
-        WHERE id = $1
-        """
+        query = text(f"""
+            SELECT id, name, dataset_id, condition, severity, message, is_active,
+                   model_generated, confidence, created_at, updated_at
+            FROM {DB_SCHEMA}.business_rules
+            WHERE id = :rule_id
+            """)
         
         try:
             results = await execute_query(query, rule_id)
@@ -50,26 +51,27 @@ class BusinessRulesRepository:
     
     async def create_rule(self, rule: BusinessRuleCreate) -> Dict[str, Any]:
         """Create a new business rule."""
-        query = """
-        INSERT INTO business_rules (
-            name, dataset_id, condition, severity, message, 
-            model_generated, confidence
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, name, dataset_id, condition, severity, message, is_active,
-                  model_generated, confidence, created_at, updated_at
-        """
+        query = text(f"""
+            INSERT INTO {DB_SCHEMA}.business_rules (
+                name, dataset_id, condition, severity, message, 
+                model_generated, confidence
+            )
+            VALUES (:name, :dataset_id, :condition, :severity, :message, 
+                     :model_generated, :confidence)
+            RETURNING id, name, dataset_id, condition, severity, message, is_active,
+                      model_generated, confidence, created_at, updated_at
+            """)
         
         try:
             results = await execute_query(
                 query, 
-                rule.name,
-                rule.dataset_id,
-                rule.condition,
-                rule.severity,
-                rule.message,
-                rule.model_generated,
-                rule.confidence
+                name=rule.name,
+                dataset_id=rule.dataset_id,
+                condition=rule.condition,
+                severity=rule.severity,
+                message=rule.message,
+                model_generated=rule.model_generated,
+                confidence=rule.confidence
             )
             return dict(results[0])
         except Exception as e:
@@ -80,15 +82,13 @@ class BusinessRulesRepository:
         """Update an existing business rule."""
         # Build dynamic update query based on provided fields
         update_fields = []
-        params = [rule_id]  # First parameter is the rule ID
+        params = {'rule_id': rule_id}  # First parameter is the rule ID
         
         # Build SET clause dynamically
-        param_idx = 2  # Start with $2 as $1 is rule_id
         for field, value in rule_data.items():
             if field in ['name', 'condition', 'severity', 'message', 'is_active', 'confidence']:
-                update_fields.append(f"{field} = ${param_idx}")
-                params.append(value)
-                param_idx += 1
+                update_fields.append(f"{field} = :{field}")
+                params[field] = value
         
         # Add updated_at field
         update_fields.append("updated_at = CURRENT_TIMESTAMP")
@@ -97,16 +97,16 @@ class BusinessRulesRepository:
             logger.warning(f"No valid fields to update for rule {rule_id}")
             return await self.get_rule(rule_id)
         
-        query = f"""
-        UPDATE business_rules
-        SET {", ".join(update_fields)}
-        WHERE id = $1
-        RETURNING id, name, dataset_id, condition, severity, message, is_active,
-                  model_generated, confidence, created_at, updated_at
-        """
+        query = text(f"""
+            UPDATE {DB_SCHEMA}.business_rules
+            SET {", ".join(update_fields)}
+            WHERE id = :rule_id
+            RETURNING id, name, dataset_id, condition, severity, message, is_active,
+                      model_generated, confidence, created_at, updated_at
+            """)
         
         try:
-            results = await execute_query(query, *params)
+            results = await execute_query(query, **params)
             return dict(results[0]) if results else None
         except Exception as e:
             logger.error(f"Error updating business rule {rule_id}: {str(e)}")
@@ -114,11 +114,11 @@ class BusinessRulesRepository:
     
     async def delete_rule(self, rule_id: int) -> bool:
         """Delete a business rule."""
-        query = """
-        DELETE FROM business_rules
-        WHERE id = $1
-        RETURNING id
-        """
+        query = text(f"""
+            DELETE FROM {DB_SCHEMA}.business_rules
+            WHERE id = :rule_id
+            RETURNING id
+            """)
         
         try:
             results = await execute_query(query, rule_id)

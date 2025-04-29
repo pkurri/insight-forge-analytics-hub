@@ -10,7 +10,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from api.config.database import get_db_session
+from api.db.connection import get_db_session
 from api.config.redis_config import get_redis_client
 import json
 import pickle
@@ -52,8 +52,8 @@ class ChatRepository:
             # Query database
             async with get_db_session() as session:
                 result = await session.execute(
-                    text("""
-                    SELECT * FROM chat_sessions 
+                    text(f"""
+                    SELECT * FROM {settings.DB_SCHEMA}.chat_sessions 
                     WHERE user_id = :user_id
                     ORDER BY updated_at DESC
                     """),
@@ -92,8 +92,8 @@ class ChatRepository:
             # Query database
             async with get_db_session() as session:
                 result = await session.execute(
-                    text("""
-                    SELECT * FROM chat_sessions 
+                    text(f"""
+                    SELECT * FROM {settings.DB_SCHEMA}.chat_sessions 
                     WHERE id = :session_id
                     """),
                     {"session_id": session_id}

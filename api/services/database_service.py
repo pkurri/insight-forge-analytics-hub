@@ -6,9 +6,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import ARRAY, FLOAT
 from api.config.settings import get_settings
 from api.models.dataset import Dataset, DatasetMetadata
-from api.utils.db import get_db_connection
+from api.db.connection import get_db_session
 import faiss
-import asyncpg
 import pandas as pd
 
 class DatabaseService:
@@ -49,10 +48,10 @@ class DatabaseService:
                 text(
                     'SELECT d.*, ('
                     'SELECT embedding <=> :query_embedding AS distance '
-                    'FROM dataset_embeddings de '
+                    f'FROM {self.settings.DB_SCHEMA}.dataset_embeddings de '
                     'WHERE de.dataset_id = d.id'
                     ') as similarity '
-                    'FROM datasets d '
+                    f'FROM {self.settings.DB_SCHEMA}.datasets d '
                     'ORDER BY similarity ASC '
                     'LIMIT :limit'
                 ),

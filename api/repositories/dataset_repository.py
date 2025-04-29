@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from api.config.database import get_db_session
+from api.db.connection import get_db_session
 from api.config.redis_config import get_redis_client
 from api.services.analytics_service import (
     process_dataset,
@@ -67,8 +67,8 @@ class DatasetRepository:
             # Query database
             async with get_db_session() as session:
                 result = await session.execute(
-                    text("""
-                    SELECT * FROM datasets 
+                    text(f"""
+                    SELECT * FROM {settings.DB_SCHEMA}.datasets 
                     WHERE id = :dataset_id
                     """),
                     {"dataset_id": dataset_id}
@@ -94,8 +94,8 @@ class DatasetRepository:
     async def get_datasets_by_user(self, user_id: int) -> List[Dataset]:
         async with get_db_session() as session:
             result = await session.execute(
-                text("""
-                SELECT * FROM datasets 
+                text(f"""
+                SELECT * FROM {settings.DB_SCHEMA}.datasets 
                 WHERE user_id = :user_id
                 """),
                 {"user_id": user_id}

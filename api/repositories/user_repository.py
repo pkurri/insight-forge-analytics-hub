@@ -1,18 +1,19 @@
 
 from datetime import datetime
 from typing import Optional, List
-import asyncpg
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from api.models.user import UserCreate, UserDB, UserUpdate, APIKeyResponse
 from api.services.auth import get_password_hash
 from api.config.settings import get_settings
-from api.utils.db import get_db_pool
+from api.db.connection import get_db_session
 
 settings = get_settings()
 
 class UserRepository:
-    def __init__(self, pool):
-        self.pool = pool
+    def __init__(self, session):
+        self.session = session
 
     async def create_user(self, user: UserCreate) -> UserDB:
         """Create a new user."""
