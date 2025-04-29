@@ -7,7 +7,7 @@ from datetime import datetime
 
 # Import services
 from ..services.openevals_service import openevals_service, EvalType, EvalStatus
-from ..services.dataset_processor import get_dataset, process_dataset
+from ..services.ds_metadataset_processor import get_ds_metadataset, process_ds_metadataset
 from ..services.business_rules_service import BusinessRulesService
 
 # Create router
@@ -16,23 +16,23 @@ router = APIRouter(prefix="/openevals", tags=["OpenEvals"])
 # Initialize services
 business_rules_service = BusinessRulesService()
 
-@router.post("/business-rules/evaluate/{dataset_id}")
-async def evaluate_business_rules(dataset_id: str):
+@router.post("/business-rules/evaluate/{ds_metadataset_id}")
+async def evaluate_business_rules(ds_metadataset_id: str):
     """
-    Evaluate business rules for a dataset
+    Evaluate business rules for a ds_metadataset
     """
     try:
-        # Get dataset
-        dataset_info = await get_dataset(dataset_id)
-        if not dataset_info:
-            raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+        # Get ds_metadataset
+        ds_metadataset_info = await get_ds_metadataset(ds_metadataset_id)
+        if not ds_metadataset_info:
+            raise HTTPException(status_code=404, detail=f"Dataset {ds_metadataset_id} not found")
         
-        # Load dataset
-        file_path = dataset_info.get("file_path")
+        # Load ds_metadataset
+        file_path = ds_metadataset_info.get("file_path")
         if not file_path:
             raise HTTPException(status_code=404, detail="Dataset file not found")
         
-        # Read dataset
+        # Read ds_metadataset
         if file_path.endswith(".csv"):
             df = pd.read_csv(file_path)
         elif file_path.endswith(".json"):
@@ -43,35 +43,35 @@ async def evaluate_business_rules(dataset_id: str):
             raise HTTPException(status_code=400, detail=f"Unsupported file format: {file_path}")
         
         # Evaluate business rules
-        evaluation = await openevals_service.evaluate_business_rules(dataset_id, df)
+        evaluation = await openevals_service.evaluate_business_rules(ds_metadataset_id, df, ds_metadataset_info.get("ds_metadata", {}))
         
-        return {"success": True, "data": evaluation}
+        return {"success": True, "ds_metadata": evaluation}
     
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/business-rules/generate/{dataset_id}")
-async def generate_business_rules_with_openeval(dataset_id: str):
+@router.post("/business-rules/generate/{ds_metadataset_id}")
+async def generate_business_rules_with_openeval(ds_metadataset_id: str):
     """
-    Generate business rules with OpenEvals for a dataset
+    Generate business rules with OpenEvals for a ds_metadataset
     """
     try:
-        # Get dataset
-        dataset_info = await get_dataset(dataset_id)
-        if not dataset_info:
-            raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+        # Get ds_metadataset
+        ds_metadataset_info = await get_ds_metadataset(ds_metadataset_id)
+        if not ds_metadataset_info:
+            raise HTTPException(status_code=404, detail=f"Dataset {ds_metadataset_id} not found")
         
-        # Get column metadata
-        column_metadata = dataset_info.get("statistics", {})
+        # Get ds_metadatads_metadata
+        ds_metads_metadata = ds_metadataset_info.get("ds_metadata", {})
         
-        # Load dataset for validation
-        file_path = dataset_info.get("file_path")
+        # Load ds_metadataset for validation
+        file_path = ds_metadataset_info.get("file_path")
         if not file_path:
             raise HTTPException(status_code=404, detail="Dataset file not found")
         
-        # Read dataset (sample)
+        # Read ds_metadataset (sample)
         if file_path.endswith(".csv"):
             df = pd.read_csv(file_path, nrows=100)  # Limit to 100 rows for validation
         elif file_path.endswith(".json"):
@@ -84,35 +84,35 @@ async def generate_business_rules_with_openeval(dataset_id: str):
         
         # Generate rules with OpenEvals
         result = await openevals_service.generate_business_rules_with_openeval(
-            dataset_id=dataset_id,
-            column_metadata=column_metadata,
-            data_sample=df
+            ds_metadataset_id=ds_metadataset_id,
+            ds_metads_metadata=ds_metads_metadata,
+            ds_metadata_sample=df
         )
         
-        return {"success": True, "data": result}
+        return {"success": True, "ds_metadata": result}
     
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/data-quality/{dataset_id}")
-async def evaluate_data_quality(dataset_id: str):
+@router.post("/ds_metadata-quality/{ds_metadataset_id}")
+async def evaluate_ds_metadata_quality(ds_metadataset_id: str):
     """
-    Evaluate data quality for a dataset
+    Evaluate ds_metadata quality for a ds_metadataset
     """
     try:
-        # Get dataset
-        dataset_info = await get_dataset(dataset_id)
-        if not dataset_info:
-            raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+        # Get ds_metadataset
+        ds_metadataset_info = await get_ds_metadataset(ds_metadataset_id)
+        if not ds_metadataset_info:
+            raise HTTPException(status_code=404, detail=f"Dataset {ds_metadataset_id} not found")
         
-        # Load dataset
-        file_path = dataset_info.get("file_path")
+        # Load ds_metadataset
+        file_path = ds_metadataset_info.get("file_path")
         if not file_path:
             raise HTTPException(status_code=404, detail="Dataset file not found")
         
-        # Read dataset
+        # Read ds_metadataset
         if file_path.endswith(".csv"):
             df = pd.read_csv(file_path)
         elif file_path.endswith(".json"):
@@ -122,10 +122,10 @@ async def evaluate_data_quality(dataset_id: str):
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported file format: {file_path}")
         
-        # Evaluate data quality
-        evaluation = await openevals_service.evaluate_data_quality(dataset_id, df)
+        # Evaluate ds_metadata quality
+        evaluation = await openevals_service.evaluate_ds_metadata_quality(ds_metadataset_id, df, ds_metadataset_info.get("ds_metadata", {}))
         
-        return {"success": True, "data": evaluation}
+        return {"success": True, "ds_metadata": evaluation}
     
     except HTTPException:
         raise
@@ -148,7 +148,7 @@ async def evaluate_ai_response(request: Dict[str, Any] = Body(...)):
         # Evaluate AI response
         evaluation = await openevals_service.evaluate_agent_response(query, response, facts)
         
-        return {"success": True, "data": evaluation}
+        return {"success": True, "ds_metadata": evaluation}
     
     except HTTPException:
         raise
@@ -162,7 +162,7 @@ async def get_evaluation_history(eval_type: Optional[str] = None, limit: int = 1
     """
     try:
         history = await openevals_service.get_evaluation_history(eval_type, limit)
-        return {"success": True, "data": history}
+        return {"success": True, "ds_metadata": history}
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -177,9 +177,9 @@ async def get_evaluation(eval_id: str):
         if not evaluation:
             raise HTTPException(status_code=404, detail=f"Evaluation {eval_id} not found")
         
-        return {"success": True, "data": evaluation}
+        return {"success": True, "ds_metadata": evaluation}
     
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))}
+        raise HTTPException(status_code=500, detail=str(e))

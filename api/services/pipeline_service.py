@@ -20,7 +20,7 @@ from api.models.dataset import DatasetStatus
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
-dataset_repo = DatasetRepository()
+
 
 class DataPipeline:
     """Data pipeline for processing datasets."""
@@ -44,7 +44,9 @@ class DataPipeline:
         """
         try:
             # Get dataset
-            dataset = await dataset_repo.get_dataset(dataset_id)
+            from api.repositories.dataset_repository import DatasetRepository
+        dataset_repo = DatasetRepository()
+        dataset = await dataset_repo.get_dataset(dataset_id)
             if not dataset:
                 raise ValueError(f"Dataset {dataset_id} not found")
             

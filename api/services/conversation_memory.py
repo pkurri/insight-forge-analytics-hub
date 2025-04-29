@@ -85,7 +85,7 @@ class ConversationMemory:
             'evaluations': [],
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat(),
-            'metadata': {}
+            'mdata': {}
         }
         
         # Save memory
@@ -104,7 +104,7 @@ class ConversationMemory:
                     'role': 'user' or 'assistant',
                     'content': 'Message content',
                     'timestamp': ISO timestamp (optional),
-                    'metadata': Additional metadata (optional)
+                    'mdata': Additional metadata (optional)
                 }
                 
         Returns:
@@ -375,7 +375,7 @@ class ConversationMemory:
                 {
                     'key': 'preference_key',
                     'value': 'preference_value',
-                    'metadata': Additional metadata (optional)
+                    'mdata': Additional metadata (optional)
                 }
                 
         Returns:
@@ -391,7 +391,7 @@ class ConversationMemory:
         # Update preference
         self.user_preferences[user_id][key] = {
             'value': preference.get('value'),
-            'metadata': preference.get('metadata', {}),
+            'mdata': preference.get('mdata', {}),
             'updated_at': datetime.now().isoformat()
         }
         

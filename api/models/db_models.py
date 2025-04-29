@@ -20,7 +20,7 @@ class Dataset(Base):
     status = Column(SQLEnum(DatasetStatus), default=DatasetStatus.PENDING)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    metadata = Column(JSON, default={})
+    ds_metadata = Column(JSON, default={})
 
     # Relationships
     user = relationship("User", back_populates="datasets")
@@ -51,6 +51,7 @@ class DatasetEmbedding(Base):
     embedding = Column(ARRAY(Float))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    vector_metadata = Column(JSON, default={})
 
     dataset = relationship("Dataset", back_populates="embeddings")
 
@@ -63,7 +64,7 @@ class PipelineRun(Base):
     start_time = Column(DateTime, default=datetime.utcnow)
     end_time = Column(DateTime)
     error_message = Column(String)
-    metadata = Column(JSON, default={})
+    pipeline_metadata = Column(JSON, default={})
 
     dataset = relationship("Dataset", back_populates="pipeline_runs")
     steps = relationship("PipelineStep", back_populates="pipeline_run", cascade="all, delete-orphan")
@@ -78,7 +79,7 @@ class PipelineStep(Base):
     start_time = Column(DateTime)
     end_time = Column(DateTime)
     error_message = Column(String)
-    metadata = Column(JSON, default={})
+    pipeline_metadata = Column(JSON, default={})
 
     pipeline_run = relationship("PipelineRun", back_populates="steps")
 

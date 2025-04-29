@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS datasets (
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    metadata JSONB DEFAULT '{}'::jsonb,
+    ds_metadata JSONB DEFAULT '{}'::jsonb,
     cleaned_file_path TEXT,
     processed_file_path TEXT,
     last_cleaned_at TIMESTAMP WITH TIME ZONE,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS vector_store (
     dataset_id UUID REFERENCES datasets(id) ON DELETE CASCADE,
     text_content TEXT NOT NULL,
     embedding vector(768) NOT NULL, -- 768-dimensional embeddings
-    metadata JSONB DEFAULT '{}'::jsonb,
+    vector_metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     start_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP WITH TIME ZONE,
     error_message TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb
+    pipeline_metadata JSONB DEFAULT '{}'::jsonb
 );
 
 -- Create api_connections table
@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS business_rules (
     source VARCHAR(50), -- 'great_expectations', 'pydantic', 'huffman'
     condition TEXT NOT NULL,
     action TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
+    rules_metadata JSONB DEFAULT '{}'::jsonb,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

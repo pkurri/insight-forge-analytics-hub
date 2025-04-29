@@ -76,26 +76,27 @@ class DatabaseService:
                 session.add(dataset)
                 await session.flush()
 
-                # Store metadata
-                if 'metadata' in data:
-                    metadata = DatasetMetadata(
+                # Store ds_metadata
+                if 'ds_metadata' in data:
+                    ds_metadata = DatasetMetadata(
                         dataset_id=dataset.id,
-                        column_info=data['metadata'].get('column_info', {}),
-                        row_count=data['metadata'].get('row_count', 0),
-                        column_count=data['metadata'].get('column_count', 0)
+                        column_info=data['ds_metadata'].get('column_info', {}),
+                        row_count=data['ds_metadata'].get('row_count', 0),
+                        column_count=data['ds_metadata'].get('column_count', 0)
                     )
-                    session.add(metadata)
+                    session.add(ds_metadata)
 
                 # Store vector embeddings if provided
                 if embeddings is not None:
                     await session.execute(
                         text(
-                            'INSERT INTO dataset_embeddings (dataset_id, embedding) '
-                            'VALUES (:dataset_id, :embedding)'
+                            'INSERT INTO dataset_embeddings (dataset_id, embedding, vector_metadata) '
+                            'VALUES (:dataset_id, :embedding, :vector_metadata)'
                         ),
                         {
                             'dataset_id': dataset.id,
-                            'embedding': embeddings.tolist()
+                            'embedding': embeddings.tolist(),
+                            'vector_metadata': {}
                         }
                     )
 
@@ -106,24 +107,24 @@ class DatabaseService:
                 await session.rollback()
                 raise e
 
-    async def store_vectors(self, table_name: str, vectors: List[np.ndarray], metadata: List[Dict[str, Any]]):
-        """Store vectors and their metadata in PostgreSQL"""
+    async def store_vectors(self, table_name: str, vectors: List[np.ndarray], vector_metadata: List[Dict[str, Any]]):
+        """Store vectors and their vector_metadata in PostgreSQL"""
         async with self.pool.acquire() as conn:
             # Create table if it doesn't exist
             await conn.execute(f'''
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     id SERIAL PRIMARY KEY,
                     embedding vector({self.vector_dimension}),
-                    metadata JSONB
+                    vector_metadata JSONB
                 )
             ''')
             
-            # Store vectors and metadata
-            for vector, meta in zip(vectors, metadata):
+            # Store vectors and vector_metadata
+            for vector, vector_metadata in zip(vectors, vector_metadata):
                 await conn.execute(
-                    f'INSERT INTO {table_name} (embedding, metadata) VALUES ($1, $2)',
+                    f'INSERT INTO {table_name} (embedding, vector_metadata) VALUES ($1, $2)',
                     vector.tolist(),
-                    meta
+                    vector_metadata
                 )
 
     async def search_similar_vectors(
@@ -135,7 +136,7 @@ class DatabaseService:
         """Search for similar vectors using cosine similarity"""
         async with self.pool.acquire() as conn:
             results = await conn.fetch(f'''
-                SELECT id, embedding, metadata,
+                SELECT id, embedding, vector_metadata,
                        1 - (embedding <=> $1) as similarity
                 FROM {table_name}
                 ORDER BY embedding <=> $1
@@ -146,7 +147,7 @@ class DatabaseService:
                 {
                     'id': r['id'],
                     'similarity': r['similarity'],
-                    'metadata': r['metadata']
+                    'vector_metadata': r['vector_metadata']
                 }
                 for r in results
             ]

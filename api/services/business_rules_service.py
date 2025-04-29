@@ -27,16 +27,12 @@ from sqlalchemy.sql import text
 
 from api.config.settings import get_settings
 from api.models.dataset import DatasetStatus
-from api.repositories.business_rules_repository import BusinessRulesRepository
-from api.repositories.dataset_repository import DatasetRepository
 from api.db.connection import get_db_session
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-# Initialize repositories
-rules_repo = BusinessRulesRepository()
-dataset_repo = DatasetRepository()
+# Note: BusinessRulesRepository and DatasetRepository are now imported inside functions to avoid circular imports.
 
 class BusinessRulesService:
     """
@@ -101,7 +97,7 @@ class BusinessRulesService:
                 - message: Error message when rule fails
                 - source: Rule source (manual, great_expectations, pydantic, huggingface, ai)
                 - dataset_id: ID of the dataset this rule applies to
-                - metadata: Additional rule metadata
+                - meta: Additional rule meta
         Returns:
             Created rule object
         Raises:
@@ -145,7 +141,7 @@ class BusinessRulesService:
                 {
                     "success": True,
                     "message": "Rule created successfully",
-                    "execution_metadata": {"action": "create"}
+                    "execution_meta": {"action": "create"}
                 }
             )
             return rule
@@ -164,7 +160,7 @@ class BusinessRulesService:
                 {
                     "success": True,
                     "message": "Rule created successfully",
-                    "execution_metadata": {"action": "create"}
+                    "execution_meta": {"action": "create"}
                 }
             )
             
@@ -310,15 +306,15 @@ class BusinessRulesService:
             logger.error(f"Error importing rules: {str(e)}")
             raise
         
-    async def generate_ai_rules(self, dataset_id: str, column_metadata: Dict[str, Any], model_type: str = "openai") -> Dict[str, Any]:
-        """Generate business rules using AI based on column metadata.
+    async def generate_ai_rules(self, dataset_id: str, column_meta: Dict[str, Any], model_type: str = "openai") -> Dict[str, Any]:
+        """Generate business rules using AI based on column meta.
         
         Args:
             dataset_id: ID of the dataset to generate rules for
-            column_metadata: Dictionary containing column information about the dataset
+            column_meta: Dictionary containing column information about the dataset
             model_type: Type of model to use for generation (openai, great_expectations, pydantic, huggingface)
         Returns:
-            Dictionary containing generated rules and metadata
+            Dictionary containing generated rules and meta
         """
         try:
             # Get dataset information
@@ -327,13 +323,13 @@ class BusinessRulesService:
                 raise ValueError(f"Dataset {dataset_id} not found")
             # Select generation method based on model type
             if model_type == "great_expectations":
-                return await self._generate_ge_rules(dataset_id, column_metadata)
+                return await self._generate_ge_rules(dataset_id, column_meta)
             elif model_type == "pydantic":
-                return await self._generate_pydantic_rules(dataset_id, column_metadata)
+                return await self._generate_pydantic_rules(dataset_id, column_meta)
             elif model_type == "huggingface" or model_type == "hf":
-                return await self._generate_hf_rules(dataset_id, column_metadata)
+                return await self._generate_hf_rules(dataset_id, column_meta)
             else:  # Default to OpenAI
-                return await self._generate_openai_rules(dataset_id, column_metadata)
+                return await self._generate_openai_rules(dataset_id, column_meta)
         except Exception as e:
             logger.error(f"Error generating AI rules: {str(e)}")
             return {"success": False, "error": str(e)}
@@ -435,12 +431,12 @@ class BusinessRulesService:
             }
 
             
-    async def _generate_ge_rules(self, dataset_id: str, column_metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate rules using Great Expectations based on column metadata.
+    async def _generate_ge_rules(self, dataset_id: str, column_meta: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate rules using Great Expectations based on column meta.
         
         Args:
             dataset_id: ID of the dataset
-            column_metadata: Column metadata
+            column_meta: Column meta
             
         Returns:
             Dictionary containing generated rules
@@ -450,7 +446,7 @@ class BusinessRulesService:
             rule_id = 1
             
             # Generate rules for each column based on its type
-            for col_name, col_info in column_metadata.items():
+            for col_name, col_info in column_meta.items():
                 col_type = col_info.get('type', 'unknown')
                 
                 # Not null rule
@@ -535,12 +531,12 @@ class BusinessRulesService:
                 "error": str(e)
             }
     
-    async def _generate_pydantic_rules(self, dataset_id: str, column_metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate rules using Pydantic based on column metadata.
+    async def _generate_pydantic_rules(self, dataset_id: str, column_meta: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate rules using Pydantic based on column meta.
         
         Args:
             dataset_id: ID of the dataset
-            column_metadata: Column metadata
+            column_meta: Column meta
             
         Returns:
             Dictionary containing generated rules
@@ -549,9 +545,9 @@ class BusinessRulesService:
             rules = []
             rule_id = 1
             
-            # Generate a schema based on column metadata
+            # Generate a schema based on column meta
             schema = {}
-            for col_name, col_info in column_metadata.items():
+            for col_name, col_info in column_meta.items():
                 col_type = col_info.get('type', 'unknown')
                 
                 if col_type == 'numeric':
@@ -633,17 +629,17 @@ class BusinessRulesService:
                 "error": str(e)
             }
     
-    async def _generate_hf_rules(self, dataset_id: str, column_metadata: Dict[str, Any]) -> Dict[str, Any]:
+    async def _generate_hf_rules(self, dataset_id: str, column_meta: Dict[str, Any]) -> Dict[str, Any]:
         """Generate advanced Hugging Face rules using a configurable model (default: 'distilbert-base-uncased').
         For text columns: flag low-confidence, toxic/offensive content, and unexpected labels.
         For numeric columns: add anomaly detection (z-score and isolation forest if available).
         For categorical columns: add label drift and rare category detection.
-        All rules are data-driven and metadata is returned about the logic and model used.
+        All rules are data-driven and meta is returned about the logic and model used.
         """
         try:
             rules = []
             rule_id = 1
-            for col_name, col_info in column_metadata.items():
+            for col_name, col_info in column_meta.items():
                 col_type = col_info.get('type', 'unknown')
                 # Generic not-null rule
                 rules.append({
@@ -747,7 +743,7 @@ class BusinessRulesService:
                 "success": True,
                 "rules_generated": len(created_rules),
                 "rules": created_rules,
-                "metadata": {
+                "meta": {
                     "generator": "huggingface",
                     "model": self.hf_model_name,
                     "logic": "Text: classifier confidence, toxicity; Numeric: z-score and isolation forest anomaly detection; Categorical: label drift and rare category analysis."
@@ -758,7 +754,7 @@ class BusinessRulesService:
             return {
                 "success": False,
                 "error": str(e),
-                "metadata": {"generator": "huggingface", "model": self.hf_model_name}
+                "meta": {"generator": "huggingface", "model": self.hf_model_name}
             }
             
     async def execute_rules(self, dataset_id: str, df: pd.DataFrame) -> Dict[str, Any]:
@@ -846,7 +842,7 @@ class BusinessRulesService:
             result = await execution_fn(rule, df)
             end_time = datetime.datetime.now()
             
-            # Add execution metadata
+            # Add execution meta
             execution_time = (end_time - start_time).total_seconds()
             result.update({
                 "rule_id": rule["id"],
@@ -861,11 +857,11 @@ class BusinessRulesService:
                 {
                     "success": result["success"],
                     "message": result.get("message", ""),
-                    "execution_metadata": {
+                    "execution_meta": {
                         "execution_time": execution_time,
                         "rows_processed": len(df),
                         "memory_usage": df.memory_usage(deep=True).sum(),
-                        **result.get("metadata", {})
+                        **result.get("meta", {})
                     }
                 }
             )
@@ -887,7 +883,7 @@ class BusinessRulesService:
                 {
                     "success": False,
                     "message": str(e),
-                    "execution_metadata": {"error": True}
+                    "execution_meta": {"error": True}
                 }
             )
             
@@ -896,7 +892,7 @@ class BusinessRulesService:
     async def _execute_python_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
         """
         Execute a manual Python rule. The rule's 'condition' should be a valid Python expression or code block.
-        Returns a dict with success, message, and metadata.
+        Returns a dict with success, message, and meta.
         """
         try:
             # Prepare safe context
@@ -927,7 +923,7 @@ class BusinessRulesService:
             return {
                 "success": bool(success),
                 "message": message if not success else "Rule validation passed",
-                "metadata": {
+                "meta": {
                     "affected_rows": affected_rows[:10],  # Limit number of rows returned
                     "total_affected": len(affected_rows)
                 }
@@ -937,7 +933,7 @@ class BusinessRulesService:
             return {
                 "success": False,
                 "message": f"Error executing rule: {str(e)}",
-                "metadata": {}
+                "meta": {}
             }
 
     async def _execute_ge_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
@@ -953,14 +949,14 @@ class BusinessRulesService:
             return {
                 "success": success,
                 "message": "GE rule passed" if success else str(result),
-                "metadata": {"ge_result": str(result)}
+                "meta": {"ge_result": str(result)}
             }
         except Exception as e:
             logger.error(f"Error executing GE rule: {str(e)}")
             return {
                 "success": False,
                 "message": f"Error executing GE rule: {str(e)}",
-                "metadata": {}
+                "meta": {}
             }
 
     async def _execute_pydantic_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
@@ -982,14 +978,14 @@ class BusinessRulesService:
             return {
                 "success": success,
                 "message": "Pydantic validation passed" if success else f"{len(errors)} rows failed",
-                "metadata": {"errors": errors[:10], "total_failed": len(errors)}
+                "meta": {"errors": errors[:10], "total_failed": len(errors)}
             }
         except Exception as e:
             logger.error(f"Error executing Pydantic rule: {str(e)}")
             return {
                 "success": False,
                 "message": f"Error executing Pydantic rule: {str(e)}",
-                "metadata": {}
+                "meta": {}
             }
 
     async def _execute_hf_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
@@ -1002,14 +998,14 @@ class BusinessRulesService:
             return {
                 "success": True,
                 "message": "Hugging Face rule executed.",
-                "metadata": {}
+                "meta": {}
             }
         except Exception as e:
             logger.error(f"Error executing Hugging Face rule: {str(e)}")
             return {
                 "success": False,
                 "message": f"Error executing Hugging Face rule: {str(e)}",
-                "metadata": {}
+                "meta": {}
             }
 
     def _get_execution_function(self, source: str) -> Optional[Callable]:

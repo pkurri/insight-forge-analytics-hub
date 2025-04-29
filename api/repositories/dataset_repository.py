@@ -13,7 +13,6 @@ from api.services.analytics_service import (
     get_data_profile
 )
 import json
-import ydata_profiling as ypct, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import numpy as np
@@ -76,7 +75,7 @@ class DatasetRepository:
                 row = result.first()
                 if row:
                     dataset = dict(row)
-                    dataset["metadata"] = json.loads(dataset["metadata"])
+                    dataset["ds_metadata"] = json.loads(dataset["ds_metadata"])
                     
                     # Cache the result
                     await self.redis.setex(
@@ -130,7 +129,7 @@ class DatasetRepository:
         self,
         dataset_id: int,
         status: DatasetStatus,
-        metadata: Optional[Dict[str, Any]] = None
+        ds_metadata: Optional[Dict[str, Any]] = None
     ) -> None:
         async with get_db_session() as session:
             result = await session.execute(
@@ -144,17 +143,17 @@ class DatasetRepository:
             if row:
                 dataset = dict(row)
                 dataset["status"] = status.value
-                if metadata:
-                    dataset["metadata"] = json.dumps({**json.loads(dataset["metadata"]), **metadata})
+                if ds_metadata:
+                    dataset["ds_metadata"] = json.dumps({**json.loads(dataset["ds_metadata"]), **ds_metadata})
                 await session.execute(
                     text("""
                     UPDATE datasets 
-                    SET status = :status, metadata = :metadata
+                    SET status = :status, ds_metadata = :ds_metadata
                     WHERE id = :dataset_id
                     """),
                     {
                         "status": dataset["status"],
-                        "metadata": dataset["metadata"],
+                        "ds_metadata": dataset["ds_metadata"],
                         "dataset_id": dataset_id
                     }
                 )

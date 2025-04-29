@@ -88,7 +88,7 @@ class OpenEvalsService:
                 "rules_failed": rule_execution.get("failed_rules", 0),
                 "execution_time": rule_execution.get("execution_time", 0),
                 "results": rule_execution.get("results", []),
-                "metadata": {
+                "ds_metadata": {
                     "rows": len(df),
                     "columns": len(df.columns),
                 }
@@ -120,7 +120,7 @@ class OpenEvalsService:
                 "timestamp": datetime.now().isoformat(),
                 "status": EvalStatus.ERROR,
                 "error": str(e),
-                "metadata": {
+                "ds_metadata": {
                     "rows": len(df) if df is not None else 0,
                     "columns": len(df.columns) if df is not None else 0,
                 }
@@ -191,7 +191,7 @@ class OpenEvalsService:
                 "metrics": dq_metrics,
                 "overall_score": float(overall_completeness),
                 "status": EvalStatus.PASS if overall_completeness >= 90 else EvalStatus.WARNING,
-                "metadata": {
+                "ds_metadata": {
                     "rows": len(df),
                     "columns": len(df.columns),
                 }
@@ -216,7 +216,7 @@ class OpenEvalsService:
                 "timestamp": datetime.now().isoformat(),
                 "status": EvalStatus.ERROR,
                 "error": str(e),
-                "metadata": {
+                "ds_metadata": {
                     "rows": len(df) if df is not None else 0,
                     "columns": len(df.columns) if df is not None else 0,
                 }
@@ -270,7 +270,7 @@ class OpenEvalsService:
                     "message": rule.get("message"),
                     "source": "ai",
                     "dataset_id": dataset_id,
-                    "metadata": rule.get("metadata", {})
+                    "rules_metadata": rule.get("rules_metadata", {})
                 }
                 
                 # Add to test list
@@ -295,7 +295,7 @@ class OpenEvalsService:
                     failed_rules.append({
                         "rule": rule,
                         "error": result.get("message", "Unknown error"),
-                        "metadata": result.get("metadata", {})
+                        "rules_metadata": result.get("rules_metadata", {})
                     })
             
             # Step 4: Fix failed rules using AI
@@ -339,8 +339,8 @@ class OpenEvalsService:
                         # Create corrected rule
                         corrected_rule = rule.copy()
                         corrected_rule["condition"] = corrected_condition
-                        corrected_rule["metadata"]["corrected"] = True
-                        corrected_rule["metadata"]["original_condition"] = rule["condition"] 
+                        corrected_rule['rules_metadata']["corrected"] = True
+                        corrected_rule['rules_metadata']["original_condition"] = rule["condition"] 
                         
                         # Test corrected rule
                         test_result = await business_rules_service._execute_python_rule(corrected_rule, data_sample)

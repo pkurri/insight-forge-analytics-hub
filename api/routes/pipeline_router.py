@@ -222,7 +222,7 @@ async def upload_data_to_pipeline(
     
     # Clean data if requested
     if clean_data:
-        df, cleaning_metadata = await data_cleaning_service.clean_data(df)
+        df, cleaning_mdata = await data_cleaning_service.clean_data(df)
     
     # Validate data if requested
     validation_results = None
@@ -247,7 +247,7 @@ async def upload_data_to_pipeline(
             "name": name,
             "description": description or f"Uploaded {file_type} file: {file.filename}",
             "file_type": file_type,
-            "cleaning_metadata": cleaning_metadata if clean_data else None,
+            "cleaning_mdata": cleaning_mdata if clean_data else None,
             "validation_results": validation_results,
             "profile_data": profile_data,
             "anomalies": anomalies
