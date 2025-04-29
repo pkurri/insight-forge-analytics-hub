@@ -70,6 +70,8 @@ class PipelineDataLoader:
         Returns:
             Dictionary containing loaded data, stats and automatically inferred schema
         """
+        from api.services.openevals_service import openevals_service
+        import traceback
         try:
             # Generate a unique dataset ID if not provided
             dataset_id = options.get("dataset_id") if options else None
@@ -94,28 +96,65 @@ class PipelineDataLoader:
             
             # Load file using appropriate handler
             if file_type in self.file_handlers:
-                df, load_stats = await self.file_handlers[file_type](file_path, options)
+                try:
+                    df, load_stats = await self.file_handlers[file_type](file_path, options)
+                except Exception as e:
+                    logger.error(f"Error loading file {file_path}: {str(e)}")
+                    error_info = {
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                        "traceback": traceback.format_exc()
+                    }
+                    # OpenEvals evaluation of error
+                    oeval = await openevals_service.evaluate_data_quality(dataset_id, None)
+                    return {"success": False, "error": error_info, "openevals_evaluation": oeval}
             else:
-                raise ValueError(f"Unsupported file type: {file_type}")
+                error_msg = f"Unsupported file type: {file_type}"
+                logger.error(error_msg)
+                error_info = {
+                    "error_type": "ValueError",
+                    "error_message": error_msg
+                }
+                oeval = await openevals_service.evaluate_data_quality(dataset_id, None)
+                return {"success": False, "error": error_info, "openevals_evaluation": oeval}
             
             # Store in temporary storage
             self.temp_storage[dataset_id] = df
             
             # Use AI to detect schema
-            schema = await detect_schema(dataset_id)
+            try:
+                schema = await detect_schema(dataset_id)
+            except Exception as e:
+                logger.error(f"Error in schema detection: {str(e)}")
+                schema = None
             
             # Validate a sample of the data
-            validation_result = await validate_with_ai_schema(dataset_id, df.head(100))
+            try:
+                validation_result = await validate_with_ai_schema(dataset_id, df.head(100))
+            except Exception as e:
+                logger.error(f"Error in validation: {str(e)}")
+                validation_result = {"error": str(e)}
             
             # Calculate basic statistics
-            stats = {
-                "record_count": len(df),
-                "column_count": len(df.columns),
-                "file_size_bytes": os.path.getsize(file_path) if os.path.exists(file_path) else 0,
-                "load_time": datetime.now().isoformat(),
-                "missing_values": int(df.isna().sum().sum()),
-                "column_types": {col: str(df[col].dtype) for col in df.columns}
-            }
+            try:
+                stats = {
+                    "record_count": len(df),
+                    "column_count": len(df.columns),
+                    "file_size_bytes": os.path.getsize(file_path) if os.path.exists(file_path) else 0,
+                    "load_time": datetime.now().isoformat(),
+                    "missing_values": int(df.isna().sum().sum()),
+                    "column_types": {col: str(df[col].dtype) for col in df.columns}
+                }
+            except Exception as e:
+                logger.error(f"Error in stats calculation: {str(e)}")
+                stats = {"error": str(e)}
+            
+            # OpenEvals data quality evaluation
+            try:
+                openevals_result = await openevals_service.evaluate_data_quality(dataset_id, df)
+            except Exception as e:
+                logger.error(f"OpenEvals data quality evaluation failed: {str(e)}")
+                openevals_result = {"error": str(e)}
             
             # Combine results
             result = {

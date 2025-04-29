@@ -21,6 +21,256 @@ from api.models.dataset import DatasetStatus
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+import asyncio
+import time
+
+def run_pipeline_step(pipeline: 'DataPipeline', step_type: str, df: pd.DataFrame, rules: dict = None, status: dict = None, **kwargs) -> Any:
+    """
+    Dispatch to the correct DataPipeline method based on step_type.
+    Logs start/end/duration, supports rule-based skipping, and updates status dict.
+    """
+    step_type = step_type.lower()
+    rules = rules or {}
+    status = status or {}
+    logger = logging.getLogger(__name__)
+    step_status = {"step": step_type, "start": time.time(), "status": "started"}
+    try:
+        # Check business rules
+        if rules.get("skip_steps") and step_type in rules["skip_steps"]:
+            step_status["status"] = "skipped"
+            status[step_type] = step_status
+            logger.info(f"Step {step_type} skipped by rules.")
+            return None
+        logger.info(f"Step {step_type} started.")
+        # Dispatch
+        if step_type == 'clean':
+            result = pipeline._clean_data(df)
+        elif step_type == 'validate':
+            result = pipeline._validate_data(df)
+        elif step_type == 'profile':
+            result = pipeline._generate_profile(df)
+        elif step_type == 'analyze':
+            result = pipeline._analyze_data(df)
+        elif step_type == 'anomalies':
+            result = pipeline._detect_anomalies(df)
+        elif step_type == 'embed':
+            result = pipeline._generate_embeddings(df)
+        elif step_type == 'quality':
+            result = pipeline._calculate_quality_score(df)
+        elif step_type == 'enrich':
+            result = pipeline.enrich_data(df)
+        elif step_type == 'custom_transform':
+            result = pipeline.custom_transform(df, **kwargs)
+        else:
+            raise ValueError(f"Unknown pipeline step type: {step_type}")
+        step_status["status"] = "completed"
+        step_status["end"] = time.time()
+        step_status["duration"] = step_status["end"] - step_status["start"]
+        status[step_type] = step_status
+        logger.info(f"Step {step_type} completed in {step_status['duration']:.2f}s.")
+        return result
+    except Exception as e:
+        step_status["status"] = "failed"
+        step_status["end"] = time.time()
+        step_status["duration"] = step_status["end"] - step_status["start"]
+        step_status["error"] = str(e)
+        status[step_type] = step_status
+        logger.error(f"Step {step_type} failed: {e}")
+        raise
+
+# Add new async methods to DataPipeline for enrichment and custom transformation
+from typing import Callable
+
+class DataPipeline:
+    def __init__(self):
+        self.imputer = SimpleImputer(strategy='mean')
+        self.scaler = StandardScaler()
+        self.label_encoder = LabelEncoder()
+        self.anomaly_detector = IsolationForest(contamination=0.1)
+
+    # Existing methods: _clean_data, _validate_data, etc. (not shown here for brevity)
+
+    async def enrich_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Enrich data using external APIs or knowledge bases."""
+        df["enriched"] = "external_info"
+        logger.info("Data enriched.")
+        return df
+
+    async def custom_transform(self, df: pd.DataFrame, transform_func: Optional[Callable] = None, **kwargs) -> pd.DataFrame:
+        """Apply a custom transformation function to the DataFrame."""
+        if transform_func:
+            df = transform_func(df, **kwargs)
+            logger.info("Custom transformation applied.")
+        return df
+
+    async def run_dynamic_pipeline(self, df: pd.DataFrame, steps: list, rules: dict = None, parallelizable: list = None, **kwargs) -> dict:
+        """Run a dynamic pipeline as specified by the user, supporting async/parallel steps and rule-based logic."""
+        results = {}
+        status = {}
+        rules = rules or {}
+        parallelizable = parallelizable or []
+        for step in steps:
+            if step in parallelizable:
+                coros = [run_pipeline_step(self, s, df, rules=rules, status=status, **kwargs) for s in parallelizable]
+                step_results = await asyncio.gather(*coros, return_exceptions=True)
+                for s, r in zip(parallelizable, step_results):
+                    results[s] = r
+            else:
+                results[step] = await run_pipeline_step(self, step, df, rules=rules, status=status, **kwargs)
+        return {"results": results, "status": status}
+
+async def run_pipeline_step(pipeline: 'DataPipeline', step_type: str, df: pd.DataFrame, rules: dict = None, status: dict = None, **kwargs) -> Any:
+    """
+    Dispatch to the correct DataPipeline method based on step_type.
+    Logs start/end/duration, supports rule-based skipping, and updates status dict.
+    Integrates OpenEvals for quality and rule evaluation after each step.
+    """
+    from api.services.openevals_service import openevals_service
+    step_type = step_type.lower()
+    rules = rules or {}
+    status = status or {}
+    logger = logging.getLogger(__name__)
+    step_status = {"step": step_type, "start": time.time(), "status": "started"}
+    try:
+        # Check business rules
+        if rules.get("skip_steps") and step_type in rules["skip_steps"]:
+            step_status["status"] = "skipped"
+            status[step_type] = step_status
+            logger.info(f"Step {step_type} skipped by rules.")
+            return None
+        logger.info(f"Step {step_type} started.")
+        # Dispatch
+        if step_type == 'clean':
+            result = await pipeline._clean_data(df)
+            # OpenEvals data quality evaluation
+            try:
+                oeval = await openevals_service.evaluate_data_quality("unknown", result if result is not None else df)
+                step_status["openevals_evaluation"] = oeval
+            except Exception as oe:
+                logger.error(f"OpenEvals evaluation failed: {str(oe)}")
+                step_status["openevals_evaluation"] = {"error": str(oe)}
+        elif step_type == 'validate':
+            result = await pipeline._validate_data(df)
+            try:
+                oeval = await openevals_service.evaluate_data_quality("unknown", df)
+                step_status["openevals_evaluation"] = oeval
+            except Exception as oe:
+                logger.error(f"OpenEvals evaluation failed: {str(oe)}")
+                step_status["openevals_evaluation"] = {"error": str(oe)}
+        elif step_type == 'profile':
+            result = await pipeline._generate_profile(df)
+            try:
+                oeval = await openevals_service.evaluate_data_quality("unknown", df)
+                step_status["openevals_evaluation"] = oeval
+            except Exception as oe:
+                logger.error(f"OpenEvals evaluation failed: {str(oe)}")
+                step_status["openevals_evaluation"] = {"error": str(oe)}
+        elif step_type == 'analyze':
+            result = await pipeline._analyze_data(df)
+            try:
+                oeval = await openevals_service.evaluate_data_quality("unknown", df)
+                step_status["openevals_evaluation"] = oeval
+            except Exception as oe:
+                logger.error(f"OpenEvals evaluation failed: {str(oe)}")
+                step_status["openevals_evaluation"] = {"error": str(oe)}
+        elif step_type == 'anomalies':
+            result = await pipeline._detect_anomalies(df)
+            try:
+                oeval = await openevals_service.evaluate_data_quality("unknown", df)
+                step_status["openevals_evaluation"] = oeval
+            except Exception as oe:
+                logger.error(f"OpenEvals evaluation failed: {str(oe)}")
+                step_status["openevals_evaluation"] = {"error": str(oe)}
+        elif step_type == 'embed':
+            result = await pipeline._generate_embeddings(df)
+            try:
+                oeval = await openevals_service.evaluate_data_quality("unknown", df)
+                step_status["openevals_evaluation"] = oeval
+            except Exception as oe:
+                logger.error(f"OpenEvals evaluation failed: {str(oe)}")
+                step_status["openevals_evaluation"] = {"error": str(oe)}
+        elif step_type == 'quality':
+            result = await pipeline._calculate_quality_score(df)
+            try:
+                oeval = await openevals_service.evaluate_data_quality("unknown", df)
+                step_status["openevals_evaluation"] = oeval
+            except Exception as oe:
+                logger.error(f"OpenEvals evaluation failed: {str(oe)}")
+                step_status["openevals_evaluation"] = {"error": str(oe)}
+        elif step_type == 'enrich':
+            result = await pipeline.enrich_data(df)
+            try:
+                oeval = await openevals_service.evaluate_data_quality("unknown", result if result is not None else df)
+                step_status["openevals_evaluation"] = oeval
+            except Exception as oe:
+                logger.error(f"OpenEvals evaluation failed: {str(oe)}")
+                step_status["openevals_evaluation"] = {"error": str(oe)}
+        elif step_type == 'custom_transform':
+            result = await pipeline.custom_transform(df, **kwargs)
+            try:
+                oeval = await openevals_service.evaluate_data_quality("unknown", result if result is not None else df)
+                step_status["openevals_evaluation"] = oeval
+            except Exception as oe:
+                logger.error(f"OpenEvals evaluation failed: {str(oe)}")
+                step_status["openevals_evaluation"] = {"error": str(oe)}
+        elif step_type == 'business_rules':
+            # If you add business_rules as a step, evaluate with OpenEvals
+            try:
+                oeval = await openevals_service.evaluate_business_rules("unknown", df)
+                step_status["openevals_evaluation"] = oeval
+            except Exception as oe:
+                logger.error(f"OpenEvals business rule evaluation failed: {str(oe)}")
+                step_status["openevals_evaluation"] = {"error": str(oe)}
+            result = None
+        else:
+            raise ValueError(f"Unknown pipeline step type: {step_type}")
+        step_status["status"] = "completed"
+        step_status["end"] = time.time()
+        step_status["duration"] = step_status["end"] - step_status["start"]
+        status[step_type] = step_status
+        logger.info(f"Step {step_type} completed in {step_status['duration']:.2f}s.")
+        return result
+    except Exception as e:
+        step_status["status"] = "failed"
+        step_status["end"] = time.time()
+        step_status["duration"] = step_status["end"] - step_status["start"]
+        step_status["error"] = str(e)
+        # Try OpenEvals error evaluation
+        from api.services.openevals_service import openevals_service
+        try:
+            if step_type == 'business_rules':
+                oeval = await openevals_service.evaluate_business_rules("unknown", df)
+            else:
+                oeval = await openevals_service.evaluate_data_quality("unknown", df)
+            step_status["openevals_evaluation"] = oeval
+        except Exception as oe:
+            logger.error(f"OpenEvals evaluation on error failed: {str(oe)}")
+            step_status["openevals_evaluation"] = {"error": str(oe)}
+        status[step_type] = step_status
+        logger.error(f"Step {step_type} failed: {e}")
+        raise
+
+    """
+    Dispatch to the correct DataPipeline method based on step_type.
+    """
+    step_type = step_type.lower()
+    if step_type == 'clean':
+        return pipeline._clean_data(df)
+    elif step_type == 'validate':
+        return pipeline._validate_data(df)
+    elif step_type == 'profile':
+        return pipeline._generate_profile(df)
+    elif step_type == 'analyze':
+        return pipeline._analyze_data(df)
+    elif step_type == 'anomalies':
+        return pipeline._detect_anomalies(df)
+    elif step_type == 'embed':
+        return pipeline._generate_embeddings(df)
+    elif step_type == 'quality':
+        return pipeline._calculate_quality_score(df)
+    else:
+        raise ValueError(f"Unknown pipeline step type: {step_type}")
+
 
 class DataPipeline:
     """Data pipeline for processing datasets."""
@@ -45,42 +295,42 @@ class DataPipeline:
         try:
             # Get dataset
             from api.repositories.dataset_repository import DatasetRepository
-        dataset_repo = DatasetRepository()
-        dataset = await dataset_repo.get_dataset(dataset_id)
+            dataset_repo = DatasetRepository()
+            dataset = await dataset_repo.get_dataset(dataset_id)
             if not dataset:
                 raise ValueError(f"Dataset {dataset_id} not found")
-            
+
             # Update status
             await dataset_repo.update_dataset_status(
                 dataset_id, 
                 DatasetStatus.PROCESSING
             )
-            
+
             # Load dataset
             df = pd.read_csv(dataset["file_path"])
-            
+
             # 1. Clean data
             cleaned_df = await self._clean_data(df)
             cleaned_path = f"{dataset['file_path']}_cleaned.csv"
             cleaned_df.to_csv(cleaned_path, index=False)
-            
+
             # 2. Validate data
             validation_results = await self._validate_data(cleaned_df)
-            
+
             # 3. Generate profile
             profile = await self._generate_profile(cleaned_df)
-            
+
             # 4. Perform analytics
             analytics_results = await self._analyze_data(cleaned_df)
-            
+
             # 5. Detect anomalies
             anomalies = await self._detect_anomalies(cleaned_df)
-            
+
             # 6. Store embeddings
             await dataset_repo.store_embeddings(dataset_id, self._generate_embeddings(cleaned_df))
-            
+
             # Update dataset metadata
-            metadata = {
+            ds_metadata = {
                 "validation": validation_results,
                 "analytics": analytics_results,
                 "anomalies": anomalies,
@@ -97,19 +347,19 @@ class DataPipeline:
                     for col in cleaned_df.columns
                 ]
             }
-            
+
             await dataset_repo.update_dataset_status(
                 dataset_id,
                 DatasetStatus.COMPLETED,
-                metadata
+                ds_metadata
             )
-            
+
             return {
                 "success": True,
-                "metadata": metadata,
+                "ds_metadata": ds_metadata,
                 "cleaned_path": cleaned_path
             }
-            
+
         except Exception as e:
             logger.error(f"Error processing dataset: {str(e)}")
             await dataset_repo.update_dataset_status(

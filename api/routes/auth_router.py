@@ -17,6 +17,23 @@ router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+async def get_current_user_or_api_key(
+    token: str = Depends(oauth2_scheme),
+    api_key: Optional[str] = Security(api_key_header),
+    user_repo = Depends(get_user_repository)
+):
+    """Try JWT auth first, then API key auth. Raise 401 if neither works."""
+    try:
+        if token:
+            return await get_current_user(token=token, user_repo=user_repo)
+    except Exception:
+        pass
+    if api_key:
+        user = await get_user_from_api_key(api_key=api_key, user_repo=user_repo)
+        if user:
+            return user
+    raise HTTPException(status_code=401, detail="Not authenticated. Provide a valid Bearer token or X-API-Key.")
+
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     user_repo = Depends(get_user_repository)

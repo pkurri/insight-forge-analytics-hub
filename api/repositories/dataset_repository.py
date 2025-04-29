@@ -8,7 +8,7 @@ from api.db.connection import get_db_session
 from api.config.redis_config import get_redis_client
 from api.services.analytics_service import (
     process_dataset,
-    clean_dataset,
+    cleaning_metadata,
     detect_anomalies,
     get_data_profile
 )
