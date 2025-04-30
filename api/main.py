@@ -14,6 +14,7 @@ from routes.dataset_router import router as dataset_router
 from routes.project_eval_router import router as project_eval_router
 from routes.dashboard_router import router as dashboard_router
 from routes.analytics_router import router as analytics_router
+from routes.connection_router import router as connection_router
 
 # Configure logging
 logging.basicConfig(
@@ -101,6 +102,7 @@ app.include_router(dataset_router, prefix="/datasets")
 app.include_router(project_eval_router, prefix="/project-eval")
 app.include_router(dashboard_router, prefix="/dashboard")
 app.include_router(analytics_router, prefix="/analytics")
+app.include_router(connection_router, prefix="/connections")
 
 # Add startup event
 @app.on_event("startup")

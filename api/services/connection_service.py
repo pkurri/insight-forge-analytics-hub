@@ -26,7 +26,124 @@ pipeline = DataPipeline()
 
 class ConnectionService:
     """Service for managing API and database connections."""
-    
+
+    # --- API Connections ---
+    async def list_api_connections(self, user_id: int) -> list:
+        """List all API connections for a user."""
+        try:
+            async with get_db_session() as session:
+                result = await session.execute(
+                    text("SELECT * FROM api_connections WHERE user_id = :user_id"),
+                    {"user_id": user_id}
+                )
+                rows = result.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Error listing API connections: {str(e)}")
+            raise
+
+    async def delete_api_connection(self, connection_id: int, user_id: int) -> dict:
+        """Delete an API connection for a user."""
+        try:
+            async with get_db_session() as session:
+                await session.execute(
+                    text("DELETE FROM api_connections WHERE id = :id AND user_id = :user_id"),
+                    {"id": connection_id, "user_id": user_id}
+                )
+                await session.commit()
+                return {"success": True}
+        except Exception as e:
+            logger.error(f"Error deleting API connection: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    async def test_api_connection(self, connection_id: int, user_id: int) -> dict:
+        """Test an API connection by making a sample request."""
+        try:
+            connection = await self.get_api_connection(connection_id)
+            if not connection or connection.get("user_id") != user_id:
+                return {"success": False, "status": "not found"}
+            config = json.loads(connection["config"])
+            url = config.get("url")
+            if not url:
+                return {"success": False, "status": "missing url"}
+            # Basic GET request for test
+            resp = requests.get(url, timeout=5)
+            return {"success": resp.ok, "status": "ok" if resp.ok else "fail", "http_status": resp.status_code}
+        except Exception as e:
+            logger.error(f"Error testing API connection: {str(e)}")
+            return {"success": False, "status": "error", "error": str(e)}
+
+    # --- DB Connections ---
+    async def list_db_connections(self, user_id: int) -> list:
+        """List all DB connections for a user."""
+        try:
+            async with get_db_session() as session:
+                result = await session.execute(
+                    text("SELECT * FROM database_connections WHERE user_id = :user_id"),
+                    {"user_id": user_id}
+                )
+                rows = result.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Error listing DB connections: {str(e)}")
+            raise
+
+    async def delete_db_connection(self, connection_id: int, user_id: int) -> dict:
+        """Delete a DB connection for a user."""
+        try:
+            async with get_db_session() as session:
+                await session.execute(
+                    text("DELETE FROM database_connections WHERE id = :id AND user_id = :user_id"),
+                    {"id": connection_id, "user_id": user_id}
+                )
+                await session.commit()
+                return {"success": True}
+        except Exception as e:
+            logger.error(f"Error deleting DB connection: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    async def test_db_connection(self, connection_id: int, user_id: int) -> dict:
+        """Test a DB connection by attempting to connect."""
+        try:
+            connection = await self.get_database_connection(connection_id)
+            if not connection or connection.get("user_id") != user_id:
+                return {"success": False, "status": "not found"}
+            config = json.loads(connection["config"])
+            db_type = connection["db_type"]
+            if db_type == "postgresql":
+                import psycopg2
+                try:
+                    conn = psycopg2.connect(
+                        host=config["host"],
+                        port=config["port"],
+                        user=config["username"],
+                        password=config["password"],
+                        dbname=config["database"]
+                    )
+                    conn.close()
+                    return {"success": True, "status": "ok"}
+                except Exception as e:
+                    return {"success": False, "status": "fail", "error": str(e)}
+            elif db_type == "mysql":
+                import mysql.connector
+                try:
+                    conn = mysql.connector.connect(
+                        host=config["host"],
+                        port=config["port"],
+                        user=config["username"],
+                        password=config["password"],
+                        database=config["database"]
+                    )
+                    conn.close()
+                    return {"success": True, "status": "ok"}
+                except Exception as e:
+                    return {"success": False, "status": "fail", "error": str(e)}
+            else:
+                return {"success": False, "status": f"unsupported db_type: {db_type}"}
+        except Exception as e:
+            logger.error(f"Error testing DB connection: {str(e)}")
+            return {"success": False, "status": "error", "error": str(e)}
+
     async def create_api_connection(
         self,
         name: str,
