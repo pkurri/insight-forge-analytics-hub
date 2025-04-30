@@ -58,7 +58,7 @@ class BusinessRulesService:
         self.ge_context = ge.get_context()
         # Initialize Hugging Face pipeline for text classification
         self.hf_model_name = getattr(settings, 'HF_MODEL_NAME', 'distilbert-base-uncased')
-        self.hf_classifier = hf_pipeline('text-classification', model=self.hf_model_name)
+        self.hf_classifier = hf_pipeline('text-classification', model=self.hf_model_name, token=settings.HUGGINGFACE_API_KEY if hasattr(settings, 'HUGGINGFACE_API_KEY') else None)
 
         # Cache for loaded rules per dataset
         self.rules_cache = {}

@@ -1,201 +1,121 @@
-import os
-import json
 import logging
-import pickle
 from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
-
 import numpy as np
-from fastapi import HTTPException
-from sklearn.metrics.pairwise import cosine_similarity
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy.orm import declarative_base, sessionmaker
+from pgvector.sqlalchemy import Vector
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# In-memory vector database (for demo purposes)
-# In production, use a proper vector database like Pinecone, Weaviate, etc.
-vector_db = {}
+# Database setup for pgvector
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://user:password@localhost:5432/yourdb")
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
-# Vector database file path
-VECTOR_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'vector_db.pkl')
+class VectorEntry(Base):
+    __tablename__ = "vectors"
+    id = Column(Integer, primary_key=True, index=True)
+    dataset_id = Column(String, index=True)
+    vector = Column(Vector(384))  # Adjust dimension as needed
+    content = Column(String)
+    metadata = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-# Ensure data directory exists
-os.makedirs(os.path.dirname(VECTOR_DB_PATH), exist_ok=True)
+Base.metadata.create_all(bind=engine)
 
-def get_vector_db():
-    """
-    Get the vector database, loading from disk if available
-    """
-    global vector_db
-    
-    # Load from disk if empty and file exists
-    if not vector_db and os.path.exists(VECTOR_DB_PATH):
-        try:
-            with open(VECTOR_DB_PATH, 'rb') as f:
-                vector_db = pickle.load(f)
-            logger.info(f"Loaded vector database from {VECTOR_DB_PATH} with {len(vector_db)} datasets")
-        except Exception as e:
-            logger.error(f"Error loading vector database: {str(e)}")
-            # Initialize empty if loading fails
-            vector_db = {}
-    
-    return vector_db
+from sqlalchemy.exc import SQLAlchemyError
 
-def save_vector_db():
-    """
-    Save the vector database to disk
-    """
-    try:
-        with open(VECTOR_DB_PATH, 'wb') as f:
-            pickle.dump(vector_db, f)
-        logger.info(f"Saved vector database to {VECTOR_DB_PATH}")
-        return True
-    except Exception as e:
-        logger.error(f"Error saving vector database: {str(e)}")
-        return False
-
+# Add vectors to the database for a specific dataset
 async def add_vectors(dataset_id: str, vectors: List[Dict[str, Any]]):
-    """
-    Add vectors to the database for a specific dataset
-    """
-    # Initialize the vector database if needed
-    db = get_vector_db()
-    
-    if dataset_id not in db:
-        db[dataset_id] = []
-    
-    # Add timestamp to each vector
-    for vector in vectors:
-        if "metadata" not in vector:
-            vector["metadata"] = {}
-        
-        vector["metadata"]["added_at"] = datetime.now().isoformat()
-    
-    db[dataset_id].extend(vectors)
-    
-    # Save to disk
-    save_vector_db()
-    
-    return {"success": True, "count": len(vectors)}
+    session = SessionLocal()
+    try:
+        entries = []
+        for v in vectors:
+            entries.append(VectorEntry(
+                dataset_id=dataset_id,
+                vector=v["vector"],
+                content=v.get("content", ""),
+                metadata=json.dumps(v.get("metadata", {})),
+            ))
+        session.add_all(entries)
+        session.commit()
+        return {"success": True, "count": len(entries)}
+    except SQLAlchemyError as e:
+        session.rollback()
+        logger.error(f"Error adding vectors: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        session.close()
 
-async def search_similar_vectors(
-    query_vector: Union[List[float], np.ndarray], 
-    dataset_id: Optional[str] = None, 
-    limit: int = 5,
-    threshold: float = 0.6
-) -> Dict[str, Any]:
-    """
-    Search for similar vectors in the database
-    If dataset_id is None, search across all datasets
-    """
-    db = get_vector_db()
-    
-    # Handle empty database
-    if not db:
-        return {"success": False, "error": "Vector database is empty"}
-    
-    # If dataset specified but not found
-    if dataset_id and dataset_id not in db:
-        return {"success": False, "error": f"Dataset {dataset_id} not found"}
-    
-    # Convert query vector to numpy array if it's a list
-    if isinstance(query_vector, list):
-        query_np = np.array(query_vector)
-    else:
-        query_np = query_vector
-    
-    results = []
-    
-    # Determine which datasets to search
-    datasets_to_search = [dataset_id] if dataset_id else list(db.keys())
-    
-    # Search each dataset
-    for ds_id in datasets_to_search:
-        if not db[ds_id]:
-            continue
-        
-        # Extract vectors for batch processing
-        vectors = []
-        items = []
-        
-        for item in db[ds_id]:
-            if "vector" not in item:
-                continue
-            
-            vectors.append(item["vector"])
-            items.append(item)
-        
-        if not vectors:
-            continue
-        
-        # Convert to numpy array for efficient computation
-        vectors_np = np.array(vectors)
-        
-        # Calculate cosine similarities in batch
-        similarities = cosine_similarity([query_np], vectors_np)[0]
-        
-        # Add results above threshold
-        for i, similarity in enumerate(similarities):
+# Search for similar vectors in the database
+async def search_similar_vectors(query_vector: Union[List[float], np.ndarray], dataset_id: Optional[str] = None, limit: int = 5, threshold: float = 0.6) -> Dict[str, Any]:
+    session = SessionLocal()
+    try:
+        query_np = np.array(query_vector) if isinstance(query_vector, list) else query_vector
+        q = session.query(VectorEntry)
+        if dataset_id:
+            q = q.filter(VectorEntry.dataset_id == dataset_id)
+        q = q.order_by(l2_distance(VectorEntry.vector, query_np)).limit(limit)
+        results = []
+        for entry in q:
+            # Compute similarity (inverse L2 for demonstration)
+            similarity = float(1.0 / (1.0 + l2_distance(entry.vector, query_np)))
             if similarity >= threshold:
                 results.append({
-                    "content": items[i].get("content", ""),
-                    "metadata": {
-                        **items[i].get("metadata", {}),
-                        "dataset_id": ds_id,
-                        "source": items[i].get("metadata", {}).get("source", f"Dataset: {ds_id}")
-                    },
-                    "similarity": float(similarity)
+                    "content": entry.content,
+                    "metadata": json.loads(entry.metadata),
+                    "similarity": similarity
                 })
-    
-    # Sort by similarity (highest first)
-    results.sort(key=lambda x: x["similarity"], reverse=True)
-    
-    # Return top results
-    return {"success": True, "results": results[:limit]}
+        return {"success": True, "results": results}
+    except SQLAlchemyError as e:
+        logger.error(f"Error searching vectors: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        session.close()
 
+# Delete all vectors for a specific dataset
 def delete_vectors(dataset_id: str):
-    """
-    Delete all vectors for a specific dataset
-    """
-    db = get_vector_db()
-    
-    if dataset_id in db:
-        count = len(db[dataset_id])
-        del db[dataset_id]
-        
-        # Save changes to disk
-        save_vector_db()
-        
+    session = SessionLocal()
+    try:
+        count = session.query(VectorEntry).filter(VectorEntry.dataset_id == dataset_id).delete()
+        session.commit()
         return {"success": True, "count": count}
-    
-    return {"success": False, "error": f"Dataset {dataset_id} not found"}
+    except SQLAlchemyError as e:
+        session.rollback()
+        logger.error(f"Error deleting vectors: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        session.close()
 
+# Get statistics about the vector database
 def get_vector_stats():
-    """
-    Get statistics about the vector database
-    """
-    db = get_vector_db()
-    
-    stats = {
-        "total_datasets": len(db),
-        "total_vectors": sum(len(vectors) for vectors in db.values()),
-        "datasets": {},
-        "last_updated": datetime.now().isoformat()
-    }
-    
-    for dataset_id, vectors in db.items():
-        # Get the most recent timestamp if available
-        latest_timestamp = None
-        for vector in vectors:
-            if "metadata" in vector and "added_at" in vector["metadata"]:
-                timestamp = vector["metadata"]["added_at"]
-                if latest_timestamp is None or timestamp > latest_timestamp:
-                    latest_timestamp = timestamp
-        
-        stats["datasets"][dataset_id] = {
-            "count": len(vectors),
-            "last_updated": latest_timestamp
-        }
-    
-    return {"success": True, "stats": stats}
+    session = SessionLocal()
+    try:
+        total_vectors = session.query(VectorEntry).count()
+        datasets = session.query(VectorEntry.dataset_id).distinct()
+        stats = {"total_vectors": total_vectors, "datasets": [d[0] for d in datasets]}
+        return {"success": True, "stats": stats}
+    except SQLAlchemyError as e:
+        logger.error(f"Error getting vector stats: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        session.close()
+
+# Hugging Face internal API call example (for embedding)
+INTERNAL_HF_API_URL = os.getenv("INTERNAL_HF_API_URL", "https://internal.company.com/hf-api")
+INTERNAL_HF_API_USER = os.getenv("INTERNAL_HF_API_USER", "user")
+INTERNAL_HF_API_PASS = os.getenv("INTERNAL_HF_API_PASS", "pass")
+
+def call_internal_hf_api(payload: dict) -> dict:
+    resp = requests.post(
+        INTERNAL_HF_API_URL,
+        json=payload,
+        auth=(INTERNAL_HF_API_USER, INTERNAL_HF_API_PASS)
+    )
+    resp.raise_for_status()
+    return resp.json()

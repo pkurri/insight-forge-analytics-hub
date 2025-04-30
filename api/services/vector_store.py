@@ -1,12 +1,124 @@
-import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Optional
-from sentence_transformers import SentenceTransformer
-from api.config.settings import get_settings
-from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy.orm import declarative_base, sessionmaker
+from pgvector.sqlalchemy import Vector, l2_distance
+from datetime import datetime
+import os
 import json
+import requests
+
+# Database setup
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://user:password@localhost:5432/yourdb")
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+from sqlalchemy.dialects.postgresql import JSONB
+from api.config.settings import get_settings
 
 settings = get_settings()
+
+class VectorEntry(Base):
+    __tablename__ = "vector_embeddings"
+    id = Column(Integer, primary_key=True, index=True)
+    dataset_id = Column(Integer, index=True)
+    record_id = Column(String(255), nullable=False)
+    # Embedding dimension must match the database schema (default 1536, configurable)
+    embedding = Column(Vector(settings.VECTOR_DIMENSION))
+    metadata = Column(JSONB, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+Base.metadata.create_all(bind=engine)
+
+INTERNAL_HF_API_URL = os.getenv("INTERNAL_HF_API_URL", "https://internal.company.com/hf-api")
+INTERNAL_HF_API_USER = os.getenv("INTERNAL_HF_API_USER", "user")
+INTERNAL_HF_API_PASS = os.getenv("INTERNAL_HF_API_PASS", "pass")
+
+def call_internal_hf_api(payload: dict) -> dict:
+    resp = requests.post(
+        INTERNAL_HF_API_URL,
+        json=payload,
+        auth=(INTERNAL_HF_API_USER, INTERNAL_HF_API_PASS)
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+class VectorStoreService:
+    def __init__(self, vector_dim: int = 384):
+        self.vector_dim = vector_dim
+
+    async def store_data(self, data: List[Dict[str, Any]], dataset_id: int, metadata: Dict[str, Any]) -> bool:
+        """
+        Store data and its embeddings in the vector_embeddings table.
+        data: List of {"record_id": ..., "embedding": ...} dicts
+        """
+        session = SessionLocal()
+        try:
+            entries = []
+            for item in data:
+                entries.append(VectorEntry(
+                    dataset_id=dataset_id,
+                    record_id=item["record_id"],
+                    embedding=item["embedding"],
+                    metadata={**metadata, **item.get("metadata", {})},
+                ))
+            session.add_all(entries)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            print(f"Error storing data in vector_embeddings: {str(e)}")
+            return False
+        finally:
+            session.close()
+
+    async def search_similar_data(
+        self,
+        query_vector: List[float],
+        dataset_id: Optional[str] = None,
+        limit: int = 5,
+        threshold: float = 0.6
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for similar data in the vector database by vector.
+        """
+        session = SessionLocal()
+        try:
+            query_np = np.array(query_vector)
+            q = session.query(VectorEntry)
+            if dataset_id:
+                q = q.filter(VectorEntry.dataset_id == dataset_id)
+            q = q.order_by(l2_distance(VectorEntry.vector, query_np)).limit(limit)
+            search_results = []
+            for entry in q:
+                similarity = float(1.0 / (1.0 + l2_distance(entry.vector, query_np)))
+                if similarity >= threshold:
+                    search_results.append({
+                        "similarity": similarity,
+                        "text_content": entry.content,
+                        "metadata": json.loads(entry.metadata)
+                    })
+            return search_results
+        except Exception as e:
+            print(f"Error searching vector database: {str(e)}")
+            return []
+        finally:
+            session.close()
+
+    async def get_dataset_info(self, dataset_id: str) -> Dict[str, Any]:
+        session = SessionLocal()
+        try:
+            count = session.query(VectorEntry).filter(VectorEntry.dataset_id == dataset_id).count()
+            return {
+                "dataset_id": dataset_id,
+                "row_count": count
+            }
+        except Exception as e:
+            print(f"Error getting dataset info: {str(e)}")
+            return {}
+        finally:
+            session.close()
 
 class VectorStoreService:
     def __init__(self):

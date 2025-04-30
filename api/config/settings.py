@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     # AI/ML Settings
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
     
+    # Translation API Settings
+    INTERNAL_TRANSLATION_API_URL: str = os.getenv("INTERNAL_TRANSLATION_API_URL", "https://internal-api.example.com/translate")
+    INTERNAL_TRANSLATION_API_USERNAME: str = os.getenv("INTERNAL_TRANSLATION_API_USERNAME", "your-username")
+    INTERNAL_TRANSLATION_API_PASSWORD: str = os.getenv("INTERNAL_TRANSLATION_API_PASSWORD", "your-password")
+
+    # Hugging Face API Settings
+    HUGGINGFACE_API_KEY: str = os.getenv("HUGGINGFACE_API_KEY", "")
+    HF_API_BASE: str = os.getenv("HF_API_BASE", "https://api-inference.huggingface.co/models/")
+    HF_MODEL_NAME: str = os.getenv("HF_MODEL_NAME", "distilbert-base-uncased")
+    
     # Logging Settings
     logging: LoggingSettings = LoggingSettings()
     

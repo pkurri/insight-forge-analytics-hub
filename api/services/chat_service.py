@@ -10,7 +10,10 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import openai
 from uuid import uuid4
-from transformers import pipeline
+import requests
+import os
+
+from api.services.translation_service import translate_text_internal  # <-- Import the new translation service
 
 from api.config.settings import get_settings
 from api.repositories.chat_repository import ChatRepository
@@ -22,8 +25,22 @@ chat_repo = ChatRepository()
 dataset_repo = DatasetRepository()
 vector_store = VectorStoreService()
 
-# Initialize QA model
-qa_model = pipeline("question-answering", model="deepset/roberta-base-squad2")
+# Internal Hugging Face API config
+INTERNAL_HF_API_URL = os.getenv("INTERNAL_HF_API_URL", "https://internal.company.com/hf-api")
+INTERNAL_HF_API_USER = os.getenv("INTERNAL_HF_API_USER", "user")
+INTERNAL_HF_API_PASS = os.getenv("INTERNAL_HF_API_PASS", "pass")
+
+def call_internal_hf_api(task: str, payload: dict) -> dict:
+    try:
+        resp = requests.post(
+            INTERNAL_HF_API_URL + f"/{task}",
+            json=payload,
+            auth=(INTERNAL_HF_API_USER, INTERNAL_HF_API_PASS)
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
 
 # Get settings
 settings = get_settings()
@@ -116,6 +133,7 @@ async def delete_chat_session(session_id: str, user_id: int) -> None:
 async def send_message(session_id: str, message: str, context: Optional[Dict[str, Any]], user_id: int) -> Dict[str, Any]:
     """
     Send a message and get AI completion.
+    Optionally translates the message using the internal translation API if context['translate'] is provided.
     
     Args:
         session_id: ID of the chat session
@@ -127,6 +145,15 @@ async def send_message(session_id: str, message: str, context: Optional[Dict[str
         AI response message
     """
     try:
+        # Optionally translate the user message if requested in context
+        if context and context.get('translate'):
+            translate_cfg = context['translate']
+            source_lang = translate_cfg.get('source_lang', 'en')
+            target_lang = translate_cfg.get('target_lang', 'es')
+            translated = await translate_text_internal(message, source_lang=source_lang, target_lang=target_lang)
+            if translated:
+                message = translated
+        
         # Verify session exists and user has access
         session = await chat_repo.get_session(session_id)
         if not session or session['user_id'] != user_id:
@@ -180,11 +207,12 @@ async def send_message(session_id: str, message: str, context: Optional[Dict[str
             )
             answer = response.choices[0].message.content
         else:
-            # Fallback to local QA model
-            answer = qa_model(
-                question=message,
-                context=system_message
-            )["answer"]
+            # Fallback to internal QA API
+            resp = call_internal_hf_api('question-answer', {
+                "question": message,
+                "context": system_message
+            })
+            answer = resp.get("answer", "No answer returned.")
         
         # Create assistant message
         assistant_message = {

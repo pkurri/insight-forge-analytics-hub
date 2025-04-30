@@ -17,12 +17,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)  
 
 # Environment variables for API keys
-HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+from api.config.settings import get_settings
+settings = get_settings()
+HF_API_KEY = settings.HUGGINGFACE_API_KEY
+OPENAI_API_KEY = settings.OPENAI_API_KEY
 
 # Model endpoints
-HF_API_BASE = "https://api-inference.huggingface.co/models/"
-OPENAI_API_BASE = "https://api.openai.com/v1/"
+HF_API_BASE = getattr(settings, "HF_API_BASE", "https://api-inference.huggingface.co/models/")
+OPENAI_API_BASE = getattr(settings, "OPENAI_API_BASE", "https://api.openai.com/v1/")
 
 # Available models configuration
 AVAILABLE_MODELS = {

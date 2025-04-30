@@ -99,10 +99,17 @@ CREATE TABLE IF NOT EXISTS vector_embeddings (
     id SERIAL PRIMARY KEY,
     dataset_id INTEGER REFERENCES datasets(id) ON DELETE CASCADE,
     record_id VARCHAR(255) NOT NULL,
-    embedding vector(1536),  -- Dimension depends on the model used (1536 for OpenAI)
+    embedding vector(1536),  -- Dimension must match VECTOR_DIMENSION in backend config
     metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Index for fast lookup by dataset
+CREATE INDEX IF NOT EXISTS idx_vector_embeddings_dataset_id ON vector_embeddings(dataset_id);
+
+-- Vector similarity index (requires pgvector extension)
+CREATE INDEX IF NOT EXISTS vector_embeddings_embedding_idx ON vector_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
 
 -- Anomaly detection results
 CREATE TABLE IF NOT EXISTS anomaly_detection (

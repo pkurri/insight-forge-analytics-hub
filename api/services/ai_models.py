@@ -1,17 +1,35 @@
 import pandas as pd
 from typing import Dict, Any, List
-from transformers import pipeline
-from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import IsolationForest
+import requests
+import os
+import logging
+
+from api.config.settings import get_settings
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+def call_internal_hf_api(task: str, payload: dict) -> dict:
+    """
+    Call the internal Hugging Face API for inference tasks.
+    """
+    try:
+        resp = requests.post(
+            settings.INTERNAL_HF_API_URL + f"/{task}",
+            json=payload,
+            auth=(settings.INTERNAL_HF_API_USER, settings.INTERNAL_HF_API_PASS)
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.error(f"Internal HF API call failed: {e}")
+        return {"error": str(e)}
 
 class AIModelService:
     def __init__(self):
-        # Initialize models
-        self.text_cleaner = pipeline("text-classification", model="cleanlab/cleantext-small")
-        self.data_validator = pipeline("text-classification", model="facebook/bart-large-mnli")
-        self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+        # Only initialize non-HF models
         self.anomaly_detector = IsolationForest(contamination=0.1, random_state=42)
         self.scaler = StandardScaler()
 
@@ -21,15 +39,13 @@ class AIModelService:
 
         for column in df.columns:
             if df[column].dtype == 'object':  # Text data
-                # Clean text data using the model
                 cleaned_values = []
                 for text in df[column].fillna(''):
-                    result = self.text_cleaner(str(text))[0]
-                    cleaned_text = result['label'] if result['score'] > 0.8 else text
+                    resp = call_internal_hf_api('text-clean', {"text": str(text)})
+                    cleaned_text = resp.get('cleaned_text', text)
                     cleaned_values.append(cleaned_text)
                 cleaned_df[column] = cleaned_values
             else:  # Numerical data
-                # Handle missing values and outliers
                 cleaned_df[column] = cleaned_df[column].fillna(cleaned_df[column].median())
 
         return cleaned_df
@@ -50,14 +66,11 @@ class AIModelService:
             }
 
             if df[column].dtype == 'object':
-                # Validate text data using NLI model
                 for text in df[column].fillna(''):
-                    result = self.data_validator(
-                        f"This is valid data: {text}",
-                        candidate_labels=["valid", "invalid"]
-                    )[0]
-                    
-                    if result['labels'][0] == 'valid' and result['scores'][0] > 0.7:
+                    resp = call_internal_hf_api('validate', {"text": str(text)})
+                    valid = resp.get('is_valid', True)
+                    confidence = resp.get('confidence', 1.0)
+                    if valid and confidence > 0.7:
                         column_stats['valid_entries'] += 1
                     else:
                         column_stats['invalid_entries'] += 1
@@ -97,7 +110,9 @@ class AIModelService:
         for column in df.columns:
             if df[column].dtype == 'object':
                 # Generate embeddings for text data
-                embeddings = self.sentence_model.encode(df[column].fillna('').astype(str).tolist())
+                texts = df[column].fillna('').astype(str).tolist()
+                resp = call_internal_hf_api('embed', {"texts": texts})
+                embeddings = np.array(resp.get('embeddings', np.zeros((len(texts), 384))))
                 analytics_results['column_profiles'][column] = {
                     'data_type': 'text',
                     'unique_values': df[column].nunique(),
@@ -153,7 +168,9 @@ class AIModelService:
         # Text anomaly detection using embeddings
         text_cols = df.select_dtypes(include=['object']).columns
         for col in text_cols:
-            embeddings = self.sentence_model.encode(df[col].fillna('').astype(str).tolist())
+            texts = df[col].fillna('').astype(str).tolist()
+            resp = call_internal_hf_api('embed', {"texts": texts})
+            embeddings = np.array(resp.get('embeddings', np.zeros((len(texts), 384))))
             text_anomaly_scores = self.anomaly_detector.fit_predict(embeddings)
             text_anomaly_indices = np.where(text_anomaly_scores == -1)[0]
             

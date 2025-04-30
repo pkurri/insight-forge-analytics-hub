@@ -286,3 +286,17 @@ def get_cache_stats():
         "success": True,
         "stats": cache_stats
     }
+
+
+def get_cached_response(key: str):
+    """
+    Wrapper for get_cache to retrieve a cached response.
+    """
+    return get_cache(key)
+
+
+def cache_response(key: str, value: Any, ttl: int = DEFAULT_TTL, model_id: Optional[str] = None, dataset_id: Optional[str] = None):
+    """
+    Wrapper for set_cache to cache a response.
+    """
+    return set_cache(key, value, ttl=ttl, model_id=model_id, dataset_id=dataset_id)
