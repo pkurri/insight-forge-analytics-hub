@@ -27,7 +27,7 @@ import ModelSelector from './ModelSelector';
 import DatasetSelector from './DatasetSelector';
 import ChatSuggestions, { ChatSuggestion } from './ChatSuggestions';
 // Use all AI services via the central API object
-import { AIModel, modelService } from '@/api/services/ai/modelService';
+import { AIModel, modelService, getAllowedModels } from '@/api/services/ai/modelService';
 import { embeddingService } from '@/api/services/ai/embeddingService';
 import { aiAgentService } from '@/api/services/ai/aiAgentService';
 
@@ -125,6 +125,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [modelId, setModelId] = useState(selectedModel || 'mistral-7b-instruct');
   const [availableModels, setAvailableModels] = useState<any[]>([]); // Use type from api.modelService if available
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [allowedEmbeddingModels, setAllowedEmbeddingModels] = useState<string[]>([]);
+  const [allowedTextGenModels, setAllowedTextGenModels] = useState<string[]>([]);
   const [availableDatasets, setAvailableDatasets] = useState<Array<{id: string, name: string, rows: number, columns: number, lastUpdated: string}>>([]);
   const [isLoadingDatasets, setIsLoadingDatasets] = useState(false);
   
@@ -132,6 +134,63 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   
+  const fetchAllowedModels = async () => {
+    setIsLoadingModels(true);
+    try {
+      const response = await getAllowedModels();
+      if (response.success) {
+        setAllowedEmbeddingModels(response.allowed_embedding_models || []);
+        setAllowedTextGenModels(response.allowed_text_gen_models || []);
+
+        // Fetch all models and filter them by allowed lists
+        const allModelsResponse = await modelService.getAvailableModels();
+        if (allModelsResponse.success && allModelsResponse.data) {
+          // Only include models whose id is in either allowed embedding or allowed text gen models
+          const allowedIds = new Set([
+            ...(response.allowed_embedding_models || []),
+            ...(response.allowed_text_gen_models || [])
+          ]);
+          const filteredModels = allModelsResponse.data.filter((m: any) => allowedIds.has(m.id));
+          setAvailableModels(filteredModels);
+          // Set default model if none selected
+          if (!modelId && filteredModels.length > 0) {
+            setModelId(filteredModels[0].id);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching allowed models:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load allowed models',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
+  const fetchDatasets = async () => {
+    setIsLoadingDatasets(true);
+    try {
+      const response = await api.datasets.getDatasets();
+      if (response.success && response.data) {
+        const formattedDatasets = response.data.map(ds => ({
+          id: ds.id,
+          name: ds.name,
+          rows: ds.rows,
+          columns: ds.columns || 0,
+          lastUpdated: ds.updated_at || new Date().toISOString()
+        }));
+        setAvailableDatasets(formattedDatasets);
+      }
+    } catch (error) {
+      console.error('Error fetching datasets:', error);
+    } finally {
+      setIsLoadingDatasets(false);
+    }
+  };
+
   // Update model ID when prop changes
   useEffect(() => {
     if (selectedModel && selectedModel !== modelId) {
@@ -146,55 +205,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [isProcessing, processingCallback]);
   
-  // Fetch available models and datasets on mount
+  // Only fetch on mount
   useEffect(() => {
-    const fetchModels = async () => {
-      setIsLoadingModels(true);
-      try {
-        const response = await modelService.getAvailableModels('chat');
-        if (response.success && response.data) {
-          setAvailableModels(response.data);
-          // Set default model if none selected
-          if (!modelId && response.data.length > 0) {
-            setModelId(response.data[0].id);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching models:', error);
-        toast({
-          title: 'Error',
-          description: 'Failed to load AI models',
-          variant: 'destructive'
-        });
-      } finally {
-        setIsLoadingModels(false);
-      }
-    };
-    
-    const fetchDatasets = async () => {
-      setIsLoadingDatasets(true);
-      try {
-        const response = await api.datasets.getDatasets();
-        if (response.success && response.data) {
-          const formattedDatasets = response.data.map(ds => ({
-            id: ds.id,
-            name: ds.name,
-            rows: ds.rows,
-            columns: ds.columns || 0,
-            lastUpdated: ds.updated_at || new Date().toISOString()
-          }));
-          setAvailableDatasets(formattedDatasets);
-        }
-      } catch (error) {
-        console.error('Error fetching datasets:', error);
-      } finally {
-        setIsLoadingDatasets(false);
-      }
-    };
-    
-    fetchModels();
+    fetchAllowedModels();
     fetchDatasets();
-  }, [modelId, toast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -694,6 +710,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             models={availableModels}
             selectedModel={modelId}
             onModelChange={setModelId}
+            allowedModels={allowedTextGenModels}
             isLoading={isLoadingModels}
             className="flex-grow"
           />

@@ -6,9 +6,10 @@ import { Info } from 'lucide-react';
 // import { AIModel } from '@/api/services/ai/modelService'; // Use types from central api object if available
 
 interface ModelSelectorProps {
-  models: any[]; // Use type from api.modelService if available
+  models: any[];
   selectedModel: string;
   onModelChange: (modelId: string) => void;
+  allowedModels?: string[];
   isLoading?: boolean;
   className?: string;
 }
@@ -21,20 +22,22 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   models,
   selectedModel,
   onModelChange,
+  allowedModels,
   isLoading = false,
   className = "",
 }) => {
-  const [filteredModels, setFilteredModels] = useState<any[]>(models); // Use type from api.modelService if available
+  const [filteredModels, setFilteredModels] = useState<any[]>(models);
   const [selectedType, setSelectedType] = useState<string>('all');
 
-  // Filter models when the type selection changes
   useEffect(() => {
-    if (selectedType === 'all') {
+    if (allowedModels && allowedModels.length > 0) {
+      setFilteredModels(models.filter(m => allowedModels.includes(m.id)));
+    } else if (selectedType === 'all') {
       setFilteredModels(models);
     } else {
       setFilteredModels(models.filter(model => model.type === selectedType));
     }
-  }, [selectedType, models]);
+  }, [models, allowedModels, selectedType]);
 
   // Get the currently selected model object
   const currentModel = models.find(model => model.id === selectedModel);

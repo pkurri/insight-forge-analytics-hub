@@ -71,6 +71,19 @@ class InsightsEvaluationRequest(BaseModel):
     insights: List[str]
 
 # Routes
+
+@router.get("/allowed-models")
+async def get_allowed_models():
+    """
+    Get allowed embedding and text generation models for UI validation.
+    """
+    from api.config.settings import get_settings
+    settings = get_settings()
+    return {
+        "success": True,
+        "allowed_embedding_models": settings.ALLOWED_EMBEDDING_MODELS,
+        "allowed_text_gen_models": settings.ALLOWED_TEXT_GEN_MODELS
+    }
 @router.get("/models")
 async def get_models():
     """
@@ -95,6 +108,8 @@ async def create_embeddings(request: EmbeddingRequest):
     try:
         result = await generate_embeddings(request.text, request.model)
         return {"success": True, "data": result}
+    except ValueError as e:
+        return {"success": False, "error": str(e), "status": 400}
     except HTTPException as e:
         return {"success": False, "error": e.detail, "status": e.status_code}
     except Exception as e:
@@ -115,6 +130,8 @@ async def chat(request: ChatRequest):
             context=request.context
         )
         return {"success": True, "data": result}
+    except ValueError as e:
+        return {"success": False, "error": str(e), "status": 400}
     except HTTPException as e:
         return {"success": False, "error": e.detail, "status": e.status_code}
     except Exception as e:

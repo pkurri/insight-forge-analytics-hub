@@ -24,6 +24,9 @@ async def generate_text_internal(prompt: str, model: str = None) -> Optional[str
         "Content-Type": "application/json"
     }
     model_name = model or getattr(settings, "INTERNAL_TEXT_GEN_MODEL", "internal-default")
+    # Enforce allowed models
+    if model_name not in settings.ALLOWED_TEXT_GEN_MODELS:
+        raise ValueError(f"Model '{model_name}' is not an allowed text generation model. Allowed: {settings.ALLOWED_TEXT_GEN_MODELS}")
     payload = {"prompt": prompt, "model": model_name}
     async with aiohttp.ClientSession() as session:
         async with session.post(api_url, headers=headers, json=payload) as response:
@@ -48,6 +51,9 @@ async def embed_text_internal(texts: List[str], model: str = "internal-embedding
     password = getattr(settings, "INTERNAL_TEXT_GEN_API_PASS", None)
     if not api_url or not username or not password:
         return None
+    # Enforce allowed embedding models
+    if model not in settings.ALLOWED_EMBEDDING_MODELS:
+        raise ValueError(f"Model '{model}' is not an allowed embedding model. Allowed: {settings.ALLOWED_EMBEDDING_MODELS}")
     auth = base64.b64encode(f"{username}:{password}".encode()).decode()
     headers = {
         "Authorization": f"Basic {auth}",

@@ -16,6 +16,11 @@ export interface AIModel {
  * Model Service - Handles AI model operations
  * with focus on Hugging Face models for agentic AI
  */
+export const getAllowedModels = async () => {
+  const response = await callApi('ai/allowed-models');
+  return response;
+};
+
 export const modelService = {
   /**
    * Get available AI models for the assistant

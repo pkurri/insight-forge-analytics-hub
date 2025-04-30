@@ -11,21 +11,7 @@ from api.config.settings import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-def call_internal_hf_api(task: str, payload: dict) -> dict:
-    """
-    Call the internal Hugging Face API for inference tasks.
-    """
-    try:
-        resp = requests.post(
-            settings.INTERNAL_HF_API_URL + f"/{task}",
-            json=payload,
-            auth=(settings.INTERNAL_HF_API_USER, settings.INTERNAL_HF_API_PASS)
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        logger.error(f"Internal HF API call failed: {e}")
-        return {"error": str(e)}
+from api.services.internal_ai_service import embed_text_internal, generate_text_internal
 
 class AIModelService:
     def __init__(self):
@@ -41,9 +27,8 @@ class AIModelService:
             if df[column].dtype == 'object':  # Text data
                 cleaned_values = []
                 for text in df[column].fillna(''):
-                    resp = call_internal_hf_api('text-clean', {"text": str(text)})
-                    cleaned_text = resp.get('cleaned_text', text)
-                    cleaned_values.append(cleaned_text)
+                    # TODO: Implement text cleaning using internal AI service if available
+cleaned_values.append(text)  # No-op for now, as no internal endpoint for text-clean
                 cleaned_df[column] = cleaned_values
             else:  # Numerical data
                 cleaned_df[column] = cleaned_df[column].fillna(cleaned_df[column].median())
@@ -67,18 +52,18 @@ class AIModelService:
 
             if df[column].dtype == 'object':
                 for text in df[column].fillna(''):
-                    resp = call_internal_hf_api('validate', {"text": str(text)})
-                    valid = resp.get('is_valid', True)
-                    confidence = resp.get('confidence', 1.0)
-                    if valid and confidence > 0.7:
-                        column_stats['valid_entries'] += 1
-                    else:
-                        column_stats['invalid_entries'] += 1
-                        validation_results['issues_detected'].append({
-                            'column': column,
-                            'value': text,
-                            'issue': 'Potentially invalid data'
-                        })
+                    # TODO: Implement validation using internal AI service if available
+valid = True
+confidence = 1.0
+if valid and confidence > 0.7:
+    column_stats['valid_entries'] += 1
+else:
+    column_stats['invalid_entries'] += 1
+    validation_results['issues_detected'].append({
+        'column': column,
+        'value': text,
+        'issue': 'Potentially invalid data'
+    })
 
             else:  # Numerical data
                 # Basic statistical validation
@@ -169,9 +154,12 @@ class AIModelService:
         text_cols = df.select_dtypes(include=['object']).columns
         for col in text_cols:
             texts = df[col].fillna('').astype(str).tolist()
-            resp = call_internal_hf_api('embed', {"texts": texts})
-            embeddings = np.array(resp.get('embeddings', np.zeros((len(texts), 384))))
-            text_anomaly_scores = self.anomaly_detector.fit_predict(embeddings)
+            embeddings_list = await embed_text_internal(texts)
+            if embeddings_list is None:
+                text_anomaly_scores = np.zeros(len(texts))
+            else:
+                embeddings = np.array(embeddings_list)
+                text_anomaly_scores = self.anomaly_detector.fit_predict(embeddings)
             text_anomaly_indices = np.where(text_anomaly_scores == -1)[0]
             
             for idx in text_anomaly_indices:

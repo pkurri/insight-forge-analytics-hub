@@ -27,18 +27,7 @@ class VectorEmbedding(Base):
 
 Base.vector_metadata.create_all(bind=engine)
 
-INTERNAL_HF_API_URL = os.getenv("INTERNAL_HF_API_URL", "https://internal.company.com/hf-api")
-INTERNAL_HF_API_USER = os.getenv("INTERNAL_HF_API_USER", "user")
-INTERNAL_HF_API_PASS = os.getenv("INTERNAL_HF_API_PASS", "pass")
 
-def call_internal_hf_api(payload: dict) -> dict:
-    resp = requests.post(
-        INTERNAL_HF_API_URL,
-        json=payload,
-        auth=(INTERNAL_HF_API_USER, INTERNAL_HF_API_PASS)
-    )
-    resp.raise_for_status()
-    return resp.json()
 
 class VectorStoreService:
     def __init__(self, vector_dim: int = 384):

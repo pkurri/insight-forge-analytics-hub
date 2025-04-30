@@ -25,22 +25,8 @@ chat_repo = ChatRepository()
 dataset_repo = DatasetRepository()
 vector_store = VectorStoreService()
 
-# Internal Hugging Face API config
-INTERNAL_HF_API_URL = os.getenv("INTERNAL_HF_API_URL", "https://internal.company.com/hf-api")
-INTERNAL_HF_API_USER = os.getenv("INTERNAL_HF_API_USER", "user")
-INTERNAL_HF_API_PASS = os.getenv("INTERNAL_HF_API_PASS", "pass")
+from api.services.internal_ai_service import generate_text_internal
 
-def call_internal_hf_api(task: str, payload: dict) -> dict:
-    try:
-        resp = requests.post(
-            INTERNAL_HF_API_URL + f"/{task}",
-            json=payload,
-            auth=(INTERNAL_HF_API_USER, INTERNAL_HF_API_PASS)
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        return {"error": str(e)}
 
 # Get settings
 settings = get_settings()
@@ -207,12 +193,9 @@ async def send_message(session_id: str, message: str, context: Optional[Dict[str
             )
             answer = response.choices[0].message.content
         else:
-            # Fallback to internal QA API
-            resp = call_internal_hf_api('question-answer', {
-                "question": message,
-                "context": system_message
-            })
-            answer = resp.get("answer", "No answer returned.")
+            # Fallback to internal QA API using generate_text_internal
+            prompt = f"Context: {system_message}\n\nQuestion: {message}\nAnswer:"
+            answer = await generate_text_internal(prompt) or "No answer returned."
         
         # Create assistant message
         assistant_message = {
