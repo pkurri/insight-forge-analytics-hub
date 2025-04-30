@@ -46,10 +46,7 @@ class Settings(BaseSettings):
     
     # Only approved embedding and text generation models are supported. Translation API is not exposed.
 
-    # Hugging Face API Settings
-    HUGGINGFACE_API_KEY: str = os.getenv("HUGGINGFACE_API_KEY", "")
-    HF_API_BASE: str = os.getenv("HF_API_BASE", "https://api-inference.huggingface.co/models/")
-    HF_MODEL_NAME: str = os.getenv("HF_MODEL_NAME", "distilbert-base-uncased")
+    # Only internal Hugging Face module is used for embeddings/generation. Direct Hugging Face API is not supported.
 
     # Internal Text Generation API (Mistral, Llama, Pythia)
     INTERNAL_TEXT_GEN_API_URL: str = os.getenv("INTERNAL_TEXT_GEN_API_URL", "http://internal-api/models/generate")
@@ -60,17 +57,14 @@ class Settings(BaseSettings):
     # Logging Settings
     logging: LoggingSettings = LoggingSettings()
 
-    # Allowed embedding and generation models
+    # Allowed embedding and generation models (internal only)
     ALLOWED_EMBEDDING_MODELS: List[str] = [
         "all-MiniLM-L6-v2",
-        "nomic-embed-text-v1.5",
-        "roberta-base-go_emotions-SapBERT",
-        "BioLinkBERT-large"
+        "nomic-embed-text-v1.5"
     ]
     ALLOWED_TEXT_GEN_MODELS: List[str] = [
         "Mistral-3.2-instruct",
-        "Llama-3.3-70b-instruct",
-        "pythia28B"
+        "Llama-3.3-70b-instruct"
     ]
     
     # Monitoring Settings

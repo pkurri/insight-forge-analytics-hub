@@ -307,13 +307,13 @@ class BusinessRulesService:
         
     from api.services.internal_textgen_service import call_internal_text_gen_api
 
-    async def generate_ai_rules(self, dataset_id: str, column_meta: Dict[str, Any], model_type: str = "openai") -> Dict[str, Any]:
-        """Generate business rules using AI based on column meta.
+    async def generate_ai_rules(self, dataset_id: str, column_meta: Dict[str, Any], model_type: str = None) -> Dict[str, Any]:
+        """Generate business rules using internal AI models only, based on column meta.
         
         Args:
             dataset_id: ID of the dataset to generate rules for
             column_meta: Dictionary containing column information about the dataset
-            model_type: Type of model to use for generation (openai, great_expectations, pydantic, huggingface, mistral, llama, pythia, internal)
+            model_type: Type of internal model to use for generation (must be in settings.ALLOWED_TEXT_GEN_MODELS)
         Returns:
             Dictionary containing generated rules and meta
         """
@@ -322,26 +322,20 @@ class BusinessRulesService:
             dataset = await dataset_repo.get_dataset(dataset_id)
             if not dataset:
                 raise ValueError(f"Dataset {dataset_id} not found")
-            # Select generation method based on model type
-            if model_type == "great_expectations":
-                return await self._generate_ge_rules(dataset_id, column_meta)
-            elif model_type == "pydantic":
-                return await self._generate_pydantic_rules(dataset_id, column_meta)
-            elif model_type == "huggingface" or model_type == "hf":
-                return await self._generate_hf_rules(dataset_id, column_meta)
-            elif model_type in ("mistral", "llama", "pythia", "internal"):
-                # Use internal text generation models
-                prompt = self._build_prompt(column_meta) if hasattr(self, '_build_prompt') else str(column_meta)
-                generated = await call_internal_text_gen_api(prompt, model=model_type)
-                # You may want to parse the generated text into rules here
-                return {"rules": generated, "meta": {"model": model_type}}
-            else:  # Default to OpenAI
-                return await self._generate_openai_rules(dataset_id, column_meta)
+
+            # Only allow internal models
+            allowed_models = getattr(settings, "ALLOWED_TEXT_GEN_MODELS", ["Mistral-3.2-instruct"])
+            if not model_type or model_type not in allowed_models:
+                model_type = allowed_models[0]
+
+            # Use internal text generation models only
+            prompt = self._build_prompt(column_meta) if hasattr(self, '_build_prompt') else str(column_meta)
+            generated = await call_internal_text_gen_api(prompt, model=model_type)
+            # You may want to parse the generated text into rules here
+            return {"rules": generated, "meta": {"model": model_type}}
         except Exception as e:
             logger.error(f"Error generating AI rules: {str(e)}")
             return {"success": False, "error": str(e)}
-        
-        raise
         
     async def delete_rule(self, rule_id: str) -> bool:
         """Delete a business rule."""
