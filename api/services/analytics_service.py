@@ -16,7 +16,7 @@ import os
 
 from api.repositories.analytics_repository import AnalyticsRepository
 
-from api.models.pipeline_metadataset import Dataset, DatasetDetail
+from api.models.pipeline_dataset_metadataset import Dataset, DatasetDetail
 from api.config.settings import get_settings
 from api.utils.file_utils import load_dataset_to_dataframe
 
@@ -65,7 +65,7 @@ async def get_data_profile(dataset_id: int) -> Dict[str, Any]:
         logger.info(f"Generating new profile for dataset {dataset_id}")
         
         # Import here to avoid circular import
-        from api.repositories.pipeline_metadataset_repository import DatasetRepository
+        from api.repositories.pipeline_dataset_metadataset_repository import DatasetRepository
         
         # Get dataset details
         dataset = await dataset_repo.get_dataset_detail(dataset_id)
@@ -271,7 +271,7 @@ async def detect_anomalies(dataset_id: int, config: Dict[str, Any] = None) -> Di
                 config = {"method": "isolation_forest", "params": {}}
         
         # Import here to avoid circular import
-        from api.repositories.pipeline_metadataset_repository import DatasetRepository
+        from api.repositories.pipeline_dataset_metadataset_repository import DatasetRepository
         
         # Get dataset
         dataset = await dataset_repo.get_dataset_detail(dataset_id)
@@ -548,7 +548,7 @@ async def create_vector_embeddings(dataset_id: int) -> Dict[str, Any]:
                 
                 # Generate a mock embedding (in production, use actual API)
                 # embedding = await openai.Embedding.create(input=record_str, model=embedding_config["name"])
-                # vector = embedding.vector_metadata[0].embedding
+                # vector = embedding.vector_dataset_metadata[0].embedding
                 
                 # For demo, generate a random vector
                 vector = [0.0] * embedding_config["dimension"]  # Placeholder
@@ -559,7 +559,7 @@ async def create_vector_embeddings(dataset_id: int) -> Dict[str, Any]:
                     dataset_id=dataset_id,
                     record_id=record_id,
                     embedding=vector,
-                    ds_metadata=record
+                    ds_dataset_metadata=record
                 )
                 
                 successful_records += 1
@@ -617,7 +617,7 @@ async def process_dataset(dataset_id: int, config: Dict[str, Any]) -> Dict[str, 
         processed_path = f"{dataset.file_path}_processed"
         result_df.to_csv(processed_path, index=False)
         
-        # Update dataset metadata
+        # Update dataset dataset_metadata
         await dataset_repo.update_dataset(
             dataset_id,
             {
@@ -675,7 +675,7 @@ async def clean_dataset(dataset_id: int, config: Dict[str, Any]) -> Dict[str, An
         cleaned_path = f"{dataset.file_path}_cleaned"
         result_df.to_csv(cleaned_path, index=False)
         
-        # Update dataset metadata
+        # Update dataset dataset_metadata
         await dataset_repo.update_dataset(
             dataset_id,
             {
@@ -833,7 +833,7 @@ async def query_vector_database(dataset_id: int, query: str) -> Dict[str, Any]:
         
         # In production, generate query embedding
         # query_embedding = await openai.Embedding.create(input=query, model=embedding_config["name"])
-        # query_vector = query_embedding.vector_metadata[0].embedding
+        # query_vector = query_embedding.vector_dataset_metadata[0].embedding
         
         # For demo, use a mock vector
         query_vector = [0.0] * embedding_config["dimension"]  # Placeholder
@@ -847,7 +847,7 @@ async def query_vector_database(dataset_id: int, query: str) -> Dict[str, Any]:
             formatted_results.append({
                 "record_id": item["record_id"],
                 "similarity": float(item["similarity"]),
-                "data": item['ds_metadata']
+                "data": item['ds_dataset_metadata']
             })
         
         return {

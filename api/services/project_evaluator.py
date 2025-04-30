@@ -177,7 +177,8 @@ Provide specific improvement suggestions for any category scoring below threshol
                 "error": "No files found for this component type",
                 "files_evaluated": 0,
                 "average_score": 0,
-                "category_scores": {}
+                "category_scores": {},
+                "dataset_metadata": {}
             }
         
         logger.info(f"Evaluating {len(files)} files for component {component_type}")
@@ -223,7 +224,8 @@ Provide specific improvement suggestions for any category scoring below threshol
             "average_score": component_avg,
             "category_scores": category_scores,
             "status_counts": status_counts,
-            "file_evaluations": file_evaluations
+            "file_evaluations": file_evaluations,
+            "dataset_metadata": {}
         }
         
         # Store evaluation result
@@ -231,7 +233,8 @@ Provide specific improvement suggestions for any category scoring below threshol
         self.component_scores[component_type] = {
             "average_score": component_avg,
             "category_scores": category_scores,
-            "last_evaluation": datetime.datetime.now().isoformat()
+            "last_evaluation": datetime.datetime.now().isoformat(),
+            "dataset_metadata": {}
         }
         
         # Save to log file
@@ -272,7 +275,8 @@ Provide specific improvement suggestions for any category scoring below threshol
             "component_scores": overall_scores,
             "failing_components": failing_components,
             "execution_time": time.time() - start_time,
-            "component_evaluations": component_evaluations
+            "component_evaluations": component_evaluations,
+            "pipeline_metadata": {}
         }
         
         self.last_full_evaluation = result

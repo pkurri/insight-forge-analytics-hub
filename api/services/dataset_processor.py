@@ -21,38 +21,38 @@ DATASET_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'datasets')
 # Ensure datasets directory exists
 os.makedirs(DATASET_PATH, exist_ok=True)
 
-# Dataset metadata
-dataset_metadata = {}
-METADATA_PATH = os.path.join(DATASET_PATH, 'metadata.json')
+# Dataset dataset_metadata
+dataset_dataset_metadata = {}
+METADATA_PATH = os.path.join(DATASET_PATH, 'dataset_metadata.json')
 
-# Load metadata if exists
-def load_metadata():
-    """Load dataset metadata from disk"""
-    global dataset_metadata
+# Load dataset_metadata if exists
+def load_dataset_metadata():
+    """Load dataset dataset_metadata from disk"""
+    global dataset_dataset_metadata
     
     if os.path.exists(METADATA_PATH):
         try:
             with open(METADATA_PATH, 'r') as f:
-                dataset_metadata = json.load(f)
-            logger.info(f"Loaded dataset metadata with {len(dataset_metadata)} datasets")
+                dataset_dataset_metadata = json.load(f)
+            logger.info(f"Loaded dataset dataset_metadata with {len(dataset_dataset_metadata)} datasets")
         except Exception as e:
-            logger.error(f"Error loading dataset metadata: {str(e)}")
-            dataset_metadata = {}
+            logger.error(f"Error loading dataset dataset_metadata: {str(e)}")
+            dataset_dataset_metadata = {}
 
-# Save metadata
-def save_metadata():
-    """Save dataset metadata to disk"""
+# Save dataset_metadata
+def save_dataset_metadata():
+    """Save dataset dataset_metadata to disk"""
     try:
         with open(METADATA_PATH, 'w') as f:
-            json.dump(dataset_metadata, f, indent=2)
-        logger.info(f"Saved dataset metadata")
+            json.dump(dataset_dataset_metadata, f, indent=2)
+        logger.info(f"Saved dataset dataset_metadata")
         return True
     except Exception as e:
-        logger.error(f"Error saving dataset metadata: {str(e)}")
+        logger.error(f"Error saving dataset dataset_metadata: {str(e)}")
         return False
 
-# Initialize metadata
-load_metadata()
+# Initialize dataset_metadata
+load_dataset_metadata()
 
 async def process_dataset(dataset_id: str, file_path: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
@@ -60,7 +60,7 @@ async def process_dataset(dataset_id: str, file_path: str, options: Optional[Dic
     - Loads the dataset
     - Extracts schema and statistics
     - Generates embeddings for vectorization
-    - Updates metadata
+    - Updates dataset_metadata
     
     Args:
         dataset_id: Unique identifier for the dataset
@@ -172,8 +172,8 @@ async def process_dataset(dataset_id: str, file_path: str, options: Optional[Dic
                 col_desc = f"Column '{col}' contains dates/times from {stats['min']} to {stats['max']}."
                 column_descriptions.append(col_desc)
                 
-        # Save dataset information to metadata
-        dataset_metadata[dataset_id] = {
+        # Save dataset information to dataset_metadata
+        dataset_dataset_metadata[dataset_id] = {
             "id": dataset_id,
             "file_path": file_path,
             "rows": rows,
@@ -185,19 +185,19 @@ async def process_dataset(dataset_id: str, file_path: str, options: Optional[Dic
             "statistics": statistics
         }
         
-        # Save metadata
-        save_metadata()
+        # Save dataset_metadata
+        save_dataset_metadata()
         
         # Generate embeddings for the dataset description
         dataset_texts = [
-            {"content": summary, "metadata": {"type": "summary", "dataset_id": dataset_id, "source": f"Dataset: {dataset_id}"}},
+            {"content": summary, "dataset_metadata": {"type": "summary", "dataset_id": dataset_id, "source": f"Dataset: {dataset_id}"}},
         ]
         
         # Add column descriptions
         for desc in column_descriptions:
             dataset_texts.append({
                 "content": desc,
-                "metadata": {"type": "column_description", "dataset_id": dataset_id, "source": f"Dataset: {dataset_id}"}
+                "dataset_metadata": {"type": "column_description", "dataset_id": dataset_id, "source": f"Dataset: {dataset_id}"}
             })
             
         # Add sample data (first few rows)
@@ -209,7 +209,7 @@ async def process_dataset(dataset_id: str, file_path: str, options: Optional[Dic
                 row_str = ", ".join([f"{col}: {val}" for col, val in row.items()])
                 dataset_texts.append({
                     "content": f"Sample data row {i+1}: {row_str}",
-                    "metadata": {"type": "sample_data", "dataset_id": dataset_id, "row": i, "source": f"Dataset: {dataset_id}"}
+                    "dataset_metadata": {"type": "sample_data", "dataset_id": dataset_id, "row": i, "source": f"Dataset: {dataset_id}"}
                 })
         
         # Generate embeddings for each text
@@ -224,7 +224,7 @@ async def process_dataset(dataset_id: str, file_path: str, options: Optional[Dic
                     vectors_to_add.append({
                         "content": item["content"],
                         "vector": embedding_result["embeddings"],
-                        "metadata": item["metadata"]
+                        "dataset_metadata": item["dataset_metadata"]
                     })
             except Exception as e:
                 logger.error(f"Error generating embedding for dataset text: {str(e)}")
@@ -320,45 +320,45 @@ def extract_data_patterns(df: pd.DataFrame) -> List[Dict[str, Any]]:
 
 async def get_datasets() -> List[Dict[str, Any]]:
     """
-    Get list of all datasets with metadata
+    Get list of all datasets with dataset_metadata
     """
     datasets = []
     
-    for dataset_id, metadata in dataset_metadata.items():
+    for dataset_id, dataset_metadata in dataset_dataset_metadata.items():
         datasets.append({
             "id": dataset_id,
-            "name": metadata.get("name", dataset_id),
-            "rows": metadata.get("rows", 0),
-            "columns": metadata.get("columns", 0),
-            "updated_at": metadata.get("updated_at"),
-            "summary": metadata.get("summary", "")
+            "name": dataset_metadata.get("name", dataset_id),
+            "rows": dataset_metadata.get("rows", 0),
+            "columns": dataset_metadata.get("columns", 0),
+            "updated_at": dataset_metadata.get("updated_at"),
+            "summary": dataset_metadata.get("summary", "")
         })
     
     return datasets
 
 async def get_dataset(dataset_id: str) -> Dict[str, Any]:
     """
-    Get metadata for a specific dataset
+    Get dataset_metadata for a specific dataset
     """
-    if dataset_id not in dataset_metadata:
+    if dataset_id not in dataset_dataset_metadata:
         raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
     
-    return dataset_metadata[dataset_id]
+    return dataset_dataset_metadata[dataset_id]
 
 async def delete_dataset(dataset_id: str) -> Dict[str, Any]:
     """
     Delete a dataset and its vectorized data
     """
     try:
-        if dataset_id not in dataset_metadata:
+        if dataset_id not in dataset_dataset_metadata:
             raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
         
         # Get file path
-        file_path = dataset_metadata[dataset_id].get("file_path")
+        file_path = dataset_dataset_metadata[dataset_id].get("file_path")
         
-        # Remove from metadata
-        del dataset_metadata[dataset_id]
-        save_metadata()
+        # Remove from dataset_metadata
+        del dataset_dataset_metadata[dataset_id]
+        save_dataset_metadata()
         
         # Delete vector data
         from .vector_service import delete_vectors

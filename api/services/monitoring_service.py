@@ -15,7 +15,7 @@ from prometheus_client import Gauge, Counter, Histogram, Summary, generate_lates
 PIPELINE_RUNS_TOTAL = Counter('pipeline_runs_total', 'Total number of pipeline runs', ['status'])
 PIPELINE_PROCESSING_TIME = Histogram('pipeline_processing_time_seconds', 'Time taken to process pipelines', ['pipeline_type'])
 API_REQUESTS_TOTAL = Counter('api_requests_total', 'Total API requests', ['endpoint', 'method', 'status'])
-DATASET_SIZE_BYTES = Gauge('dataset_size_bytes', 'Size of datasets in bytes', ['dataset_id'])
+DATASET_METADATA_SIZE_BYTES = Gauge('dataset_metadata_size_bytes', 'Size of dataset metadata in bytes', ['dataset_id'])
 
 # In-memory storage for metrics, alerts and logs (in production this would use a proper database)
 _metrics_store = []

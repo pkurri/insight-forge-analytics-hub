@@ -88,7 +88,7 @@ class OpenEvalsService:
                 "rules_failed": rule_execution.get("failed_rules", 0),
                 "execution_time": rule_execution.get("execution_time", 0),
                 "results": rule_execution.get("results", []),
-                "ds_metadata": {
+                "ds_dataset_metadata": {
                     "rows": len(df),
                     "columns": len(df.columns),
                 }
@@ -120,7 +120,7 @@ class OpenEvalsService:
                 "timestamp": datetime.now().isoformat(),
                 "status": EvalStatus.ERROR,
                 "error": str(e),
-                "ds_metadata": {
+                "ds_dataset_metadata": {
                     "rows": len(df) if df is not None else 0,
                     "columns": len(df.columns) if df is not None else 0,
                 }
@@ -191,7 +191,7 @@ class OpenEvalsService:
                 "metrics": dq_metrics,
                 "overall_score": float(overall_completeness),
                 "status": EvalStatus.PASS if overall_completeness >= 90 else EvalStatus.WARNING,
-                "ds_metadata": {
+                "ds_dataset_metadata": {
                     "rows": len(df),
                     "columns": len(df.columns),
                 }
@@ -216,7 +216,7 @@ class OpenEvalsService:
                 "timestamp": datetime.now().isoformat(),
                 "status": EvalStatus.ERROR,
                 "error": str(e),
-                "ds_metadata": {
+                "ds_dataset_metadata": {
                     "rows": len(df) if df is not None else 0,
                     "columns": len(df.columns) if df is not None else 0,
                 }
@@ -232,7 +232,7 @@ class OpenEvalsService:
     
     async def generate_business_rules_with_openeval(self, 
                                                    dataset_id: str, 
-                                                   column_metadata: Dict[str, Any],
+                                                   column_dataset_metadata: Dict[str, Any],
                                                    data_sample: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """
         Generate business rules with OpenEvals for self-correction
@@ -242,7 +242,7 @@ class OpenEvalsService:
         
         Args:
             dataset_id: ID of the dataset
-            column_metadata: Column metadata for rule generation
+            column_dataset_metadata: Column dataset_metadata for rule generation
             data_sample: Optional sample data for evaluation
             
         Returns:
@@ -252,7 +252,7 @@ class OpenEvalsService:
         
         try:
             # Step 1: Generate initial rules using AI
-            initial_rules = await business_rules_service.generate_ai_rules(dataset_id, column_metadata)
+            initial_rules = await business_rules_service.generate_ai_rules(dataset_id, column_dataset_metadata)
             
             # If no sample data, return the initial rules
             if data_sample is None or len(initial_rules.get("rules", [])) == 0:
@@ -270,7 +270,7 @@ class OpenEvalsService:
                     "message": rule.get("message"),
                     "source": "ai",
                     "dataset_id": dataset_id,
-                    "rules_metadata": rule.get("rules_metadata", {})
+                    "rules_dataset_metadata": rule.get("rules_dataset_metadata", {})
                 }
                 
                 # Add to test list
@@ -295,7 +295,7 @@ class OpenEvalsService:
                     failed_rules.append({
                         "rule": rule,
                         "error": result.get("message", "Unknown error"),
-                        "rules_metadata": result.get("rules_metadata", {})
+                        "rules_dataset_metadata": result.get("rules_dataset_metadata", {})
                     })
             
             # Step 4: Fix failed rules using AI
@@ -311,7 +311,7 @@ class OpenEvalsService:
                     rule_context = {
                         "rule": rule,
                         "error": error,
-                        "column_metadata": column_metadata,
+                        "column_dataset_metadata": column_dataset_metadata,
                         "data_sample": data_sample.head(5).to_dict() if data_sample is not None else None
                     }
                     
@@ -339,8 +339,8 @@ class OpenEvalsService:
                         # Create corrected rule
                         corrected_rule = rule.copy()
                         corrected_rule["condition"] = corrected_condition
-                        corrected_rule['rules_metadata']["corrected"] = True
-                        corrected_rule['rules_metadata']["original_condition"] = rule["condition"] 
+                        corrected_rule['rules_dataset_metadata']["corrected"] = True
+                        corrected_rule['rules_dataset_metadata']["original_condition"] = rule["condition"] 
                         
                         # Test corrected rule
                         test_result = await business_rules_service._execute_python_rule(corrected_rule, data_sample)

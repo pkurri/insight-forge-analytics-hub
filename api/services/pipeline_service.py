@@ -290,7 +290,7 @@ class DataPipeline:
             dataset_id: ID of the dataset to process
             
         Returns:
-            Processing results and metadata
+            Processing results and pipeline_metadata
         """
         try:
             # Get dataset
@@ -329,8 +329,8 @@ class DataPipeline:
             # 6. Store embeddings
             await dataset_repo.store_embeddings(dataset_id, self._generate_embeddings(cleaned_df))
 
-            # Update dataset metadata
-            ds_metadata = {
+            # Update dataset pipeline_metadata
+            ds_pipeline_metadata = {
                 "validation": validation_results,
                 "analytics": analytics_results,
                 "anomalies": anomalies,
@@ -351,12 +351,12 @@ class DataPipeline:
             await dataset_repo.update_dataset_status(
                 dataset_id,
                 DatasetStatus.COMPLETED,
-                ds_metadata
+                ds_pipeline_metadata
             )
 
             return {
                 "success": True,
-                "ds_metadata": ds_metadata,
+                "ds_pipeline_metadata": ds_pipeline_metadata,
                 "cleaned_path": cleaned_path
             }
 

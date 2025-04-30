@@ -19,7 +19,7 @@ class BusinessRulesRepository:
     async def get_rules(self, dataset_id: int) -> List[Dict[str, Any]]:
         """Get all business rules for a dataset."""
         query = text(f"""
-            SELECT id, name, dataset_id, condition, severity, message, is_active,
+            SELECT id, dataset_metadata, condition, severity, message, is_active,
                    model_generated, confidence, created_at, updated_at
             FROM {DB_SCHEMA}.business_rules
             WHERE dataset_id = :dataset_id
@@ -36,7 +36,7 @@ class BusinessRulesRepository:
     async def get_rule(self, rule_id: int) -> Optional[Dict[str, Any]]:
         """Get a specific business rule by ID."""
         query = text(f"""
-            SELECT id, name, dataset_id, condition, severity, message, is_active,
+            SELECT id, dataset_metadata, condition, severity, message, is_active,
                    model_generated, confidence, created_at, updated_at
             FROM {DB_SCHEMA}.business_rules
             WHERE id = :rule_id
@@ -53,20 +53,19 @@ class BusinessRulesRepository:
         """Create a new business rule."""
         query = text(f"""
             INSERT INTO {DB_SCHEMA}.business_rules (
-                name, dataset_id, condition, severity, message, 
+                dataset_metadata, condition, severity, message, 
                 model_generated, confidence
             )
-            VALUES (:name, :dataset_id, :condition, :severity, :message, 
+            VALUES (:dataset_metadata, :condition, :severity, :message, 
                      :model_generated, :confidence)
-            RETURNING id, name, dataset_id, condition, severity, message, is_active,
+            RETURNING id, dataset_metadata, condition, severity, message, is_active,
                       model_generated, confidence, created_at, updated_at
             """)
         
         try:
             results = await execute_query(
                 query, 
-                name=rule.name,
-                dataset_id=rule.dataset_id,
+                dataset_metadata=rule.dataset_metadata,
                 condition=rule.condition,
                 severity=rule.severity,
                 message=rule.message,
@@ -86,7 +85,7 @@ class BusinessRulesRepository:
         
         # Build SET clause dynamically
         for field, value in rule_data.items():
-            if field in ['name', 'condition', 'severity', 'message', 'is_active', 'confidence']:
+            if field in ['dataset_metadata', 'condition', 'severity', 'message', 'is_active', 'confidence']:
                 update_fields.append(f"{field} = :{field}")
                 params[field] = value
         
@@ -101,7 +100,7 @@ class BusinessRulesRepository:
             UPDATE {DB_SCHEMA}.business_rules
             SET {", ".join(update_fields)}
             WHERE id = :rule_id
-            RETURNING id, name, dataset_id, condition, severity, message, is_active,
+            RETURNING id, dataset_metadata, condition, severity, message, is_active,
                       model_generated, confidence, created_at, updated_at
             """)
         
@@ -158,7 +157,7 @@ class BusinessRulesRepository:
         if rule_id is not None:
             query = """
             SELECT rv.id, rv.rule_id, rv.violations_count, rv.validation_date,
-                   br.name as rule_name, br.severity
+                   br.dataset_metadata as rule_dataset_metadata, br.severity
             FROM rule_validations rv
             JOIN business_rules br ON rv.rule_id = br.id
             WHERE rv.dataset_id = $1 AND rv.rule_id = $2
@@ -168,7 +167,7 @@ class BusinessRulesRepository:
         else:
             query = """
             SELECT rv.id, rv.rule_id, rv.violations_count, rv.validation_date,
-                   br.name as rule_name, br.severity
+                   br.dataset_metadata as rule_dataset_metadata, br.severity
             FROM rule_validations rv
             JOIN business_rules br ON rv.rule_id = br.id
             WHERE rv.dataset_id = $1
@@ -192,16 +191,15 @@ class BusinessRulesRepository:
         for rule in rules:
             query = """
             INSERT INTO business_rules (
-                name, dataset_id, condition, severity, message, 
+                dataset_metadata, condition, severity, message, 
                 model_generated, confidence
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id, name, dataset_id, condition, severity, message, is_active,
+            RETURNING id, dataset_metadata, condition, severity, message, is_active,
                       model_generated, confidence, created_at, updated_at
             """
             params = (
-                rule.name,
-                rule.dataset_id,
+                rule.dataset_metadata,
                 rule.condition,
                 rule.severity,
                 rule.message,

@@ -33,7 +33,7 @@ class AIModelService:
         self.anomaly_detector = IsolationForest(contamination=0.1, random_state=42)
         self.scaler = StandardScaler()
 
-    async def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
+    async def clean_data(self, df: pd.DataFrame, dataset_metadata: Dict[str, Any]) -> pd.DataFrame:
         """Clean data using AI models for text and numerical data."""
         cleaned_df = df.copy()
 
@@ -50,7 +50,7 @@ class AIModelService:
 
         return cleaned_df
 
-    async def validate_data(self, df: pd.DataFrame) -> Dict[str, Any]:
+    async def validate_data(self, df: pd.DataFrame, dataset_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Validate data using AI models."""
         validation_results = {
             'column_validations': {},
@@ -98,7 +98,7 @@ class AIModelService:
 
         return validation_results
 
-    async def analyze_data(self, df: pd.DataFrame) -> Dict[str, Any]:
+    async def analyze_data(self, df: pd.DataFrame, dataset_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Generate analytics insights using AI models."""
         analytics_results = {
             'column_profiles': {},

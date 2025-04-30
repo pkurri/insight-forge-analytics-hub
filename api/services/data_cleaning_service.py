@@ -42,8 +42,8 @@ class DataCleaningService:
         if config.get('scale_numeric', True):
             df[numeric_columns] = self.scaler.fit_transform(df[numeric_columns])
         
-        # Add metadata
-        cleaning_metadata = {
+        # Add dataset_metadata
+        cleaning_dataset_metadata = {
             'timestamp': datetime.utcnow().isoformat(),
             'rows_processed': len(df),
             'columns_processed': list(df.columns),
@@ -51,4 +51,4 @@ class DataCleaningService:
             'categorical_columns': list(categorical_columns)
         }
         
-        return df, cleaning_metadata
+        return df, cleaning_dataset_metadata

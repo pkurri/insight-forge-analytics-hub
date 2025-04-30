@@ -13,7 +13,7 @@ from uuid import uuid4
 import requests
 import os
 
-from api.services.translation_service import translate_text_internal  # <-- Import the new translation service
+from api.services.internal_ai_service import translate_text_internal  # Updated import to unified internal AI service
 
 from api.config.settings import get_settings
 from api.repositories.chat_repository import ChatRepository

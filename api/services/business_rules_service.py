@@ -21,13 +21,13 @@ import asyncio
 from openai import OpenAI
 import great_expectations as ge
 from pydantic import BaseModel, ValidationError, create_model
-from transformers import pipeline as hf_pipeline
 from sqlalchemy import text
 from sqlalchemy.sql import text
 
 from api.config.settings import get_settings
 from api.models.dataset import DatasetStatus
 from api.db.connection import get_db_session
+from api.services.internal_textgen_service import call_internal_text_gen_api
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -56,9 +56,6 @@ class BusinessRulesService:
 
         # Initialize Great Expectations context for validation
         self.ge_context = ge.get_context()
-        # Initialize Hugging Face pipeline for text classification
-        self.hf_model_name = getattr(settings, 'HF_MODEL_NAME', 'distilbert-base-uncased')
-        self.hf_classifier = hf_pipeline('text-classification', model=self.hf_model_name, token=settings.HUGGINGFACE_API_KEY if hasattr(settings, 'HUGGINGFACE_API_KEY') else None)
 
         # Cache for loaded rules per dataset
         self.rules_cache = {}
@@ -97,7 +94,9 @@ class BusinessRulesService:
                 - message: Error message when rule fails
                 - source: Rule source (manual, great_expectations, pydantic, huggingface, ai)
                 - dataset_id: ID of the dataset this rule applies to
-                - meta: Additional rule meta
+                - dataset_metadata: Additional dataset metadata
+                - vector_metadata: Additional vector metadata
+                - pipeline_metadata: Additional pipeline metadata
         Returns:
             Created rule object
         Raises:
@@ -306,13 +305,15 @@ class BusinessRulesService:
             logger.error(f"Error importing rules: {str(e)}")
             raise
         
+    from api.services.internal_textgen_service import call_internal_text_gen_api
+
     async def generate_ai_rules(self, dataset_id: str, column_meta: Dict[str, Any], model_type: str = "openai") -> Dict[str, Any]:
         """Generate business rules using AI based on column meta.
         
         Args:
             dataset_id: ID of the dataset to generate rules for
             column_meta: Dictionary containing column information about the dataset
-            model_type: Type of model to use for generation (openai, great_expectations, pydantic, huggingface)
+            model_type: Type of model to use for generation (openai, great_expectations, pydantic, huggingface, mistral, llama, pythia, internal)
         Returns:
             Dictionary containing generated rules and meta
         """
@@ -328,6 +329,12 @@ class BusinessRulesService:
                 return await self._generate_pydantic_rules(dataset_id, column_meta)
             elif model_type == "huggingface" or model_type == "hf":
                 return await self._generate_hf_rules(dataset_id, column_meta)
+            elif model_type in ("mistral", "llama", "pythia", "internal"):
+                # Use internal text generation models
+                prompt = self._build_prompt(column_meta) if hasattr(self, '_build_prompt') else str(column_meta)
+                generated = await call_internal_text_gen_api(prompt, model=model_type)
+                # You may want to parse the generated text into rules here
+                return {"rules": generated, "meta": {"model": model_type}}
             else:  # Default to OpenAI
                 return await self._generate_openai_rules(dataset_id, column_meta)
         except Exception as e:

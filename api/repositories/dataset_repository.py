@@ -75,7 +75,7 @@ class DatasetRepository:
                 row = result.first()
                 if row:
                     dataset = dict(row)
-                    dataset["ds_metadata"] = json.loads(dataset["ds_metadata"])
+                    dataset["dataset_metadata"] = json.loads(dataset["dataset_metadata"])
                     
                     # Cache the result
                     await self.redis.setex(
@@ -129,7 +129,7 @@ class DatasetRepository:
         self,
         dataset_id: int,
         status: DatasetStatus,
-        ds_metadata: Optional[Dict[str, Any]] = None
+        dataset_metadata: Optional[Dict[str, Any]] = None
     ) -> None:
         async with get_db_session() as session:
             result = await session.execute(
@@ -143,17 +143,17 @@ class DatasetRepository:
             if row:
                 dataset = dict(row)
                 dataset["status"] = status.value
-                if ds_metadata:
-                    dataset["ds_metadata"] = json.dumps({**json.loads(dataset["ds_metadata"]), **ds_metadata})
+                if dataset_metadata:
+                    dataset["dataset_metadata"] = json.dumps({**json.loads(dataset["dataset_metadata"]), **dataset_metadata})
                 await session.execute(
                     text("""
                     UPDATE datasets 
-                    SET status = :status, ds_metadata = :ds_metadata
+                    SET status = :status, dataset_metadata = :dataset_metadata
                     WHERE id = :dataset_id
                     """),
                     {
                         "status": dataset["status"],
-                        "ds_metadata": dataset["ds_metadata"],
+                        "dataset_metadata": dataset["dataset_metadata"],
                         "dataset_id": dataset_id
                     }
                 )

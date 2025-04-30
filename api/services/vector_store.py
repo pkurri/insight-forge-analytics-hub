@@ -1,17 +1,14 @@
 import numpy as np
 from typing import Dict, Any, List, Optional
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy.orm import declarative_base
 from pgvector.sqlalchemy import Vector, l2_distance
 from datetime import datetime
 import os
 import json
 import requests
 
-# Database setup
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://user:password@localhost:5432/yourdb")
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+from api.db.connection import get_db_session
 Base = declarative_base()
 
 from sqlalchemy.dialects.postgresql import JSONB
@@ -19,17 +16,16 @@ from api.config.settings import get_settings
 
 settings = get_settings()
 
-class VectorEntry(Base):
+class VectorEmbedding(Base):
     __tablename__ = "vector_embeddings"
     id = Column(Integer, primary_key=True, index=True)
     dataset_id = Column(Integer, index=True)
     record_id = Column(String(255), nullable=False)
-    # Embedding dimension must match the database schema (default 1536, configurable)
     embedding = Column(Vector(settings.VECTOR_DIMENSION))
-    metadata = Column(JSONB, default=dict)
+    vector_metadata = Column(JSONB, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-Base.metadata.create_all(bind=engine)
+Base.vector_metadata.create_all(bind=engine)
 
 INTERNAL_HF_API_URL = os.getenv("INTERNAL_HF_API_URL", "https://internal.company.com/hf-api")
 INTERNAL_HF_API_USER = os.getenv("INTERNAL_HF_API_USER", "user")
@@ -48,30 +44,28 @@ class VectorStoreService:
     def __init__(self, vector_dim: int = 384):
         self.vector_dim = vector_dim
 
-    async def store_data(self, data: List[Dict[str, Any]], dataset_id: int, metadata: Dict[str, Any]) -> bool:
+    async def store_data(self, data: List[Dict[str, Any]], dataset_id: int, vector_metadata: Dict[str, Any]) -> bool:
         """
         Store data and its embeddings in the vector_embeddings table.
         data: List of {"record_id": ..., "embedding": ...} dicts
         """
-        session = SessionLocal()
-        try:
-            entries = []
-            for item in data:
-                entries.append(VectorEntry(
-                    dataset_id=dataset_id,
-                    record_id=item["record_id"],
-                    embedding=item["embedding"],
-                    metadata={**metadata, **item.get("metadata", {})},
-                ))
-            session.add_all(entries)
-            session.commit()
-            return True
-        except Exception as e:
-            session.rollback()
-            print(f"Error storing data in vector_embeddings: {str(e)}")
-            return False
-        finally:
-            session.close()
+        async with get_db_session() as session:
+            try:
+                entries = []
+                for item in data:
+                    entries.append(VectorEmbedding(
+                        dataset_id=dataset_id,
+                        record_id=item["record_id"],
+                        embedding=item["embedding"],
+                        vector_metadata={**vector_metadata, **item.get("vector_metadata", {})},
+                    ))
+                session.add_all(entries)
+                await session.commit()
+                return True
+            except Exception as e:
+                await session.rollback()
+                print(f"Error storing data in vector_embeddings: {str(e)}")
+                return False
 
     async def search_similar_data(
         self,
@@ -83,42 +77,40 @@ class VectorStoreService:
         """
         Search for similar data in the vector database by vector.
         """
-        session = SessionLocal()
-        try:
-            query_np = np.array(query_vector)
-            q = session.query(VectorEntry)
-            if dataset_id:
-                q = q.filter(VectorEntry.dataset_id == dataset_id)
-            q = q.order_by(l2_distance(VectorEntry.vector, query_np)).limit(limit)
-            search_results = []
-            for entry in q:
-                similarity = float(1.0 / (1.0 + l2_distance(entry.vector, query_np)))
-                if similarity >= threshold:
-                    search_results.append({
-                        "similarity": similarity,
-                        "text_content": entry.content,
-                        "metadata": json.loads(entry.metadata)
-                    })
-            return search_results
-        except Exception as e:
-            print(f"Error searching vector database: {str(e)}")
-            return []
-        finally:
-            session.close()
+        async with get_db_session() as session:
+            try:
+                query_np = np.array(query_vector)
+                stmt = select(VectorEmbedding)
+                if dataset_id:
+                    stmt = stmt.where(VectorEmbedding.dataset_id == dataset_id)
+                stmt = stmt.limit(limit)
+                result = await session.execute(stmt)
+                search_results = []
+                for entry in result.scalars():
+                    similarity = float(1.0 / (1.0 + l2_distance(entry.embedding, query_np)))
+                    if similarity >= threshold:
+                        search_results.append({
+                            "similarity": similarity,
+                            "record_id": entry.record_id,
+                            "vector_metadata": entry.vector_metadata
+                        })
+                return search_results
+            except Exception as e:
+                print(f"Error searching vector database: {str(e)}")
+                return []
 
     async def get_dataset_info(self, dataset_id: str) -> Dict[str, Any]:
-        session = SessionLocal()
-        try:
-            count = session.query(VectorEntry).filter(VectorEntry.dataset_id == dataset_id).count()
-            return {
-                "dataset_id": dataset_id,
-                "row_count": count
-            }
-        except Exception as e:
-            print(f"Error getting dataset info: {str(e)}")
-            return {}
-        finally:
-            session.close()
+        async with get_db_session() as session:
+            try:
+                from sqlalchemy import func
+                count = await session.scalar(select(func.count(VectorEmbedding.id)).where(VectorEmbedding.dataset_id == dataset_id))
+                return {
+                    "dataset_id": dataset_id,
+                    "row_count": count
+                }
+            except Exception as e:
+                print(f"Error getting dataset info: {str(e)}")
+                return {}
 
 class VectorStoreService:
     def __init__(self):
@@ -132,7 +124,7 @@ class VectorStoreService:
             port=settings.MILVUS_PORT
         )
 
-    async def store_data(self, df: pd.DataFrame, metadata: Dict[str, Any]) -> bool:
+    async def store_data(self, df: pd.DataFrame, vector_metadata: Dict[str, Any]) -> bool:
         """Store data and its embeddings in the vector database."""
         try:
             collection_name = f"dataset_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
@@ -141,7 +133,7 @@ class VectorStoreService:
             fields = [
                 FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
                 FieldSchema(name="content_vector", dtype=DataType.FLOAT_VECTOR, dim=self.vector_dim),
-                FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=65535),
+                FieldSchema(name="vector_metadata", dtype=DataType.VARCHAR, max_length=65535),
                 FieldSchema(name="text_content", dtype=DataType.VARCHAR, max_length=65535)
             ]
             
@@ -158,7 +150,7 @@ class VectorStoreService:
             data = [
                 [],  # id will be auto-generated
                 embeddings.tolist(),
-                [json.dumps(metadata)] * len(text_data),
+                [json.dumps(vector_metadata)] * len(text_data),
                 text_data
             ]
             
@@ -215,7 +207,7 @@ class VectorStoreService:
                 anns_field="content_vector",
                 param=search_params,
                 limit=limit,
-                output_fields=["metadata", "text_content"]
+                output_fields=["vector_metadata", "text_content"]
             )
 
             # Format results
@@ -225,7 +217,7 @@ class VectorStoreService:
                     search_results.append({
                         "score": float(hit.score),
                         "text_content": hit.entity.get("text_content"),
-                        "metadata": json.loads(hit.entity.get("metadata"))
+                        "vector_metadata": json.loads(hit.entity.get("vector_metadata"))
                     })
 
             return search_results

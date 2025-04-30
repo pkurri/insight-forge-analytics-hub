@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     HUGGINGFACE_API_KEY: str = os.getenv("HUGGINGFACE_API_KEY", "")
     HF_API_BASE: str = os.getenv("HF_API_BASE", "https://api-inference.huggingface.co/models/")
     HF_MODEL_NAME: str = os.getenv("HF_MODEL_NAME", "distilbert-base-uncased")
+
+    # Internal Text Generation API (Mistral, Llama, Pythia)
+    INTERNAL_TEXT_GEN_API_URL: str = os.getenv("INTERNAL_TEXT_GEN_API_URL", "http://internal-api/models/generate")
+    INTERNAL_TEXT_GEN_API_USER: str = os.getenv("INTERNAL_TEXT_GEN_API_USER", "")
+    INTERNAL_TEXT_GEN_API_PASS: str = os.getenv("INTERNAL_TEXT_GEN_API_PASS", "")
+    INTERNAL_TEXT_GEN_MODEL: str = os.getenv("INTERNAL_TEXT_GEN_MODEL", "mistral")
     
     # Logging Settings
     logging: LoggingSettings = LoggingSettings()

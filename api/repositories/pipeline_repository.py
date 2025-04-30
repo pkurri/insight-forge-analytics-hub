@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session
 def get_pipeline_repository(db_session: Optional[Session] = None):
     """Return a repository object for pipeline operations."""
     class PipelineRepository:
-        def create_pipeline_run(self, dataset_id: int, status: str = 'pending', **kwargs) -> PipelineRun:
+        def create_pipeline_run(self, pipeline_metadataset_id: int, status: str = 'pending', **kwargs) -> PipelineRun:
             # Stub: Replace with actual ORM logic
-            run = PipelineRun(dataset_id=dataset_id, status=status, **kwargs)
+            run = PipelineRun(pipeline_metadataset_id=pipeline_metadataset_id, status=status, **kwargs)
             if db_session:
                 db_session.add(run)
                 db_session.commit()
