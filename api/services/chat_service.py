@@ -13,7 +13,7 @@ from uuid import uuid4
 import requests
 import os
 
-from api.services.internal_ai_service import translate_text_internal  # Updated import to unified internal AI service
+
 
 from api.config.settings import get_settings
 from api.repositories.chat_repository import ChatRepository
@@ -136,7 +136,7 @@ async def send_message(session_id: str, message: str, context: Optional[Dict[str
             translate_cfg = context['translate']
             source_lang = translate_cfg.get('source_lang', 'en')
             target_lang = translate_cfg.get('target_lang', 'es')
-            translated = await translate_text_internal(message, source_lang=source_lang, target_lang=target_lang)
+            # Translation API is not exposed. Translation is not supported. Use message as-is.
             if translated:
                 message = translated
         

@@ -44,10 +44,7 @@ class Settings(BaseSettings):
     # AI/ML Settings
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
     
-    # Translation API Settings
-    INTERNAL_TRANSLATION_API_URL: str = os.getenv("INTERNAL_TRANSLATION_API_URL", "https://internal-api.example.com/translate")
-    INTERNAL_TRANSLATION_API_USERNAME: str = os.getenv("INTERNAL_TRANSLATION_API_USERNAME", "your-username")
-    INTERNAL_TRANSLATION_API_PASSWORD: str = os.getenv("INTERNAL_TRANSLATION_API_PASSWORD", "your-password")
+    # Only approved embedding and text generation models are supported. Translation API is not exposed.
 
     # Hugging Face API Settings
     HUGGINGFACE_API_KEY: str = os.getenv("HUGGINGFACE_API_KEY", "")

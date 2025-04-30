@@ -27,8 +27,8 @@ class AIModelService:
             if df[column].dtype == 'object':  # Text data
                 cleaned_values = []
                 for text in df[column].fillna(''):
-                    # TODO: Implement text cleaning using internal AI service if available
-cleaned_values.append(text)  # No-op for now, as no internal endpoint for text-clean
+                    # No text cleaning endpoint available; use original text
+                    cleaned_values.append(text)
                 cleaned_df[column] = cleaned_values
             else:  # Numerical data
                 cleaned_df[column] = cleaned_df[column].fillna(cleaned_df[column].median())
@@ -52,19 +52,18 @@ cleaned_values.append(text)  # No-op for now, as no internal endpoint for text-c
 
             if df[column].dtype == 'object':
                 for text in df[column].fillna(''):
-                    # TODO: Implement validation using internal AI service if available
-valid = True
-confidence = 1.0
-if valid and confidence > 0.7:
-    column_stats['valid_entries'] += 1
-else:
-    column_stats['invalid_entries'] += 1
-    validation_results['issues_detected'].append({
-        'column': column,
-        'value': text,
-        'issue': 'Potentially invalid data'
-    })
-
+                    # No validation endpoint available; treat all as valid for now
+                    valid = True
+                    confidence = 1.0
+                    if valid and confidence > 0.7:
+                        column_stats['valid_entries'] += 1
+                    else:
+                        column_stats['invalid_entries'] += 1
+                        validation_results['issues_detected'].append({
+                            'column': column,
+                            'value': text,
+                            'issue': 'Potentially invalid data'
+                        })
             else:  # Numerical data
                 # Basic statistical validation
                 z_scores = np.abs((df[column] - df[column].mean()) / df[column].std())
