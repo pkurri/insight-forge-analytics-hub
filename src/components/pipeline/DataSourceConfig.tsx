@@ -174,6 +174,37 @@ const DataSourceConfig: React.FC = () => {
     },
   });
 
+  // Prepopulate API form fields when editing
+  useEffect(() => {
+    if (editingApiConnection) {
+      apiForm.reset({
+        name: editingApiConnection.name || "",
+        url: editingApiConnection.url || "",
+        authType: (editingApiConnection.authType as any) || "none",
+        username: editingApiConnection.username || "",
+        password: editingApiConnection.password || "",
+        apiKey: editingApiConnection.apiKey || "",
+        apiKeyName: editingApiConnection.apiKeyName || "",
+        bearerToken: editingApiConnection.bearerToken || "",
+        headers: editingApiConnection.headers || "",
+      });
+    } else {
+      apiForm.reset({
+        name: "",
+        url: "",
+        authType: "none",
+        username: "",
+        password: "",
+        apiKey: "",
+        apiKeyName: "",
+        bearerToken: "",
+        headers: "",
+      });
+    }
+    // Only run when dialog is opened/closed or editingApiConnection changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingApiConnection, showApiDialog]);
+
   // DB form
   const dbForm = useForm<z.infer<typeof dbFormSchema>>({
     resolver: zodResolver(dbFormSchema),
@@ -189,6 +220,37 @@ const DataSourceConfig: React.FC = () => {
       options: "",
     },
   });
+
+  // Prepopulate DB form fields when editing
+  useEffect(() => {
+    if (editingDbConnection) {
+      dbForm.reset({
+        name: editingDbConnection.name || "",
+        connectionType: (editingDbConnection.connectionType as any) || "postgresql",
+        host: editingDbConnection.host || "",
+        port: editingDbConnection.port || "",
+        database: editingDbConnection.database || "",
+        username: editingDbConnection.username || "",
+        password: editingDbConnection.password || "",
+        ssl: typeof editingDbConnection.ssl === 'boolean' ? editingDbConnection.ssl : false,
+        options: editingDbConnection.options || "",
+      });
+    } else {
+      dbForm.reset({
+        name: "",
+        connectionType: "postgresql",
+        host: "",
+        port: "",
+        database: "",
+        username: "",
+        password: "",
+        ssl: false,
+        options: "",
+      });
+    }
+    // Only run when dialog is opened/closed or editingDbConnection changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingDbConnection, showDbDialog]);
 
   const onApiSubmit = async (values: z.infer<typeof apiFormSchema>) => {
     try {

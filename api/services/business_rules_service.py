@@ -27,7 +27,7 @@ from sqlalchemy.sql import text
 from api.config.settings import get_settings
 from api.models.dataset import DatasetStatus
 from api.db.connection import get_db_session
-from api.services.internal_textgen_service import call_internal_text_gen_api
+from api.services.internal_ai_service import generate_text_internal
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -305,8 +305,6 @@ class BusinessRulesService:
             logger.error(f"Error importing rules: {str(e)}")
             raise
         
-    from api.services.internal_textgen_service import call_internal_text_gen_api
-
     async def generate_ai_rules(self, dataset_id: str, column_meta: Dict[str, Any], model_type: str = None) -> Dict[str, Any]:
         """Generate business rules using internal AI models only, based on column meta.
         
@@ -330,7 +328,7 @@ class BusinessRulesService:
 
             # Use internal text generation models only
             prompt = self._build_prompt(column_meta) if hasattr(self, '_build_prompt') else str(column_meta)
-            generated = await call_internal_text_gen_api(prompt, model=model_type)
+            generated = await generate_text_internal(prompt, model=model_type)
             # You may want to parse the generated text into rules here
             return {"rules": generated, "meta": {"model": model_type}}
         except Exception as e:
