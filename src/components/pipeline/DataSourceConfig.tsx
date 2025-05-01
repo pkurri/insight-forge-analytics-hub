@@ -205,6 +205,12 @@ const DataSourceConfig: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingApiConnection, showApiDialog]);
 
+  // Helper for API dialog close
+  const handleApiDialogClose = () => {
+    setShowApiDialog(false);
+    setEditingApiConnection(null);
+  };
+
   // DB form
   const dbForm = useForm<z.infer<typeof dbFormSchema>>({
     resolver: zodResolver(dbFormSchema),
@@ -251,6 +257,12 @@ const DataSourceConfig: React.FC = () => {
     // Only run when dialog is opened/closed or editingDbConnection changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingDbConnection, showDbDialog]);
+
+  // Helper for DB dialog close
+  const handleDbDialogClose = () => {
+    setShowDbDialog(false);
+    setEditingDbConnection(null);
+  };
 
   const onApiSubmit = async (values: z.infer<typeof apiFormSchema>) => {
     try {
@@ -470,20 +482,26 @@ const DataSourceConfig: React.FC = () => {
           <TabsContent value="api" className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-medium">API Connections</h3>
-              <Dialog open={showApiDialog} onOpenChange={setShowApiDialog}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add API Connection
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[500px]">
-                  <DialogHeader>
-                    <DialogTitle>{editingApiConnection ? "Edit API Connection" : "Add API Connection"}</DialogTitle>
-                    <button aria-label="Close dialog" className="absolute right-4 top-4" onClick={() => { setShowApiDialog(false); setEditingApiConnection(null); }}>
-                      ×
-                    </button>
-                  </DialogHeader>
+              <Dialog open={showApiDialog} onOpenChange={(open) => {
+                     if (!open) handleApiDialogClose();
+                     else setShowApiDialog(true);
+                   }}>
+                   <DialogTrigger asChild>
+                     <Button size="sm" onClick={() => {
+                       setEditingApiConnection(null);
+                       setShowApiDialog(true);
+                     }}>
+                       <Plus className="mr-2 h-4 w-4" />
+                       Add API Connection
+                     </Button>
+                   </DialogTrigger>
+                   <DialogContent className="sm:max-w-[500px]">
+                     <DialogHeader>
+                       <DialogTitle>{editingApiConnection ? "Edit API Connection" : "Add API Connection"}</DialogTitle>
+                       <button aria-label="Close dialog" className="absolute right-4 top-4" onClick={handleApiDialogClose}>
+                         ×
+                       </button>
+                     </DialogHeader>
 
                   <Form {...apiForm}>
                     <form onSubmit={apiForm.handleSubmit(onApiSubmit)} className="space-y-4 py-4">
@@ -521,7 +539,7 @@ const DataSourceConfig: React.FC = () => {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Authentication Type</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <Select onValueChange={field.onChange} value={field.value}>
                               <FormControl>
                                 <SelectTrigger>
                                   <SelectValue placeholder="Select authentication type" />
@@ -681,7 +699,10 @@ const DataSourceConfig: React.FC = () => {
                         )}
                       </TableCell>
                       <TableCell className="flex gap-2">
-                        <Button aria-label="Edit" onClick={() => { setEditingApiConnection(conn); setShowApiDialog(true); }}>
+                        <Button aria-label="Edit" onClick={() => {
+                          setEditingApiConnection(conn);
+                          setShowApiDialog(true);
+                        }}>
                           Edit
                         </Button>
                         <Button aria-label="Delete" onClick={() => deleteApiConnection(conn.id)}>
@@ -698,10 +719,94 @@ const DataSourceConfig: React.FC = () => {
             </Table>
           </TabsContent>
 
+          <TabsContent value="database" className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-medium">Database Connections</h3>
+              <Dialog open={showDbDialog} onOpenChange={(open) => {
+                if (!open) handleDbDialogClose();
+                else setShowDbDialog(true);
+              }}>
+                <DialogTrigger asChild>
+                  <Button size="sm" onClick={() => {
+                    setEditingDbConnection(null);
+                    setShowDbDialog(true);
+                  }}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Database Connection
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[500px]">
+                  <DialogHeader>
+                    <DialogTitle>{editingDbConnection ? "Edit Database Connection" : "Add Database Connection"}</DialogTitle>
+                    <button aria-label="Close dialog" className="absolute right-4 top-4" onClick={handleDbDialogClose}>
+                      ×
+                    </button>
+                  </DialogHeader>
+                  <Form {...dbForm}>
+                    <form onSubmit={dbForm.handleSubmit(onDbSubmit)} className="space-y-4 py-4">
+                      {/* ... db form fields ... */}
+                    </form>
+                  </Form>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Host</TableHead>
+                  <TableHead>Port</TableHead>
+                  <TableHead>Database</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {dbConnections.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                      <div className="flex flex-col items-center gap-2">
+                        <Database className="h-6 w-6 opacity-50" />
+                        <span>No database connections found.</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  dbConnections.map((conn) => (
+                    <TableRow key={conn.id}>
+                      <TableCell>{conn.name}</TableCell>
+                      <TableCell>{conn.connectionType}</TableCell>
+                      <TableCell>{conn.host}</TableCell>
+                      <TableCell>{conn.port}</TableCell>
+                      <TableCell>{conn.database}</TableCell>
+                      <TableCell>
+                        <span className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5">Ready</span>
+                      </TableCell>
+                      <TableCell className="flex gap-2">
+                        <Button aria-label="Edit" onClick={() => {
+                          setEditingDbConnection(conn);
+                          setShowDbDialog(true);
+                        }}>
+                          Edit
+                        </Button>
+                        <Button aria-label="Delete" onClick={() => deleteDbConnection(conn.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                        <Button aria-label="Test Connection" onClick={() => testConnection('db', conn.id)} disabled={testingConnectionId === conn.id}>
+                          Test
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TabsContent>
         </Tabs>
       </CardContent>
     </Card>
   );
-}
+};
 
 export default DataSourceConfig;
