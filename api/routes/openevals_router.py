@@ -53,7 +53,10 @@ async def evaluate_business_rules(dataset_metadataset_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/business-rules/generate/{dataset_metadataset_id}")
-async def generate_business_rules_with_openeval(dataset_metadataset_id: str):
+async def generate_business_rules_with_openeval(dataset_metadataset_id: str, request: Request):
+    # Extract engine parameter from request body
+    body = await request.json()
+    engine = body.get("engine", "ai_default")
     """
     Generate business rules with OpenEvals for a dataset_metadataset
     """
@@ -82,11 +85,12 @@ async def generate_business_rules_with_openeval(dataset_metadataset_id: str):
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported file format: {file_path}")
         
-        # Generate rules with OpenEvals
+        # Generate rules with OpenEvals using the specified engine
         result = await openevals_service.generate_business_rules_with_openeval(
             dataset_metadataset_id=dataset_metadataset_id,
             ds_metadataset_metadata=ds_metadataset_metadata,
-            dataset_metadata_sample=df
+            dataset_metadata_sample=df,
+            engine=engine
         )
         
         return {"success": True, "dataset_metadata": result}

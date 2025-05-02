@@ -176,30 +176,32 @@ const DataSourceConfig: React.FC = () => {
 
   // Prepopulate API form fields when editing
   useEffect(() => {
-    if (editingApiConnection) {
-      apiForm.reset({
-        name: editingApiConnection.name || "",
-        url: editingApiConnection.url || "",
-        authType: (editingApiConnection.authType as any) || "none",
-        username: editingApiConnection.username || "",
-        password: editingApiConnection.password || "",
-        apiKey: editingApiConnection.apiKey || "",
-        apiKeyName: editingApiConnection.apiKeyName || "",
-        bearerToken: editingApiConnection.bearerToken || "",
-        headers: editingApiConnection.headers || "",
-      });
-    } else {
-      apiForm.reset({
-        name: "",
-        url: "",
-        authType: "none",
-        username: "",
-        password: "",
-        apiKey: "",
-        apiKeyName: "",
-        bearerToken: "",
-        headers: "",
-      });
+    if (showApiDialog) {
+      if (editingApiConnection) {
+        apiForm.reset({
+          name: editingApiConnection.name || "",
+          url: editingApiConnection.url || "",
+          authType: (editingApiConnection.authType as any) || "none",
+          username: editingApiConnection.username || "",
+          password: editingApiConnection.password || "",
+          apiKey: editingApiConnection.apiKey || "",
+          apiKeyName: editingApiConnection.apiKeyName || "",
+          bearerToken: editingApiConnection.bearerToken || "",
+          headers: editingApiConnection.headers || "",
+        });
+      } else {
+        apiForm.reset({
+          name: "",
+          url: "",
+          authType: "none",
+          username: "",
+          password: "",
+          apiKey: "",
+          apiKeyName: "",
+          bearerToken: "",
+          headers: "",
+        });
+      }
     }
     // Only run when dialog is opened/closed or editingApiConnection changes
     // eslint-disable-next-line react-hooks/exhaustive-deps

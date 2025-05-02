@@ -21,6 +21,28 @@ export interface PipelineStatus {
 
 export const pipelineService = {
   /**
+   * Override business rules for a dataset and log the override action
+   */
+  overrideBusinessRules: async (
+    datasetId: string,
+    data: { reason?: string; user?: string; violations?: any[] }
+  ): Promise<ApiResponse<any>> => {
+    const endpoint = `pipeline/${datasetId}/business-rules/override`;
+    try {
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+      return response;
+    } catch (error) {
+      console.error("Error overriding business rules:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to override business rules'
+      };
+    }
+  },
+  /**
    * Upload data to the pipeline
    */
   uploadData: async (formData: FormData, config?: { onUploadProgress?: (progressEvent: any) => void }): Promise<ApiResponse<any>> => {

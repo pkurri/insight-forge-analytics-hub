@@ -231,9 +231,10 @@ class OpenEvalsService:
             return evaluation
     
     async def generate_business_rules_with_openeval(self, 
-                                                   dataset_id: str, 
-                                                   column_dataset_metadata: Dict[str, Any],
-                                                   data_sample: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+                                                    dataset_id: str, 
+                                                    column_dataset_metadata: Dict[str, Any],
+                                                    data_sample: Optional[pd.DataFrame] = None,
+                                                    engine: str = "ai_default") -> Dict[str, Any]:
         """
         Generate business rules with OpenEvals for self-correction
         
@@ -251,8 +252,9 @@ class OpenEvalsService:
         start_time = time.time()
         
         try:
-            # Step 1: Generate initial rules using AI
-            initial_rules = await business_rules_service.generate_ai_rules(dataset_id, column_dataset_metadata)
+            # Step 1: Generate initial rules using the specified AI engine
+            logger.info(f"Generating business rules using {engine} engine for dataset {dataset_id}")
+            initial_rules = await business_rules_service.generate_ai_rules(dataset_id, column_dataset_metadata, engine=engine)
             
             # If no sample data, return the initial rules
             if data_sample is None or len(initial_rules.get("rules", [])) == 0:
