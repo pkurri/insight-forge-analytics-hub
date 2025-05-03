@@ -1,17 +1,68 @@
-
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Body, File, UploadFile, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, UploadFile, Form, Query, Body
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import tempfile
 import os
 import shutil
+import json
+from sqlalchemy import text
 
-from api.models.dataset import PipelineRun, PipelineStep, PipelineRunStatus, PipelineStepType
-from api.repositories.pipeline_repository import get_pipeline_repository
-from api.repositories.dataset_repository import get_dataset_repository
-from api.services.pipeline_service import run_pipeline_step
-from api.routes.auth_router import get_current_user_or_api_key
-from api.services.file_service import process_uploaded_file
+from models.dataset import PipelineRun, PipelineStep, PipelineRunStatus, PipelineStepType
+from repositories.pipeline_repository import get_pipeline_repository
+from repositories.dataset_repository import get_dataset_repository
+from services.pipeline_service import run_pipeline_step
+from routes.auth_router import get_current_user_or_api_key
+from services.file_service import process_uploaded_file
+from services.data_cleaning_service import DataCleaningService
+from services.validation_service import ValidationService
+from services.database_service import DatabaseService
+from services.analytics_service import get_data_profile, detect_anomalies
+from config.settings import get_settings
+from services.ai_models import AIModelService
+from services.vector_store import VectorStoreService
+from api.config.redis_config import get_redis_client, close_redis_connection
+
+settings = get_settings()
+
+def get_cached_or_compute(redis, cache_key, compute_fn, expire=300):
+    async def inner():
+        cached = await redis.get(cache_key)
+        if cached:
+            await close_redis_connection(redis)
+            return json.loads(cached)
+        result = await compute_fn()
+        await redis.set(cache_key, json.dumps(result), ex=expire)
+        await close_redis_connection(redis)
+        return result
+    return inner()
+
+db_service = DatabaseService()
+
+router = APIRouter()
+
+@router.get("/health")
+async def healthcheck():
+    """Healthcheck for Redis and Postgres connectivity."""
+    try:
+        redis = await get_redis_client()
+        await redis.ping()
+        await close_redis_connection(redis)
+        async for session in db_service.get_async_session():
+            await session.execute(text("SELECT 1"))
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+data_cleaning_service = DataCleaningService()
+validation_service = ValidationService()
+database_service = DatabaseService({
+    'user': settings.DB_USER,
+    'password': settings.DB_PASSWORD,
+    'database': settings.DB_NAME,
+    'host': settings.DB_HOST,
+    'port': settings.DB_PORT
+})
+ai_model_service = AIModelService()
+vector_store = VectorStoreService()
 
 router = APIRouter()
 
@@ -136,33 +187,35 @@ async def list_pipeline_runs(
     current_user = Depends(get_current_user_or_api_key),
     pipeline_repo = Depends(get_pipeline_repository)
 ):
-    """List pipeline runs, optionally filtered by dataset."""
-    # If dataset_id is provided, check user has access
-    if dataset_id:
-        dataset = await pipeline_repo.get_dataset(dataset_id)
-        if not dataset:
-            raise HTTPException(status_code=404, detail="Dataset not found")
-        
-        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Get pipeline runs
-    runs = await pipeline_repo.get_pipeline_runs(
-        user_id=current_user.id,
-        dataset_id=dataset_id,
-        skip=skip,
-        limit=limit
-    )
-    
-    # Load steps for each run
-    result = []
-    for run in runs:
-        steps = await pipeline_repo.get_pipeline_steps(run.id)
-        run_dict = run.dict()
-        run_dict["steps"] = steps
-        result.append(PipelineRun(**run_dict))
-    
-    return result
+    """List pipeline runs, optionally filtered by dataset. Productionized: Async, user validation, error handling, Redis caching."""
+    redis = await get_redis_client()
+    cache_key = f"pipeline_runs:{current_user.id}:{dataset_id}:{skip}:{limit}"
+    async def compute():
+        if dataset_id:
+            dataset = await pipeline_repo.get_dataset(dataset_id)
+            if not dataset:
+                raise HTTPException(status_code=404, detail="Dataset not found")
+            if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+                raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        runs = await pipeline_repo.get_pipeline_runs(
+            user_id=current_user.id,
+            dataset_id=dataset_id,
+            skip=skip,
+            limit=limit
+        )
+        result = []
+        for run in runs:
+            steps = await pipeline_repo.get_pipeline_steps(run.id)
+            run_dict = run.dict()
+            run_dict["steps"] = steps
+            result.append(PipelineRun(**run_dict))
+        return result
+    try:
+        return await get_cached_or_compute(redis, cache_key, compute, expire=120)
+    except Exception as e:
+        await close_redis_connection(redis)
+        raise HTTPException(status_code=500, detail=f"Failed to list pipeline runs: {str(e)}")
+
 
 @router.post("/upload", response_model=Dict[str, Any])
 async def upload_data_to_pipeline(
@@ -171,6 +224,9 @@ async def upload_data_to_pipeline(
     file_type: str = Form(...),
     name: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
+    rules_path: Optional[str] = Form(None),
+    clean_data: bool = Form(True),
+    validate_data: bool = Form(True),
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
@@ -193,12 +249,40 @@ async def upload_data_to_pipeline(
     if not name:
         name = f"{file.filename} - {timestamp}"
     
+    # Process the file and get DataFrame
+    df = await process_uploaded_file(file_path, file_type)
+    
+    # Clean data if requested
+    if clean_data:
+        df, cleaning_metadata = await data_cleaning_service.clean_data(df)
+    
+    # Validate data if requested
+    validation_results = None
+    if validate_data:
+        validation_results = await validation_service.validate_data(
+            df,
+            rules_path=rules_path
+        )
+    
+    # Generate data profile
+    profile_data = await get_data_profile(df)
+    
+    # Detect anomalies
+    anomalies = await detect_anomalies(df)
+    
+    # Store data in vector database
+    await database_service.store_dataframe(df, f'dataset_{timestamp}')
+    
     # Create dataset record
     dataset = await dataset_repo.create_dataset(
         dataset={
             "name": name,
             "description": description or f"Uploaded {file_type} file: {file.filename}",
-            "file_type": file_type
+            "file_type": file_type,
+            "cleaning_metadata": cleaning_metadata if clean_data else None,
+            "validation_results": validation_results,
+            "profile_data": profile_data,
+            "anomalies": anomalies
         },
         user_id=current_user.id,
         file_path=file_path
@@ -232,7 +316,7 @@ async def fetch_data_from_api(
     dataset_repo = Depends(get_dataset_repository)
 ):
     """Fetch data from an external API for pipeline processing."""
-    from api.services.external_data_service import fetch_from_api
+    from services.external_data_service import fetch_from_api
     
     # Create dataset name if not provided
     if not name:
@@ -281,7 +365,7 @@ async def fetch_data_from_database(
     dataset_repo = Depends(get_dataset_repository)
 ):
     """Fetch data from a database for pipeline processing."""
-    from api.services.external_data_service import fetch_from_database
+    from services.external_data_service import fetch_from_database
     
     if not query and not table_name:
         raise HTTPException(
@@ -331,36 +415,45 @@ async def validate_data_in_pipeline(
     dataset_id: int,
     config: Optional[Dict[str, Any]] = Body({}),
     current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
+    dataset_repo = Depends(get_dataset_repository),
+    redis = Depends(get_redis)
 ):
-    """Validate data in the pipeline."""
-    from api.services.validation_service import validate_dataset
-    
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Run validation
-    validation_results = await validate_dataset(dataset_id, config)
-    
-    return {
-        "dataset_id": str(dataset_id),
-        "validation_results": validation_results
-    }
+    """Validate data in the pipeline. Productionized: async, user checks, error handling, logging, caching."""
+    import logging
+    logger = logging.getLogger("pipeline.validate")
+    try:
+        dataset = await get_cached_or_compute(
+            redis,
+            f"dataset:{dataset_id}",
+            dataset_repo.get_dataset,
+            dataset_id
+        )
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        validation_results = await validation_service.validate_dataset(dataset_id, config)
+        return {
+            "dataset_id": str(dataset_id),
+            "validation_results": validation_results
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Pipeline validation error for dataset {dataset_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Pipeline validation failed: {str(e)}")
+
 
 @router.post("/{dataset_id}/transform", response_model=Dict[str, Any])
 async def transform_data_in_pipeline(
     dataset_id: int,
     config: Optional[Dict[str, Any]] = Body({}),
     current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
+    dataset_repo = Depends(get_dataset_repository),
+    redis = Depends(get_redis)
 ):
     """Transform data in the pipeline."""
-    from api.services.transformation_service import transform_dataset
+    from services.transformation_service import transform_dataset
     
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)
@@ -383,26 +476,38 @@ async def enrich_data_in_pipeline(
     dataset_id: int,
     config: Optional[Dict[str, Any]] = Body({}),
     current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
+    dataset_repo = Depends(get_dataset_repository),
+    redis = Depends(get_redis)
 ):
     """Enrich data in the pipeline."""
-    from api.services.enrichment_service import enrich_dataset
-    
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Run enrichment
-    enrichment_results = await enrich_dataset(dataset_id, config)
-    
-    return {
-        "dataset_id": str(dataset_id),
-        "enrichment_results": enrichment_results
-    }
+    from services.enrichment_service import enrich_dataset
+    import logging
+    logger = logging.getLogger("pipeline.enrich")
+    try:
+        # Check dataset exists and user has access
+        dataset = await get_cached_or_compute(
+            redis,
+            f"dataset:{dataset_id}",
+            dataset_repo.get_dataset,
+            dataset_id
+        )
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        
+        # Run enrichment
+        enrichment_results = await enrich_dataset(dataset_id, config)
+        
+        return {
+            "dataset_id": str(dataset_id),
+            "enrichment_results": enrichment_results
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Pipeline enrichment error for dataset {dataset_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Pipeline enrichment failed: {str(e)}")
 
 @router.post("/{dataset_id}/load", response_model=Dict[str, Any])
 async def load_data_in_pipeline(
@@ -410,10 +515,39 @@ async def load_data_in_pipeline(
     destination: str = Body(...),
     config: Optional[Dict[str, Any]] = Body({}),
     current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
+    dataset_repo = Depends(get_dataset_repository),
+    redis = Depends(get_redis)
 ):
     """Load processed data to destination."""
-    from api.services.loading_service import load_dataset
+    from services.loading_service import load_dataset
+    import logging
+    logger = logging.getLogger("pipeline.load")
+    try:
+        # Check dataset exists and user has access
+        dataset = await get_cached_or_compute(
+            redis,
+            f"dataset:{dataset_id}",
+            dataset_repo.get_dataset,
+            dataset_id
+        )
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        
+        # Run data loading
+        loading_results = await load_dataset(dataset_id, destination, config)
+        
+        return {
+            "dataset_id": str(dataset_id),
+            "destination": destination,
+            "loading_results": loading_results
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Pipeline loading error for dataset {dataset_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Pipeline loading failed: {str(e)}")
     
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)

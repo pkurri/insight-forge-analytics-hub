@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
-from api.routes.auth_router import get_current_user_or_api_key
-from api.services.monitoring_service import get_metrics, get_alerts, get_logs
+from routes.auth_router import get_current_user_or_api_key
+from services.monitoring_service import get_metrics, get_alerts, get_logs
 
 router = APIRouter()
 

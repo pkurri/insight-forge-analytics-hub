@@ -6,14 +6,14 @@ import shutil
 import os
 from datetime import datetime
 
-from api.models.dataset import (
+from models.dataset import (
     Dataset, DatasetCreate, DatasetDetail, BusinessRule,
     BusinessRuleCreate, DatasetSummary
 )
-from api.repositories.dataset_repository import get_dataset_repository
-from api.services.file_service import process_uploaded_file
-from api.config.settings import get_settings
-from api.routes.auth_router import get_current_active_user, get_user_from_api_key
+from repositories.dataset_repository import get_dataset_repository
+from services.file_service import process_uploaded_file
+from config.settings import get_settings
+from routes.auth_router import get_current_active_user, get_user_from_api_key
 
 settings = get_settings()
 router = APIRouter()
@@ -191,7 +191,7 @@ async def generate_business_rules(
     
     # This would call an AI service to generate rules
     # For now, return mock rules
-    from api.services.ai_service import generate_business_rules
+    from services.ai_service import generate_business_rules
     generated_rules = await generate_business_rules(dataset, columns)
     
     # Save the generated rules

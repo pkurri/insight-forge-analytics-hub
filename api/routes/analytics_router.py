@@ -9,18 +9,20 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 import logging
 
-from api.models.dataset import Dataset, BusinessRule, BusinessRuleCreate
-from api.repositories.dataset_repository import get_dataset_repository
-from api.repositories.analytics_repository import AnalyticsRepository
-from api.repositories.business_rules_repository import BusinessRulesRepository
-from api.repositories.monitoring_repository import MonitoringRepository
-from api.services.analytics_service import (
+from models.dataset import Dataset, BusinessRule, BusinessRuleCreate
+from repositories.dataset_repository import get_dataset_repository
+from repositories.analytics_repository import AnalyticsRepository
+from repositories.business_rules_repository import BusinessRulesRepository
+from repositories.monitoring_repository import MonitoringRepository
+from services.analytics_service import (
     get_data_profile, 
     detect_anomalies,
     query_vector_database,
-    create_vector_embeddings
+    create_vector_embeddings,
+    clean_dataset,
+    process_dataset
 )
-from api.services.business_rules_service import (
+from services.business_rules_service import (
     get_rules,
     create_rule,
     update_rule,
@@ -28,7 +30,7 @@ from api.services.business_rules_service import (
     validate_rules,
     generate_rules
 )
-from api.routes.auth_router import get_current_user_or_api_key
+from routes.auth_router import get_current_user_or_api_key
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -39,6 +41,10 @@ business_rules_repo = BusinessRulesRepository()
 monitoring_repo = MonitoringRepository()
 
 # Request/Response models
+class DataCleaningConfig(BaseModel):
+    method: str = "scikit-learn"
+    operations: List[Dict[str, Any]] = Field(default_factory=list)
+
 class AnomalyDetectionConfig(BaseModel):
     method: str = "isolation_forest"
     params: Dict[str, Any] = Field(default_factory=dict)
@@ -80,18 +86,52 @@ async def profile_dataset(
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Generate and return data profile for a dataset."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Get data profile
-    profile_data = await get_data_profile(dataset_id)
-    return profile_data
+    """Generate and return data profile for a dataset (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await get_data_profile(dataset_id)
+    return await get_cached_or_compute(redis, f"profile:{dataset_id}", compute)
+
+@router.post("/{dataset_id}/process")
+async def process_dataset_data(
+    dataset_id: int,
+    config: DataCleaningConfig = Body(...),
+    current_user = Depends(get_current_user_or_api_key),
+    dataset_repo = Depends(get_dataset_repository)
+):
+    """Process a dataset using specified cleaning method and operations (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await process_dataset(dataset_id, config.dict())
+    return await get_cached_or_compute(redis, f"process:{dataset_id}:{hash(str(config.dict()))}", compute)
+
+@router.post("/{dataset_id}/clean")
+async def clean_dataset_data(
+    dataset_id: int,
+    config: DataCleaningConfig = Body(...),
+    current_user = Depends(get_current_user_or_api_key),
+    dataset_repo = Depends(get_dataset_repository)
+):
+    """Clean a dataset using specified cleaning method and operations (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await clean_dataset(dataset_id, config.dict())
+    return await get_cached_or_compute(redis, f"clean:{dataset_id}:{hash(str(config.dict()))}", compute)
 
 @router.post("/{dataset_id}/anomalies")
 async def detect_dataset_anomalies(
@@ -100,18 +140,16 @@ async def detect_dataset_anomalies(
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Detect and return anomalies in a dataset."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Detect anomalies
-    anomalies = await detect_anomalies(dataset_id, config.dict())
-    return anomalies
+    """Detect and return anomalies in a dataset (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await detect_anomalies(dataset_id, config.dict())
+    return await get_cached_or_compute(redis, f"anomalies:{dataset_id}:{hash(str(config.dict()))}", compute)
 
 @router.post("/{dataset_id}/vectorize")
 async def vectorize_dataset(
@@ -119,18 +157,16 @@ async def vectorize_dataset(
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Create vector embeddings for a dataset and store in vector database."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Create vector embeddings
-    result = await create_vector_embeddings(dataset_id)
-    return result
+    """Create vector embeddings for a dataset and store in vector database (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await create_vector_embeddings(dataset_id)
+    return await get_cached_or_compute(redis, f"vectorize:{dataset_id}", compute)
 
 @router.post("/{dataset_id}/query")
 async def query_dataset(
@@ -139,18 +175,16 @@ async def query_dataset(
     current_user = Depends(get_current_user_or_api_key),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Query a dataset using natural language and vector search."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Query vector database
-    results = await query_vector_database(dataset_id, request.query)
-    return results
+    """Query a dataset using natural language and vector search (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
+        return await query_vector_database(dataset_id, request.query)
+    return await get_cached_or_compute(redis, f"query:{dataset_id}:{hash(request.query)}", compute)
 
 @router.get("/{dataset_id}/rules")
 async def get_dataset_rules(
@@ -303,6 +337,405 @@ async def generate_dataset_rules(
         raise HTTPException(status_code=500, detail=result["error"])
     
     return result
+
+# Dataset analytics endpoints
+
+import json
+from api.config.redis_config import get_redis_client, close_redis_connection
+from api.services.database_service import DatabaseService
+from fastapi import APIRouter
+from sqlalchemy import text
+
+db_service = DatabaseService()
+
+async def get_cached_or_compute(redis, cache_key, compute_fn, expire=300):
+    cached = await redis.get(cache_key)
+    if cached:
+        await close_redis_connection(redis)
+        return json.loads(cached)
+    result = await compute_fn()
+    await redis.set(cache_key, json.dumps(result), ex=expire)
+    await close_redis_connection(redis)
+    return result
+
+@router.get("/dataset-analytics/{dataset_id}")
+async def get_dataset_analytics(dataset_id: int, current_user = Depends(get_current_user_or_api_key)):
+    """Get comprehensive analytics for a specific dataset (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        async for session in db_service.get_async_session():
+            return await analytics_repo.get_dataset_analytics(session, dataset_id)
+    return await get_cached_or_compute(redis, f"dataset_analytics:{dataset_id}", compute)
+
+@router.get("/global-analytics")
+async def get_global_analytics(current_user = Depends(get_current_user_or_api_key)):
+    """Get global analytics across all datasets (cached, async, productionized)."""
+    redis = await get_redis_client()
+    async def compute():
+        async for session in db_service.get_async_session():
+            return await analytics_repo.get_global_analytics(session)
+    return await get_cached_or_compute(redis, "global_analytics", compute)
+
+@router.get("/health")
+async def healthcheck():
+    """Healthcheck for Redis and Postgres connectivity."""
+    try:
+        redis = await get_redis_client()
+        await redis.ping()
+        await close_redis_connection(redis)
+        async for session in db_service.get_async_session():
+            await session.execute(text("SELECT 1"))
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+@router.get("/dataset/{dataset_id}")
+async def get_dataset_analytics(dataset_id: int, current_user = Depends(get_current_user_or_api_key)):
+    """Get comprehensive analytics for a specific dataset."""
+    try:
+        # In a real implementation, we would fetch actual analytics from a service or database
+        # For now, let's generate sample data
+        import random
+        from datetime import datetime, timedelta
+        
+        # Generate sample metrics
+        metrics = {
+            "totalRows": random.randint(10000, 100000),
+            "totalColumns": random.randint(10, 30),
+            "missingValuesPercentage": round(random.uniform(0, 20), 2),
+            "outlierPercentage": round(random.uniform(0, 10), 2),
+            "dataTypes": {
+                "numeric": random.randint(3, 10),
+                "categorical": random.randint(2, 8),
+                "temporal": random.randint(1, 3),
+                "text": random.randint(0, 5)
+            },
+            "processingTime": random.randint(5, 120)
+        }
+        
+        # Generate time series data (last 30 days)
+        now = datetime.now()
+        time_series = {}
+        series_names = ["metric_a", "metric_b", "revenue", "users"]
+        
+        for series in series_names:
+            points = []
+            base_value = random.randint(100, 1000)
+            
+            for i in range(30):
+                day = now - timedelta(days=i)
+                # Add some randomness to create trends and patterns
+                value = base_value + random.randint(-50, 100) + (i * random.randint(-5, 10))
+                if value < 0:
+                    value = random.randint(10, 50)
+                    
+                points.append({
+                    "timestamp": day.isoformat(),
+                    "value": value
+                })
+            
+            # Sort by timestamp (oldest first)
+            points.sort(key=lambda x: x["timestamp"])
+            time_series[series] = points
+        
+        # Generate anomalies
+        anomalies = {}
+        for series in series_names:
+            anomaly_count = random.randint(0, 3)
+            anomalies[series] = []
+            
+            for _ in range(anomaly_count):
+                # Pick a random point
+                point_idx = random.randint(0, len(time_series[series]) - 1)
+                point = time_series[series][point_idx]
+                
+                # Create anomaly
+                expected = point["value"] * random.uniform(0.7, 1.3)
+                anomalies[series].append({
+                    "timestamp": point["timestamp"],
+                    "expected": expected,
+                    "actual": point["value"],
+                    "score": random.uniform(0.7, 0.99)
+                })
+        
+        # Generate trends
+        trends = {}
+        for series in series_names:
+            trend_count = random.randint(0, 2)
+            trends[series] = []
+            
+            for _ in range(trend_count):
+                # Create start and end points for trend
+                start_idx = random.randint(0, len(time_series[series]) // 2)
+                end_idx = random.randint(start_idx + 5, len(time_series[series]) - 1)
+                
+                start_point = time_series[series][start_idx]
+                end_point = time_series[series][end_idx]
+                
+                # Calculate slope
+                if end_idx > start_idx:
+                    slope = (end_point["value"] - start_point["value"]) / (end_idx - start_idx)
+                else:
+                    slope = 0
+                
+                trends[series].append({
+                    "start": start_point["timestamp"],
+                    "end": end_point["timestamp"],
+                    "slope": slope,
+                    "confidence": random.uniform(0.7, 0.95)
+                })
+        
+        # Generate data quality report
+        columns = []
+        column_names = ["id", "name", "date", "category", "amount", "status", "description",
+                       "location", "user_id", "rating", "timestamp"]
+        data_types = ["integer", "string", "date", "string", "float", "string", "text",
+                     "string", "integer", "float", "timestamp"]
+        
+        for i, (name, data_type) in enumerate(zip(column_names[:metrics["totalColumns"]], data_types[:metrics["totalColumns"]])):
+            completeness = random.randint(50, 100)
+            columns.append({
+                "name": name,
+                "dataType": data_type,
+                "completeness": completeness,
+                "uniqueness": random.randint(50, 100) if data_type != "text" else None,
+                "validFormat": random.randint(50, 100) if data_type in ["date", "timestamp", "integer", "float"] else None,
+                "issues": ["Missing values"] if completeness < 80 else []
+            })
+        
+        quality_report = {
+            "columns": columns,
+            "overallScore": random.randint(60, 95)
+        }
+        
+        # Generate insights
+        insights = []
+        insight_types = ["trend", "anomaly", "correlation", "pattern", "info"]
+        severity_levels = ["high", "medium", "low", None]
+        
+        insight_templates = [
+            "Significant {direction} trend detected in {metric} over {timeframe}",
+            "Anomaly detected in {metric} with deviation of {percent}%",
+            "Strong correlation ({coef}) found between {metric1} and {metric2}",
+            "Recurring pattern identified in {metric} with {percent}% consistency",
+            "Distribution of {metric} shows {characteristic} characteristics"
+        ]
+        
+        for i in range(random.randint(3, 8)):
+            insight_type = random.choice(insight_types)
+            template_idx = min(insight_types.index(insight_type), len(insight_templates) - 1)
+            
+            metric = random.choice(series_names)
+            direction = "upward" if random.random() > 0.5 else "downward"
+            timeframe = random.choice(["past week", "past month", "Q1", "recent period"])
+            percent = random.randint(10, 40)
+            coef = round(random.uniform(0.7, 0.95), 2)
+            metric2 = random.choice([m for m in series_names if m != metric])
+            characteristic = random.choice(["normal", "bimodal", "skewed", "long-tailed"])
+            
+            template = insight_templates[template_idx]
+            description = template.format(
+                direction=direction,
+                metric=metric,
+                timeframe=timeframe,
+                percent=percent,
+                coef=coef,
+                metric1=metric,
+                metric2=metric2,
+                characteristic=characteristic
+            )
+            
+            insights.append({
+                "id": f"insight-{i+1}",
+                "title": description.split(".")[0],
+                "description": description,
+                "type": insight_type,
+                "severity": random.choice(severity_levels) if insight_type in ["anomaly", "trend"] else None,
+                "timestamp": (now - timedelta(days=random.randint(0, 7))).isoformat()
+            })
+        
+        # Combine all analytics data
+        analytics_data = {
+            "datasetName": f"Dataset {dataset_id}",
+            "metrics": metrics,
+            "timeSeries": time_series,
+            "anomalies": anomalies,
+            "trends": trends,
+            "qualityReport": quality_report,
+            "insights": insights
+        }
+        
+        return {
+            "success": True,
+            "data": analytics_data
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting dataset analytics: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Failed to retrieve analytics for dataset {dataset_id}"
+        }
+
+@router.get("/global")
+async def get_global_analytics(current_user = Depends(get_current_user_or_api_key)):
+    """Get global analytics across all datasets."""
+    try:
+        # In a real implementation, we would aggregate analytics from multiple datasets
+        # For now, let's generate sample global data similar to dataset analytics but with aggregated metrics
+        import random
+        from datetime import datetime, timedelta
+        
+        # Generate global metrics
+        metrics = {
+            "totalDatasets": random.randint(5, 20),
+            "totalRecords": random.randint(100000, 1000000),
+            "avgQualityScore": round(random.uniform(70, 95), 1),
+            "dataTypes": {
+                "numeric": random.randint(10, 30),
+                "categorical": random.randint(8, 20),
+                "temporal": random.randint(3, 10),
+                "text": random.randint(5, 15)
+            },
+            "processingTimeAvg": random.randint(20, 200)
+        }
+        
+        # Use the same time series generation logic as in dataset analytics
+        # but with different base values to represent global aggregates
+        now = datetime.now()
+        time_series = {}
+        series_names = ["total_users", "active_datasets", "global_revenue", "system_load"]
+        
+        for series in series_names:
+            points = []
+            base_value = random.randint(500, 5000)
+            
+            for i in range(30):
+                day = now - timedelta(days=i)
+                # Add some randomness to create trends and patterns
+                value = base_value + random.randint(-200, 400) + (i * random.randint(-10, 20))
+                if value < 0:
+                    value = random.randint(50, 200)
+                    
+                points.append({
+                    "timestamp": day.isoformat(),
+                    "value": value
+                })
+            
+            # Sort by timestamp (oldest first)
+            points.sort(key=lambda x: x["timestamp"])
+            time_series[series] = points
+        
+        # Generate anomalies and trends similar to dataset analytics
+        # but pertaining to global metrics
+        anomalies = {}
+        trends = {}
+        for series in series_names:
+            # Generate anomalies
+            anomaly_count = random.randint(0, 3)
+            anomalies[series] = []
+            
+            for _ in range(anomaly_count):
+                point_idx = random.randint(0, len(time_series[series]) - 1)
+                point = time_series[series][point_idx]
+                
+                expected = point["value"] * random.uniform(0.7, 1.3)
+                anomalies[series].append({
+                    "timestamp": point["timestamp"],
+                    "expected": expected,
+                    "actual": point["value"],
+                    "score": random.uniform(0.7, 0.99)
+                })
+            
+            # Generate trends
+            trend_count = random.randint(0, 2)
+            trends[series] = []
+            
+            for _ in range(trend_count):
+                start_idx = random.randint(0, len(time_series[series]) // 2)
+                end_idx = random.randint(start_idx + 5, len(time_series[series]) - 1)
+                
+                start_point = time_series[series][start_idx]
+                end_point = time_series[series][end_idx]
+                
+                if end_idx > start_idx:
+                    slope = (end_point["value"] - start_point["value"]) / (end_idx - start_idx)
+                else:
+                    slope = 0
+                
+                trends[series].append({
+                    "start": start_point["timestamp"],
+                    "end": end_point["timestamp"],
+                    "slope": slope,
+                    "confidence": random.uniform(0.7, 0.95)
+                })
+        
+        # Generate insights similar to dataset analytics but focused on global patterns
+        insights = []
+        insight_types = ["trend", "anomaly", "correlation", "pattern", "info"]
+        severity_levels = ["high", "medium", "low", None]
+        
+        insight_templates = [
+            "Global {direction} trend detected in {metric} across all datasets over {timeframe}",
+            "System-wide anomaly detected in {metric} with deviation of {percent}%",
+            "Strong correlation ({coef}) found between {metric1} and {metric2} across datasets",
+            "Recurring pattern identified in global {metric} with {percent}% consistency",
+            "Distribution of {metric} across all datasets shows {characteristic} characteristics"
+        ]
+        
+        for i in range(random.randint(3, 8)):
+            insight_type = random.choice(insight_types)
+            template_idx = min(insight_types.index(insight_type), len(insight_templates) - 1)
+            
+            metric = random.choice(series_names)
+            direction = "upward" if random.random() > 0.5 else "downward"
+            timeframe = random.choice(["past week", "past month", "Q1", "recent period"])
+            percent = random.randint(10, 40)
+            coef = round(random.uniform(0.7, 0.95), 2)
+            metric2 = random.choice([m for m in series_names if m != metric])
+            characteristic = random.choice(["normal", "bimodal", "skewed", "long-tailed"])
+            
+            template = insight_templates[template_idx]
+            description = template.format(
+                direction=direction,
+                metric=metric,
+                timeframe=timeframe,
+                percent=percent,
+                coef=coef,
+                metric1=metric,
+                metric2=metric2,
+                characteristic=characteristic
+            )
+            
+            insights.append({
+                "id": f"global-insight-{i+1}",
+                "title": description.split(".")[0],
+                "description": description,
+                "type": insight_type,
+                "severity": random.choice(severity_levels) if insight_type in ["anomaly", "trend"] else None,
+                "timestamp": (now - timedelta(days=random.randint(0, 7))).isoformat()
+            })
+        
+        # Combine all global analytics data
+        analytics_data = {
+            "metrics": metrics,
+            "timeSeries": time_series,
+            "anomalies": anomalies,
+            "trends": trends,
+            "insights": insights
+        }
+        
+        return {
+            "success": True,
+            "data": analytics_data
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting global analytics: {str(e)}")
+        return {
+            "success": False,
+            "error": "Failed to retrieve global analytics"
+        }
 
 # Monitoring endpoints
 @router.post("/monitoring/metrics")

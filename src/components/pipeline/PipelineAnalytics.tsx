@@ -1,12 +1,19 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+// import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
+import { useToast } from '@/hooks/use-toast';
+import { Loader2 } from 'lucide-react';
 
-const PipelineAnalytics: React.FC = () => {
-  // Sample data for the charts
-  const timeSeriesData = [
+interface PipelineAnalyticsProps {
+  datasetId?: string;
+}
+
+const PipelineAnalytics: React.FC<PipelineAnalyticsProps> = ({ datasetId }) => {
+  const [timeSeriesData, setTimeSeriesData] = useState([
     { date: '2025-04-01', ingestion: 1200, cleaning: 1000, validation: 800 },
     { date: '2025-04-02', ingestion: 1500, cleaning: 1300, validation: 1100 },
     { date: '2025-04-03', ingestion: 1000, cleaning: 850, validation: 800 },
@@ -15,32 +22,153 @@ const PipelineAnalytics: React.FC = () => {
     { date: '2025-04-06', ingestion: 1700, cleaning: 1500, validation: 1300 },
     { date: '2025-04-07', ingestion: 1900, cleaning: 1700, validation: 1500 },
     { date: '2025-04-08', ingestion: 2200, cleaning: 1900, validation: 1700 },
-  ];
+  ]);
 
-  const dataQualityData = [
+  const [dataQualityData, setDataQualityData] = useState([
     { name: 'Clean', value: 85 },
     { name: 'Missing Values', value: 8 },
     { name: 'Errors', value: 4 },
     { name: 'Anomalies', value: 3 },
-  ];
+  ]);
 
-  const processingTimeData = [
+  const [processingTimeData, setProcessingTimeData] = useState([
     { stage: 'Ingestion', time: 12 },
     { stage: 'Cleaning', time: 25 },
     { stage: 'Validation', time: 18 },
+    { stage: 'Business Rules', time: 15 },
     { stage: 'Anomaly Detection', time: 30 },
     { stage: 'Analytics', time: 22 },
-  ];
+  ]);
+  
+  const [selectedDataset, setSelectedDataset] = useState<string>(datasetId || '');
+  const [availableDatasets, setAvailableDatasets] = useState<Array<{id: string, name: string}>>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const { toast } = useToast();
+  
+  // Fetch available datasets
+  useEffect(() => {
+    const fetchDatasets = async () => {
+      try {
+        const response = await fetch('/api/datasets');
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableDatasets(data.datasets || []);
+          if (data.datasets?.length > 0 && !selectedDataset) {
+            setSelectedDataset(data.datasets[0].id);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching datasets:', error);
+      }
+    };
+    
+    fetchDatasets();
+  }, []);
+  
+  // Fetch analytics data when dataset changes
+  useEffect(() => {
+    if (!selectedDataset) return;
+    
+    const fetchDataQuality = async (datasetId: string) => {
+      setIsLoading(true);
+      toast({
+        title: "Python Analytics Unavailable",
+        description: "Backend Python analytics integration is not currently supported.",
+        variant: "destructive"
+      });
+      setIsLoading(false);
+      return;
+    };
+
+    const fetchProcessingTime = async (datasetId: string) => {
+      setIsLoading(true);
+      toast({
+        title: "Python Analytics Unavailable",
+        description: "Backend Python analytics integration is not currently supported.",
+        variant: "destructive"
+      });
+      setIsLoading(false);
+      return;
+    };
+
+    const fetchTimeSeries = async (datasetId: string) => {
+      setIsLoading(true);
+      toast({
+        title: "Python Analytics Unavailable",
+        description: "Backend Python analytics integration is not currently supported.",
+        variant: "destructive"
+      });
+      setIsLoading(false);
+      return;
+    };
+
+    const fetchAnalyticsData = async () => {
+      try {
+        await fetchDataQuality(selectedDataset);
+        await fetchProcessingTime(selectedDataset);
+        await fetchTimeSeries(selectedDataset);
+      } catch (error) {
+        console.error('Error fetching analytics data:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to fetch analytics data',
+          variant: 'destructive'
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    try {
+      fetchAnalyticsData();
+    } catch (error) {
+      console.error('Error fetching analytics data:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch analytics data',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedDataset]);
 
   const COLORS = ['#4ade80', '#facc15', '#f87171', '#60a5fa'];
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Loading analytics data...</span>
+      </div>
+    );
+  }
+
   return (
-    <Tabs defaultValue="overview">
-      <TabsList className="mb-4">
-        <TabsTrigger value="overview">Overview</TabsTrigger>
-        <TabsTrigger value="performance">Performance</TabsTrigger>
-        <TabsTrigger value="quality">Data Quality</TabsTrigger>
-      </TabsList>
+    <div className="space-y-4">
+      {availableDatasets.length > 0 && (
+        <div className="flex items-center space-x-4">
+          <span className="text-sm font-medium">Dataset:</span>
+          <Select value={selectedDataset} onValueChange={setSelectedDataset}>
+            <SelectTrigger className="w-[240px]">
+              <SelectValue placeholder="Select dataset" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableDatasets.map(dataset => (
+                <SelectItem key={dataset.id} value={dataset.id}>{dataset.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      
+      <Tabs defaultValue="overview">
+        <TabsList className="mb-4">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="quality">Data Quality</TabsTrigger>
+          <TabsTrigger value="business-rules">Business Rules</TabsTrigger>
+        </TabsList>
       
       <TabsContent value="overview" className="space-y-4">
         <Card>
@@ -126,7 +254,40 @@ const PipelineAnalytics: React.FC = () => {
           </CardContent>
         </Card>
       </TabsContent>
+      
+      <TabsContent value="business-rules" className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Business Rules Compliance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={[
+                    { rule: 'Data Completeness', compliance: 92, violations: 8 },
+                    { rule: 'Value Range', compliance: 95, violations: 5 },
+                    { rule: 'Format Validation', compliance: 88, violations: 12 },
+                    { rule: 'Cross-field Validation', compliance: 90, violations: 10 },
+                    { rule: 'Business Logic', compliance: 85, violations: 15 }
+                  ]}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="rule" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="compliance" fill="#4ade80" name="Compliance %" />
+                  <Bar dataKey="violations" fill="#f87171" name="Violations %" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
     </Tabs>
+    </div>
   );
 };
 

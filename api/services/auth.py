@@ -5,8 +5,8 @@ from jose import JWTError, jwt
 from typing import Optional
 from uuid import uuid4
 
-from api.models.user import TokenData, UserDB
-from api.config.settings import get_settings
+from models.user import TokenData, UserDB
+from config.settings import get_settings
 
 settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

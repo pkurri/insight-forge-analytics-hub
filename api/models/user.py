@@ -17,12 +17,15 @@ class UserCreate(UserBase):
             raise ValueError('Password must be at least 8 characters long')
         return v
 
+from sqlalchemy.orm import relationship
+
 class UserDB(UserBase):
     id: int
     is_active: bool = True
     is_admin: bool = False
     created_at: datetime
     updated_at: datetime
+    conversations = relationship("Conversation", back_populates="user")
     
     class Config:
         orm_mode = True

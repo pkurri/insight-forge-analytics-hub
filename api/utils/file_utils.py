@@ -9,7 +9,7 @@ import pandas as pd
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-from api.models.dataset import Dataset, FileType
+from models.dataset import Dataset, FileType
 
 logger = logging.getLogger(__name__)
 

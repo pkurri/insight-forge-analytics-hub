@@ -1,4 +1,3 @@
-
 /**
  * API Utilities - Helper functions for API calls
  */
@@ -8,23 +7,38 @@ const PYTHON_API_BASE_URL = process.env.NODE_ENV === 'production'
   ? '/api' 
   : 'http://localhost:8000/api';
 
+interface ApiCallOptions extends RequestInit {
+  onUploadProgress?: (progressEvent: ProgressEvent) => void;
+}
+
 /**
  * Make an API call to the backend
  */
-export const callApi = async (endpoint: string, method: string = 'GET', body?: any): Promise<any> => {
+export const callApi = async (endpoint: string, options: ApiCallOptions = {}): Promise<any> => {
   try {
-    const options: RequestInit = {
-      method,
+    const defaultOptions: ApiCallOptions = {
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
     };
 
-    if (body) {
-      options.body = JSON.stringify(body);
+    // Merge options, but handle headers separately to avoid overwriting
+    const mergedOptions: ApiCallOptions = {
+      ...defaultOptions,
+      ...options,
+      headers: {
+        ...defaultOptions.headers,
+        ...(options.headers || {})
+      }
+    };
+
+    // Don't set Content-Type for FormData
+    if (mergedOptions.body instanceof FormData) {
+      delete (mergedOptions.headers as Record<string, string>)['Content-Type'];
     }
 
-    const response = await fetch(`${PYTHON_API_BASE_URL}/${endpoint}`, options);
+    const response = await fetch(`${PYTHON_API_BASE_URL}/${endpoint}`, mergedOptions);
     const data = await response.json();
 
     return {

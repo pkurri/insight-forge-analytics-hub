@@ -17,7 +17,7 @@ import re
 from functools import lru_cache
 
 # Import the cache service for performance optimization
-from api.services.cache_service import get_cached_response, cache_response
+from services.cache_service import get_cached_response, cache_response
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

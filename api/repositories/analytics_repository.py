@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 import numpy as np
 from datetime import datetime
 
-from api.utils.db import execute_query, execute_transaction
+from utils.db import execute_query, execute_transaction
 
 logger = logging.getLogger(__name__)
 

@@ -1,0 +1,465 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { 
+  SendHorizontal, Bot, RefreshCw, Search, AlertCircle, 
+  Settings, Loader2
+} from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { useChatHistory } from '@/hooks/useChatHistory';
+import { useDatasetContext } from '@/hooks/useDatasetContext';
+import { api } from '@/api/api';
+import { useToast } from '@/hooks/use-toast';
+
+// Import our modular components
+import MessageList from './MessageList';
+import ModelSelector from './ModelSelector';
+import DatasetSelector from './DatasetSelector';
+import ChatSuggestions, { ChatSuggestion } from './ChatSuggestions';
+// Use all AI services via the central API object
+// import { AIModel, api.modelService } from '@/api/services/ai/api.modelService';
+// import { api.embeddingService } from '@/api/services/ai/api.embeddingService';
+
+export interface Message {
+  id: string;
+  type: 'user' | 'assistant' | 'system';
+  content: string;
+  metadata?: {
+    confidence?: number;
+    sources?: string[];
+    isError?: boolean;
+    dataset?: string;
+    timestamp?: string;
+    modelId?: string;
+    insights?: string[];
+    context?: any;
+  };
+  timestamp: Date;
+}
+
+interface ChatInterfaceProps {
+  title?: string;
+  subtitle?: string;
+  showDatasetSelector?: boolean;
+  defaultDataset?: string;
+  suggestions?: ChatSuggestion[];
+  onMessage?: (message: string, dataset: string, modelId: string) => void;
+  processingCallback?: (isProcessing: boolean) => void;
+  className?: string;
+  selectedModel?: string;
+}
+
+/**
+ * Enhanced Chat Interface component that connects to Vector DB and Hugging Face models
+ * Supports multiple models, dataset selection, and semantic search
+ */
+const ChatInterface: React.FC<ChatInterfaceProps> = ({
+  title = "AI Assistant",
+  subtitle = "Vector DB & Hugging Face",
+  showDatasetSelector = true,
+  defaultDataset = '',
+  suggestions = [],
+  onMessage,
+  processingCallback,
+  className = "",
+  selectedModel = "",
+}) => {
+  // Get dataset context if available
+  const { datasets, activeDataset, setActiveDataset } = useDatasetContext();
+  
+  // Local state for handling active dataset if context not available
+  const [localActiveDataset, setLocalActiveDataset] = useState<string>(defaultDataset || 'all');
+  
+  // Use the context dataset if available, otherwise use local state
+  const currentDataset = activeDataset || localActiveDataset;
+  const handleSetDataset = setActiveDataset || setLocalActiveDataset;
+  
+  // Chat history hook manages messages and persistence
+  const {
+    messages,
+    addMessage,
+    clearHistory,
+    isLoading: isHistoryLoading
+  } = useChatHistory(currentDataset);
+  
+  // Chat interface state
+  const [input, setInput] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [inputHistory, setInputHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [expandedMessageIds, setExpandedMessageIds] = useState<string[]>([]);
+  
+  // Model and dataset selection state
+  const [modelId, setModelId] = useState(selectedModel || 'mistral-7b-instruct');
+  const [availableModels, setAvailableModels] = useState<any[]>([]); // Use type from api.modelService if available
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [availableDatasets, setAvailableDatasets] = useState<Array<{id: string, name: string, rows: number, columns: number, lastUpdated: string}>>([]);
+  const [isLoadingDatasets, setIsLoadingDatasets] = useState(false);
+  
+  // References and utilities
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+  
+  // Update model ID when prop changes
+  useEffect(() => {
+    if (selectedModel && selectedModel !== modelId) {
+      setModelId(selectedModel);
+    }
+  }, [selectedModel, modelId]);
+  
+  // Update processing status to parent component if callback provided
+  useEffect(() => {
+    if (processingCallback) {
+      processingCallback(isProcessing);
+    }
+  }, [isProcessing, processingCallback]);
+  
+  // Fetch available models and datasets on mount
+  useEffect(() => {
+    const fetchModels = async () => {
+      setIsLoadingModels(true);
+      try {
+        const response = await api.modelService.getAvailableModels('chat');
+        if (response.success && response.data) {
+          setAvailableModels(response.data);
+          // Set default model if none selected
+          if (!modelId && response.data.length > 0) {
+            setModelId(response.data[0].id);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching models:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load AI models',
+          variant: 'destructive'
+        });
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+    
+    const fetchDatasets = async () => {
+      setIsLoadingDatasets(true);
+      try {
+        const response = await api.datasets.getDatasets();
+        if (response.success && response.data) {
+          const formattedDatasets = response.data.map(ds => ({
+            id: ds.id,
+            name: ds.name,
+            rows: ds.rows,
+            columns: ds.columns || 0,
+            lastUpdated: ds.updated_at || new Date().toISOString()
+          }));
+          setAvailableDatasets(formattedDatasets);
+        }
+      } catch (error) {
+        console.error('Error fetching datasets:', error);
+      } finally {
+        setIsLoadingDatasets(false);
+      }
+    };
+    
+    fetchModels();
+    fetchDatasets();
+  }, [modelId, toast]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTo({
+        top: scrollAreaRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [messages, isProcessing]);
+  
+  // Toggle message expanded state
+  const toggleMessageExpanded = useCallback((id: string) => {
+    setExpandedMessageIds(prev => 
+      prev.includes(id) ? prev.filter(mid => mid !== id) : [...prev, id]
+    );
+  }, []);
+  
+  // Handle sending a message
+  const handleSendMessage = async () => {
+    if (!input.trim() || isProcessing) return;
+    
+    // Add user message to chat
+    const userMessageId = Date.now().toString();
+    addMessage({
+      id: userMessageId,
+      type: 'user',
+      content: input,
+      timestamp: new Date()
+    });
+    
+    // Clear input and add to history
+    setInputHistory(prev => [input, ...prev].slice(0, 50));
+    setInput('');
+    setHistoryIndex(-1);
+    
+    // Set processing state
+    setIsProcessing(true);
+    if (processingCallback) {
+      processingCallback(true);
+    }
+    
+    try {
+      // Use custom handler if provided
+      if (onMessage) {
+        onMessage(input, currentDataset, modelId);
+        setIsProcessing(false);
+        if (processingCallback) {
+          processingCallback(false);
+        }
+        return;
+      }
+      
+      // Generate embeddings for semantic search context
+      let searchContext = {};
+      try {
+        const embeddingResponse = await api.embeddingService.generateEmbeddings({ 
+          text: input,
+          model: 'sentence-transformers/all-MiniLM-L6-v2'
+        });
+        
+        if (embeddingResponse.success && embeddingResponse.data) {
+          // Search for similar content if dataset is selected
+          if (currentDataset && currentDataset !== 'all') {
+            const searchResponse = await api.embeddingService.searchSimilarVectors(
+              input, 
+              currentDataset, 
+              3
+            );
+            
+            if (searchResponse.success && searchResponse.data) {
+              searchContext = {
+                similarContent: searchResponse.data.results,
+                embeddingModel: embeddingResponse.data.model
+              };
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error with embeddings:', error);
+        // Continue without embeddings if there's an error
+      }
+      
+      // Call AI service
+      const response = await api.getAiAssistantResponse(input, {
+        dataset_id: currentDataset === 'all' ? undefined : currentDataset,
+        model_id: modelId,
+        context: searchContext
+      });
+      
+      if (response.success && response.data) {
+        // Add assistant response
+        addMessage({
+          id: Date.now().toString(),
+          type: 'assistant',
+          content: response.data.answer || response.data.text || response.data.response,
+          metadata: {
+            confidence: response.data.confidence || 0.9,
+            sources: response.data.sources || response.data.context?.sources,
+            insights: response.data.insights,
+            dataset: currentDataset,
+            timestamp: response.data.timestamp,
+            modelId: modelId
+          },
+          timestamp: new Date()
+        });
+      } else {
+        // Add error message
+        addMessage({
+          id: Date.now().toString(),
+          type: 'assistant',
+          content: `I'm sorry, I couldn't process your request. ${response.error || 'Please try again later.'}`,
+          metadata: {
+            isError: true,
+            dataset: currentDataset
+          },
+          timestamp: new Date()
+        });
+        
+        toast({
+          title: 'Error',
+          description: response.error || 'Failed to get AI response',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      
+      // Add error message
+      addMessage({
+        id: Date.now().toString(),
+        type: 'assistant',
+        content: `I'm sorry, an error occurred while processing your request. Please try again later.`,
+        metadata: {
+          isError: true,
+          dataset: currentDataset
+        },
+        timestamp: new Date()
+      });
+      
+      toast({
+        title: "Connection Error",
+        description: error instanceof Error ? error.message : "Failed to connect to AI service",
+        variant: "destructive"
+      });
+    } finally {
+      // Reset processing state
+      setIsProcessing(false);
+      if (processingCallback) {
+        processingCallback(false);
+      }
+    }
+  };
+  
+  // Apply a suggested question
+  const applySuggestion = useCallback((text: string) => {
+    setInput(text);
+    // Optionally auto-send
+    // setTimeout(() => handleSendMessage(), 100);
+  }, []);
+  
+  // Handle keyboard shortcuts
+  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  }, [handleSendMessage]);
+
+  return (
+    <Card className={`flex flex-col h-full ${className}`}>
+      <CardHeader className="px-4 py-3 border-b">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-lg">{title}</CardTitle>
+            <p className="text-sm text-muted-foreground">{subtitle}</p>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => clearHistory()}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  <span>Clear History</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+        
+        <div className="flex flex-col sm:flex-row gap-3 mt-3">
+          {/* Model Selector */}
+          <ModelSelector
+            models={availableModels}
+            selectedModel={modelId}
+            onModelChange={setModelId}
+            isLoading={isLoadingModels}
+            className="flex-grow"
+          />
+          
+          {/* Dataset Selector */}
+          {showDatasetSelector && (
+            <DatasetSelector
+              datasets={availableDatasets}
+              selectedDataset={currentDataset}
+              onDatasetChange={handleSetDataset}
+              isLoading={isLoadingDatasets}
+              className="flex-grow"
+            />
+          )}
+        </div>
+      </CardHeader>
+      
+      <CardContent className="flex-grow p-0 overflow-hidden">
+        <ScrollArea className="h-full max-h-[calc(100vh-13rem)]" ref={scrollAreaRef}>
+          <div className="p-4">
+            {messages.length === 0 && !isHistoryLoading ? (
+              <div className="flex flex-col items-center justify-center h-full py-12 text-center">
+                <Bot className="h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">How can I help you?</h3>
+                <p className="text-sm text-muted-foreground max-w-md mb-8">
+                  Ask me anything about your data. I can analyze trends, explain patterns, and help you explore your datasets.
+                </p>
+                
+                {suggestions.length > 0 && (
+                  <ChatSuggestions 
+                    suggestions={suggestions}
+                    onSuggestionClick={applySuggestion}
+                    layout="grid"
+                    className="w-full max-w-lg"
+                  />
+                )}
+              </div>
+            ) : (
+              <MessageList
+                messages={messages}
+                isLoading={isProcessing}
+                expandedMessageIds={expandedMessageIds}
+                toggleMessageExpanded={toggleMessageExpanded}
+              />
+            )}
+          </div>
+        </ScrollArea>
+      </CardContent>
+      
+      <Separator />
+      
+      <CardFooter className="p-4 pt-2">
+        <form 
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSendMessage();
+          }}
+          className="flex flex-col w-full space-y-4"
+        >
+          {suggestions.length > 0 && messages.length > 0 && (
+            <ChatSuggestions 
+              suggestions={suggestions}
+              onSuggestionClick={applySuggestion}
+              layout="flow"
+              maxSuggestions={4}
+            />
+          )}
+          
+          <div className="flex space-x-2">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyPress}
+              placeholder="Ask a question about your data..."
+              className="flex-grow"
+              disabled={isProcessing}
+            />
+            <Button 
+              type="submit"
+              size="icon"
+              disabled={!input.trim() || isProcessing}
+            >
+              {isProcessing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <SendHorizontal className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </form>
+      </CardFooter>
+    </Card>
+  );
+};
+
+export default ChatInterface;

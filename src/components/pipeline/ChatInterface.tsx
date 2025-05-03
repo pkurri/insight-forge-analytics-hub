@@ -7,8 +7,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { pythonApi } from '@/api/pythonIntegration';
+// import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useToast } from '@/hooks/use-toast';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 /**
  * Message interface defining the structure of chat messages
@@ -40,7 +42,12 @@ interface Message {
  * - Presents AI confidence scores and source attributions for transparency
  * - Handles AI errors gracefully with fallbacks
  */
-const ChatInterface: React.FC = () => {
+interface ChatInterfaceProps {
+  datasetId?: string;
+}
+
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
+  const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -58,13 +65,40 @@ const ChatInterface: React.FC = () => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activeDataset, setActiveDataset] = useState<string>('ds001'); // Default to first dataset
+  const [activeDataset, setActiveDataset] = useState<string>(datasetId || '');
+  const [availableDatasets, setAvailableDatasets] = useState<Array<{id: string, name: string}>>([]);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  
+  // Fetch available datasets when component mounts
+  useEffect(() => {
+    const fetchDatasets = async () => {
+      try {
+        const response = await fetch('/api/datasets');
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableDatasets(data.datasets || []);
+          if (!activeDataset && data.datasets?.length > 0) {
+            setActiveDataset(data.datasets[0].id);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching datasets:', error);
+        setMessages(prev => [...prev, {
+          id: `error-${Date.now()}`,
+          type: 'system',
+          content: 'Failed to load available datasets. Please try again later.',
+          metadata: { isError: true },
+          timestamp: new Date()
+        }]);
+      }
+    };
+    
+    fetchDatasets();
+  }, []);
   
   /**
    * Send a user message to the AI assistant and handle the response
-   * 
-   * AI Processing Flow:
+   *
    * 1. User question is captured and sent to the backend
    * 2. Backend vector DB retrieves relevant context from datasets
    * 3. AI model generates an answer based on retrieved context
@@ -89,36 +123,16 @@ const ChatInterface: React.FC = () => {
     try {
       // Send question to Python backend via API
       // This triggers the AI-powered vector search and response generation
-      const response = await pythonApi.askQuestion(activeDataset, input);
-      
-      if (response.success && response.data) {
-        const assistantMessage: Message = {
-          id: `assistant-${Date.now()}`,
-          type: 'assistant',
-          content: response.data.answer,
-          metadata: {
-            confidence: response.data.confidence,
-            sources: response.data.sources,
-            processing_time: response.data.processing_time,
-            tokens_used: response.data.tokens_used || 0,
-            embedding_count: response.data.embedding_count || 0
-          },
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
-      } else {
-        // Handle error
-        const errorMessage: Message = {
-          id: `error-${Date.now()}`,
-          type: 'system',
-          content: response.error || 'Sorry, I encountered an error processing your question.',
-          metadata: { isError: true },
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, errorMessage]);
-      }
+      toast({
+        title: "AI Chat Unavailable",
+        description: "AI-powered chat is not currently supported due to missing backend integration.",
+        variant: "destructive"
+      });
+      return;
+      // Previous implementation called pythonApi.askQuestion, which is no longer available.
+      // Uncomment and implement the below once backend is available:
+      // const response = await pythonApi.askQuestion(input, activeDataset);
+      // if (response.success && response.data) { ... }
     } catch (error) {
       // Handle exception
       const errorMessage: Message = {
@@ -160,6 +174,18 @@ const ChatInterface: React.FC = () => {
             </Avatar>
             <CardTitle className="text-md">Vector DB AI Assistant</CardTitle>
           </div>
+          {availableDatasets.length > 0 && (
+            <Select value={activeDataset} onValueChange={setActiveDataset}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Select dataset" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableDatasets.map(dataset => (
+                  <SelectItem key={dataset.id} value={dataset.id}>{dataset.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <div className="flex space-x-1">
             <TooltipProvider>
               <Tooltip>

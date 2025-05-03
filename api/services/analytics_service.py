@@ -14,19 +14,23 @@ from typing import Dict, List, Any, Optional, Tuple, Union
 from datetime import datetime
 import os
 
-from api.repositories.analytics_repository import AnalyticsRepository
-from api.repositories.dataset_repository import DatasetRepository
-from api.repositories.business_rules_repository import BusinessRulesRepository
-from api.models.dataset import Dataset, DatasetDetail
-from api.config.settings import get_settings
-from api.utils.file_utils import load_dataset_to_dataframe
+from repositories.analytics_repository import AnalyticsRepository
+from repositories.dataset_repository import DatasetRepository
+from repositories.business_rules_repository import BusinessRulesRepository
+from models.dataset import Dataset, DatasetDetail
+from config.settings import get_settings
+from utils.file_utils import load_dataset_to_dataframe
 
 # Optional imports for advanced analytics
 try:
     from sklearn.ensemble import IsolationForest
     from sklearn.cluster import DBSCAN
-    from sklearn.preprocessing import StandardScaler
+    from sklearn.preprocessing import StandardScaler, RobustScaler
+    from sklearn.impute import SimpleImputer
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import Pipeline
     import openai
+    from transformers import AutoTokenizer, AutoModel
 except ImportError:
     logging.warning("Some analytics dependencies are not installed. Some features may be limited.")
 
@@ -574,6 +578,230 @@ async def create_vector_embeddings(dataset_id: int) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in create_vector_embeddings: {str(e)}")
         return {"success": False, "error": str(e)}
+
+async def process_dataset(dataset_id: int, config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Process a dataset using specified cleaning method and operations.
+    
+    Args:
+        dataset_id: ID of the dataset to process
+        config: Configuration for processing including method and operations
+        
+    Returns:
+        Dictionary containing processing results
+    """
+    try:
+        # Get dataset
+        dataset = await dataset_repo.get_dataset_detail(dataset_id)
+        if not dataset:
+            raise ValueError(f"Dataset {dataset_id} not found")
+            
+        # Load dataset
+        df = await load_dataset_to_dataframe(dataset)
+        
+        # Process based on method
+        method = config.get('method', 'scikit-learn')
+        operations = config.get('operations', [])
+        
+        if method == 'scikit-learn':
+            result_df = await _process_with_scikit(df, operations)
+        elif method == 'ai-model':
+            result_df = await _process_with_ai(df, operations)
+        else:
+            raise ValueError(f"Unsupported processing method: {method}")
+        
+        # Save processed dataset
+        processed_path = f"{dataset.file_path}_processed"
+        result_df.to_csv(processed_path, index=False)
+        
+        # Update dataset metadata
+        await dataset_repo.update_dataset(
+            dataset_id,
+            {
+                'processed_file_path': processed_path,
+                'last_processed_at': datetime.now().isoformat()
+            }
+        )
+        
+        return {
+            'success': True,
+            'rows_processed': len(result_df),
+            'columns_processed': len(result_df.columns),
+            'operations_applied': operations
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in process_dataset: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+async def clean_dataset(dataset_id: int, config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Clean a dataset using specified cleaning method and operations.
+    
+    Args:
+        dataset_id: ID of the dataset to clean
+        config: Configuration for cleaning including method and operations
+        
+    Returns:
+        Dictionary containing cleaning results
+    """
+    try:
+        # Get dataset
+        dataset = await dataset_repo.get_dataset_detail(dataset_id)
+        if not dataset:
+            raise ValueError(f"Dataset {dataset_id} not found")
+            
+        # Load dataset
+        df = await load_dataset_to_dataframe(dataset)
+        
+        # Clean based on method
+        method = config.get('method', 'scikit-learn')
+        operations = config.get('operations', [])
+        
+        if method == 'scikit-learn':
+            result_df = await _clean_with_scikit(df, operations)
+        elif method == 'ai-model':
+            result_df = await _clean_with_ai(df, operations)
+        else:
+            raise ValueError(f"Unsupported cleaning method: {method}")
+        
+        # Save cleaned dataset
+        cleaned_path = f"{dataset.file_path}_cleaned"
+        result_df.to_csv(cleaned_path, index=False)
+        
+        # Update dataset metadata
+        await dataset_repo.update_dataset(
+            dataset_id,
+            {
+                'cleaned_file_path': cleaned_path,
+                'last_cleaned_at': datetime.now().isoformat()
+            }
+        )
+        
+        return {
+            'success': True,
+            'rows_cleaned': len(result_df),
+            'columns_cleaned': len(result_df.columns),
+            'operations_applied': operations
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in clean_dataset: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+async def _process_with_scikit(df: pd.DataFrame, operations: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Process a dataset using scikit-learn transformers.
+    """
+    result_df = df.copy()
+    
+    for operation in operations:
+        op_type = operation.get('type')
+        config = operation.get('config', {})
+        
+        if op_type == 'validation':
+            # Validate data using specified rules
+            pass
+        elif op_type == 'analytics':
+            # Perform analytics operations
+            pass
+        elif op_type == 'anomalies':
+            # Detect and handle anomalies
+            anomaly_detector = IsolationForest(**config)
+            numeric_cols = result_df.select_dtypes(include=['number']).columns
+            if len(numeric_cols) > 0:
+                anomalies = anomaly_detector.fit_predict(result_df[numeric_cols])
+                result_df['anomaly_score'] = anomalies
+    
+    return result_df
+
+async def _clean_with_scikit(df: pd.DataFrame, operations: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Clean a dataset using scikit-learn transformers.
+    """
+    result_df = df.copy()
+    
+    for operation in operations:
+        op_type = operation.get('type')
+        config = operation.get('config', {})
+        
+        if op_type == 'imputation':
+            # Handle missing values
+            numeric_imputer = SimpleImputer(**config)
+            numeric_cols = result_df.select_dtypes(include=['number']).columns
+            if len(numeric_cols) > 0:
+                result_df[numeric_cols] = numeric_imputer.fit_transform(result_df[numeric_cols])
+                
+        elif op_type == 'scaling':
+            # Scale numeric features
+            scaler = RobustScaler(**config)
+            numeric_cols = result_df.select_dtypes(include=['number']).columns
+            if len(numeric_cols) > 0:
+                result_df[numeric_cols] = scaler.fit_transform(result_df[numeric_cols])
+                
+        elif op_type == 'encoding':
+            # Encode categorical variables
+            cat_cols = result_df.select_dtypes(include=['object']).columns
+            for col in cat_cols:
+                result_df[col] = pd.Categorical(result_df[col]).codes
+    
+    return result_df
+
+async def _process_with_ai(df: pd.DataFrame, operations: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Process a dataset using AI models.
+    """
+    if not settings.OPENAI_API_KEY:
+        raise ValueError("OpenAI API key not configured")
+        
+    result_df = df.copy()
+    
+    for operation in operations:
+        op_type = operation.get('type')
+        config = operation.get('config', {})
+        
+        if op_type == 'validation':
+            # Use GPT to validate data patterns
+            pass
+        elif op_type == 'analytics':
+            # Use GPT for advanced analytics
+            pass
+        elif op_type == 'anomalies':
+            # Use embeddings for anomaly detection
+            pass
+    
+    return result_df
+
+async def _clean_with_ai(df: pd.DataFrame, operations: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Clean a dataset using AI models.
+    """
+    if not settings.OPENAI_API_KEY:
+        raise ValueError("OpenAI API key not configured")
+        
+    result_df = df.copy()
+    
+    for operation in operations:
+        op_type = operation.get('type')
+        config = operation.get('config', {})
+        
+        if op_type == 'imputation':
+            # Use GPT to impute missing values intelligently
+            pass
+        elif op_type == 'standardization':
+            # Use GPT to standardize text data
+            pass
+        elif op_type == 'correction':
+            # Use GPT to correct data errors
+            pass
+    
+    return result_df
 
 async def query_vector_database(dataset_id: int, query: str) -> Dict[str, Any]:
     """

@@ -1,25 +1,35 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
-  SendHorizontal, Bot, RefreshCw, Search, AlertCircle, ArrowUp, 
-  Clock, XCircle, Settings, Lightbulb, ChevronDown, ChevronUp 
+  SendHorizontal, Bot, RefreshCw, Search, AlertCircle, 
+  Settings, Loader2, ThumbsUp, ThumbsDown, Sparkles, 
+  MessageSquareWarning, MessageSquare
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Textarea } from '@/components/ui/textarea';
+import { Rating } from '@/components/ui/rating';
 import { useChatHistory } from '@/hooks/useChatHistory';
 import { useDatasetContext } from '@/hooks/useDatasetContext';
 import { api } from '@/api/api';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+
+// Import our modular components
+import MessageList from './MessageList';
+import ModelSelector from './ModelSelector';
+import DatasetSelector from './DatasetSelector';
+import ChatSuggestions, { ChatSuggestion } from './ChatSuggestions';
+// Use all AI services via the central API object
+import { AIModel, modelService } from '@/api/services/ai/modelService';
+import { embeddingService } from '@/api/services/ai/embeddingService';
+import { aiAgentService } from '@/api/services/ai/aiAgentService';
 
 export interface Message {
   id: string;
@@ -34,14 +44,14 @@ export interface Message {
     modelId?: string;
     insights?: string[];
     context?: any;
+    evaluationId?: string;
+    evaluationScore?: number;
+    improvedResponse?: string;
+    userRating?: number;
+    userFeedback?: string;
+    conversationId?: string;
   };
   timestamp: Date;
-}
-
-export interface ChatSuggestion {
-  id: string;
-  text: string;
-  category?: string;
 }
 
 interface ChatInterfaceProps {
@@ -57,7 +67,8 @@ interface ChatInterfaceProps {
 }
 
 /**
- * Reusable Chat Interface component that connects to Vector DB and Hugging Face models
+ * Enhanced Chat Interface component that connects to Vector DB and Hugging Face models
+ * Supports multiple models, dataset selection, and semantic search
  */
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
   title = "AI Assistant",
@@ -70,55 +81,55 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   className = "",
   selectedModel = "",
 }) => {
-  // Get dataset context if available
+  // Get dataset context (always present, enforced by useDatasetContext)
   const { datasets, activeDataset, setActiveDataset } = useDatasetContext();
-  
-  // Local state for handling active dataset if context not available
-  const [localActiveDataset, setLocalActiveDataset] = useState<string>(defaultDataset || 'all');
-  
-  // Use the context dataset if available, otherwise use local state
-  const currentDataset = activeDataset || localActiveDataset;
-  const handleSetDataset = setActiveDataset || setLocalActiveDataset;
+  // Use context-driven dataset selection everywhere
+  const currentDataset = activeDataset;
+  const handleSetDataset = setActiveDataset; // Always use context setter
   
   // Chat history hook manages messages and persistence
   const {
     messages,
-    setMessages,
     addMessage,
+    updateMessage = () => {},
     clearHistory,
-    isLoading: isHistoryLoading
-  } = useChatHistory(currentDataset);
+    isLoading: isHistoryLoading,
+    conversationId = ''
+  } = useChatHistory(currentDataset) as any; // currentDataset comes from context
   
+  // Chat interface state
   const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [inputHistory, setInputHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [modelId, setModelId] = useState(selectedModel);
   const [expandedMessageIds, setExpandedMessageIds] = useState<string[]>([]);
+  
+  // OpenEvals state
+  const [evaluatingMessage, setEvaluatingMessage] = useState(false);
+  const [improvingMessage, setImprovingMessage] = useState(false);
+  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
+  const [currentFeedbackMessageId, setCurrentFeedbackMessageId] = useState<string | null>(null);
+  const [feedbackRating, setFeedbackRating] = useState(3);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackImprovementAreas, setFeedbackImprovementAreas] = useState<string[]>([]);
+  const [showImprovedResponseDialog, setShowImprovedResponseDialog] = useState(false);
+  const [improvedResponse, setImprovedResponse] = useState('');
+  
+  // Model selection state (dataset selection is now context-driven only)
+  const [modelId, setModelId] = useState(selectedModel || 'mistral-7b-instruct');
+  const [availableModels, setAvailableModels] = useState<any[]>([]); // Use type from api.modelService if available
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  
+  // References and utilities
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   
-  // Toggle insight expansion
-  const toggleInsightExpansion = (messageId: string) => {
-    setExpandedMessageIds(prev => 
-      prev.includes(messageId) 
-        ? prev.filter(id => id !== messageId) 
-        : [...prev, messageId]
-    );
-  };
-
-  // Check if insights are expanded for a message
-  const isInsightExpanded = (messageId: string) => {
-    return expandedMessageIds.includes(messageId);
-  };
-  
-  // Update model selection when prop changes
+  // Update model ID when prop changes
   useEffect(() => {
-    if (selectedModel) {
+    if (selectedModel && selectedModel !== modelId) {
       setModelId(selectedModel);
     }
-  }, [selectedModel]);
+  }, [selectedModel, modelId]);
   
   // Update processing status to parent component if callback provided
   useEffect(() => {
@@ -127,258 +138,501 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [isProcessing, processingCallback]);
   
-  /**
-   * Handle sending a message to the AI assistant
-   */
-  const handleSendMessage = async () => {
-    if (!input.trim() || isProcessing) return;
-    
-    // Add user message to display
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      type: 'user',
-      content: input,
-      timestamp: new Date()
-    };
-    
-    // Add to input history for up/down arrow navigation
-    setInputHistory(prev => [...prev, input]);
-    setHistoryIndex(-1);
-    
-    // Add message to chat history
-    addMessage(userMessage);
-    
-    // Clear input and show typing indicator
-    setInput('');
-    setIsTyping(true);
-    setIsProcessing(true);
-    
-    try {
-      // If external handler is provided, use it
-      if (onMessage) {
-        onMessage(input, currentDataset, modelId);
-      } else {
-        // Otherwise use default API call
-        const response = await api.askQuestion(currentDataset, input, {
-          modelId: modelId
-        });
-        
+  // Fetch available models on mount (datasets are managed by context)
+  useEffect(() => {
+    const fetchModels = async () => {
+      setIsLoadingModels(true);
+      try {
+        const response = await modelService.getAvailableModels('chat');
         if (response.success && response.data) {
-          const insights = response.data.context?.map((ctx: any) => {
-            if (ctx.insight) return ctx.insight;
-            if (ctx.analysis) return `Analysis: ${ctx.analysis}`;
-            if (ctx.distribution) return `Distribution: ${ctx.distribution}`;
-            return null;
-          }).filter(Boolean);
-          
-          const assistantMessage: Message = {
-            id: `assistant-${Date.now()}`,
-            type: 'assistant',
-            content: response.data.answer,
+          setAvailableModels(response.data);
+          // Set default model if none selected
+          if (!modelId && response.data.length > 0) {
+            setModelId(response.data[0].id);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching models:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load AI models',
+          variant: 'destructive'
+        });
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+    fetchModels();
+  }, [modelId, toast]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTo({
+        top: scrollAreaRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [messages, isProcessing]);
+  
+  // Toggle message expanded state
+  const toggleMessageExpanded = useCallback((id: string) => {
+    setExpandedMessageIds(prev => 
+      prev.includes(id) ? prev.filter(mid => mid !== id) : [...prev, id]
+    );
+  }, []);
+  
+  // Evaluate an AI response with OpenEvals
+  const evaluateResponse = async (messageId: string, query: string, response: string) => {
+    setEvaluatingMessage(true);
+    try {
+      const result = await aiAgentService.evaluateResponse(
+        query,
+        response,
+        conversationId, // From useChatHistory hook
+        messageId
+      );
+      
+      if (result.success && result.data) {
+        // Update message with evaluation results
+        const message = messages.find(msg => msg.id === messageId);
+        if (message) {
+          updateMessage(messageId, {
+            ...message,
             metadata: {
-              confidence: response.data.confidence,
-              sources: response.data.context?.map((ctx: any) => ctx.column || ctx.analysis),
-              dataset: currentDataset,
-              timestamp: new Date().toISOString(),
-              modelId: modelId,
-              insights: insights || [],
-              context: response.data.context || []
-            },
-            timestamp: new Date()
-          };
-          
-          addMessage(assistantMessage);
-        } else {
-          // Handle error response
-          const errorMessage: Message = {
-            id: `error-${Date.now()}`,
-            type: 'system',
-            content: response.error || 'Sorry, I encountered an error processing your question.',
-            metadata: { isError: true },
-            timestamp: new Date()
-          };
-          
-          addMessage(errorMessage);
-          
-          toast({
-            title: "Error processing request",
-            description: response.error || "An unexpected error occurred",
-            variant: "destructive"
+              ...message.metadata,
+              evaluationId: result.data.id,
+              evaluationScore: result.data.average_score
+            }
           });
         }
+        
+        // Show toast with result
+        let evaluationStatus = 'neutral';
+        if (result.data.status === 'excellent') evaluationStatus = 'default';
+        else if (['fail', 'error', 'improvement_needed'].includes(result.data.status)) evaluationStatus = 'destructive';
+        
+        toast({
+          title: `Response Quality: ${Math.round(result.data.average_score)}%`,
+          description: `Evaluation complete: ${result.data.status}`,
+          variant: evaluationStatus as any
+        });
       }
     } catch (error) {
-      // Handle exception
-      const errorMessage: Message = {
-        id: `error-${Date.now()}`,
-        type: 'system',
-        content: 'Sorry, there was a problem connecting to the AI service.',
-        metadata: { isError: true },
-        timestamp: new Date()
-      };
-      
-      addMessage(errorMessage);
-      
+      console.error('Error evaluating response:', error);
       toast({
-        title: "Connection Error",
-        description: "Failed to connect to AI service",
-        variant: "destructive"
+        title: 'Evaluation Error',
+        description: error instanceof Error ? error.message : 'Failed to evaluate response',
+        variant: 'destructive'
       });
     } finally {
-      setIsTyping(false);
-      setIsProcessing(false);
+      setEvaluatingMessage(false);
     }
   };
   
-  /**
-   * Handle keyboard shortcuts for the chat interface
-   */
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    // Send message on Enter (without shift)
+  // Get improved response from OpenEvals
+  const getImprovedResponse = async (messageId: string) => {
+    setImprovingMessage(true);
+    try {
+      // Find the message and query
+      const assistantMessage = messages.find(msg => msg.id === messageId);
+      if (!assistantMessage) throw new Error('Message not found');
+      
+      // Find the user message that preceded this assistant message
+      const assistantIndex = messages.findIndex(msg => msg.id === messageId);
+      if (assistantIndex <= 0) throw new Error('User query not found');
+      
+      const userMessage = messages[assistantIndex - 1];
+      if (userMessage.type !== 'user') throw new Error('Previous message is not a user query');
+      
+      // Get improved response
+      const result = await aiAgentService.getImprovedResponse(
+        userMessage.content,
+        assistantMessage.content,
+        conversationId,
+        assistantMessage.metadata?.evaluationId
+      );
+      
+      if (result.success && result.data) {
+        setImprovedResponse(result.data.improved_response);
+        setShowImprovedResponseDialog(true);
+        
+        // Update message with improved response
+        updateMessage(messageId, {
+          ...assistantMessage,
+          metadata: {
+            ...assistantMessage.metadata,
+            improvedResponse: result.data.improved_response,
+            evaluationScore: result.data.improved_evaluation.average_score
+          }
+        });
+        
+        toast({
+          title: 'Response Improved',
+          description: `Quality improvement: +${Math.round(result.data.improvement_delta.average)}%`,
+          variant: 'default'
+        });
+      }
+    } catch (error) {
+      console.error('Error improving response:', error);
+      toast({
+        title: 'Improvement Error',
+        description: error instanceof Error ? error.message : 'Failed to improve response',
+        variant: 'destructive'
+      });
+    } finally {
+      setImprovingMessage(false);
+    }
+  };
+  
+  // Handle submitting user feedback
+  const submitFeedback = async () => {
+    if (!currentFeedbackMessageId) return;
+    
+    try {
+      const result = await aiAgentService.submitUserFeedback(
+        conversationId,
+        currentFeedbackMessageId,
+        {
+          rating: feedbackRating,
+          feedback_text: feedbackText,
+          improvement_areas: feedbackImprovementAreas
+        }
+      );
+      
+      if (result.success && result.data) {
+        // Update message with feedback
+        const message = messages.find(msg => msg.id === currentFeedbackMessageId);
+        if (message) {
+          updateMessage(currentFeedbackMessageId, {
+            ...message,
+            metadata: {
+              ...message.metadata,
+              userRating: feedbackRating,
+              userFeedback: feedbackText
+            }
+          });
+        }
+        
+        // Check if there's an improved response from feedback
+        if (result.data.improved_response) {
+          setImprovedResponse(result.data.improved_response);
+          setShowImprovedResponseDialog(true);
+        }
+        
+        toast({
+          title: 'Feedback Submitted',
+          description: 'Thank you for your feedback!',
+          variant: 'default'
+        });
+      }
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      toast({
+        title: 'Feedback Error',
+        description: error instanceof Error ? error.message : 'Failed to submit feedback',
+        variant: 'destructive'
+      });
+    } finally {
+      setShowFeedbackDialog(false);
+      setFeedbackRating(3);
+      setFeedbackText('');
+      setFeedbackImprovementAreas([]);
+      setCurrentFeedbackMessageId(null);
+    }
+  };
+  
+  // Open feedback dialog for a message
+  const openFeedbackDialog = (messageId: string) => {
+    setCurrentFeedbackMessageId(messageId);
+    setShowFeedbackDialog(true);
+  };
+  
+  // Replace current content with improved response
+  const applyImprovedResponse = () => {
+    if (!currentFeedbackMessageId || !improvedResponse) return;
+    
+    const message = messages.find(msg => msg.id === currentFeedbackMessageId);
+    if (message) {
+      updateMessage(currentFeedbackMessageId, {
+        ...message,
+        content: improvedResponse
+      });
+    }
+    
+    setShowImprovedResponseDialog(false);
+    setImprovedResponse('');
+  };
+  
+  // Handle sending a message
+  const handleSendMessage = async () => {
+    if (!input.trim() || isProcessing) return;
+    
+    // Add user message to chat
+    const userMessageId = Date.now().toString();
+    addMessage({
+      id: userMessageId,
+      type: 'user',
+      content: input,
+      timestamp: new Date(),
+      metadata: {
+        conversationId: conversationId
+      }
+    });
+    
+    // Clear input and add to history
+    setInputHistory(prev => [input, ...prev].slice(0, 50));
+    setInput('');
+    setHistoryIndex(-1);
+    
+    // Set processing state
+    setIsProcessing(true);
+    if (processingCallback) {
+      processingCallback(true);
+    }
+    
+    try {
+      // Use custom handler if provided
+      if (onMessage) {
+        onMessage(input, currentDataset, modelId);
+        setIsProcessing(false);
+        if (processingCallback) {
+          processingCallback(false);
+        }
+        return;
+      }
+      
+      // Generate embeddings for semantic search context
+      let searchContext = {};
+      try {
+        const embeddingResponse = await embeddingService.generateEmbeddings({ 
+          text: input,
+          model: 'sentence-transformers/all-MiniLM-L6-v2'
+        });
+        
+        if (embeddingResponse.success && embeddingResponse.data) {
+          // Search for similar content if dataset is selected
+          if (currentDataset && currentDataset !== 'all') {
+            const searchResponse = await embeddingService.searchSimilarVectors(
+              input, 
+              currentDataset, 
+              3
+            );
+            
+            if (searchResponse.success && searchResponse.data) {
+              searchContext = {
+                similarContent: searchResponse.data.results,
+                embeddingModel: embeddingResponse.data.model
+              };
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error with embeddings:', error);
+        // Continue without embeddings if there's an error
+      }
+      
+      // Call AI service
+      const response = await api.getAiAssistantResponse(input, {
+        dataset_id: currentDataset === 'all' ? undefined : currentDataset,
+        model_id: modelId,
+        context: searchContext
+      });
+      
+      if (response.success && response.data) {
+        // Generate assistant message ID
+        const assistantMessageId = Date.now().toString();
+        
+        // Add assistant response
+        addMessage({
+          id: assistantMessageId,
+          type: 'assistant',
+          content: response.data.answer || response.data.text || response.data.response,
+          metadata: {
+            confidence: response.data.confidence || 0.9,
+            sources: response.data.sources || response.data.context?.sources,
+            insights: response.data.insights,
+            dataset: currentDataset,
+            timestamp: response.data.timestamp,
+            modelId: modelId,
+            conversationId: conversationId
+          },
+          timestamp: new Date()
+        });
+        
+        // Auto-evaluate the response quality if we have a conversation ID
+        if (conversationId) {
+          setTimeout(() => {
+            evaluateResponse(
+              assistantMessageId,
+              input,
+              response.data.answer || response.data.text || response.data.response
+            );
+          }, 1000);
+        }
+      } else {
+        // Add error message
+        addMessage({
+          id: Date.now().toString(),
+          type: 'assistant',
+          content: `I'm sorry, I couldn't process your request. ${response.error || 'Please try again later.'}`,
+          metadata: {
+            isError: true,
+            dataset: currentDataset
+          },
+          timestamp: new Date()
+        });
+        
+        toast({
+          title: 'Error',
+          description: response.error || 'Failed to get AI response',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      
+      // Add error message
+      addMessage({
+        id: Date.now().toString(),
+        type: 'assistant',
+        content: `I'm sorry, an error occurred while processing your request. Please try again later.`,
+        metadata: {
+          isError: true,
+          dataset: currentDataset
+        },
+        timestamp: new Date()
+      });
+      
+      toast({
+        title: "Connection Error",
+        description: error instanceof Error ? error.message : "Failed to connect to AI service",
+        variant: "destructive"
+      });
+    } finally {
+      // Reset processing state
+      setIsProcessing(false);
+      if (processingCallback) {
+        processingCallback(false);
+      }
+    }
+  };
+  
+  // Apply a suggested question
+  const applySuggestion = useCallback((text: string) => {
+    setInput(text);
+    // Optionally auto-send
+    // setTimeout(() => handleSendMessage(), 100);
+  }, []);
+  
+  // Handle keyboard shortcuts
+  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
-    
-    // Navigate input history with up/down arrows
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (historyIndex < inputHistory.length - 1) {
-        const newIndex = historyIndex + 1;
-        setHistoryIndex(newIndex);
-        setInput(inputHistory[inputHistory.length - 1 - newIndex]);
-      }
-    }
-    
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (historyIndex > 0) {
-        const newIndex = historyIndex - 1;
-        setHistoryIndex(newIndex);
-        setInput(inputHistory[inputHistory.length - 1 - newIndex]);
-      } else if (historyIndex === 0) {
-        setHistoryIndex(-1);
-        setInput('');
-      }
-    }
-  };
-  
-  /**
-   * Apply a suggested message to the input field
-   */
-  const applySuggestion = useCallback((suggestion: string) => {
-    setInput(suggestion);
-  }, []);
-  
-  /**
-   * Reset the chat conversation
-   */
-  const handleResetChat = useCallback(() => {
-    // Add welcome message
-    const welcomeMessage: Message = {
-      id: '1',
-      type: 'assistant',
-      content: `Hi there! I'm your AI assistant for data operations. How can I help you today?`,
-      timestamp: new Date()
-    };
-    
-    const systemMessage: Message = {
-      id: '2',
-      type: 'system',
-      content: 'I can answer questions about your loaded datasets using vector database technology and Hugging Face models.',
-      timestamp: new Date()
-    };
-    
-    clearHistory();
-    setMessages([welcomeMessage, systemMessage]);
-    
-    toast({
-      title: "Chat Reset",
-      description: "The conversation has been reset",
-    });
-  }, [clearHistory, setMessages, toast]);
-  
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
-    }
-  }, [messages, expandedMessageIds]);
-  
-  // Initialize chat with welcome message if empty
-  useEffect(() => {
-    if (messages.length === 0 && !isHistoryLoading) {
-      handleResetChat();
-    }
-  }, [messages.length, handleResetChat, isHistoryLoading]);
-  
+  }, [handleSendMessage]);
+
   return (
-    <Card className={`h-[calc(100vh-16rem)] flex flex-col ${className} max-h-[calc(100dvh-16rem)]`}>
-      <CardHeader className="px-4 py-3 border-b">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-2">
-            <Avatar className="h-8 w-8 bg-blue-500">
-              <Bot className="h-5 w-5 text-white" />
-            </Avatar>
-            <div>
-              <CardTitle className="text-md">{title}</CardTitle>
-              <p className="text-xs text-muted-foreground">{subtitle}</p>
+    <>
+      {/* User Feedback Dialog */}
+      <Dialog open={showFeedbackDialog} onOpenChange={setShowFeedbackDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rate this response</DialogTitle>
+            <DialogDescription>
+              Your feedback helps us improve our AI responses.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-4">
+            <div className="flex justify-center py-2">
+              <Rating
+                value={feedbackRating}
+                onValueChange={setFeedbackRating}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">What could be improved?</h4>
+              <div className="flex flex-wrap gap-2">
+                {['Accuracy', 'Clarity', 'Relevance', 'Completeness', 'Helpfulness'].map(area => (
+                  <Badge
+                    key={area}
+                    variant={feedbackImprovementAreas.includes(area) ? 'default' : 'outline'}
+                    className="cursor-pointer"
+                    onClick={() => {
+                      setFeedbackImprovementAreas(prev => 
+                        prev.includes(area) 
+                          ? prev.filter(a => a !== area)
+                          : [...prev, area]
+                      );
+                    }}
+                  >
+                    {area}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Additional comments</h4>
+              <Textarea
+                placeholder="What would make this response better?"
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+                rows={3}
+              />
             </div>
           </div>
-          <div className="flex space-x-1">
-            {/* Dataset selector */}
-            {showDatasetSelector && datasets && datasets.length > 0 && (
-              <Select 
-                value={currentDataset}
-                onValueChange={handleSetDataset}
-              >
-                <SelectTrigger className="text-sm border rounded px-2 py-1 mr-2 w-40 md:w-48">
-                  <SelectValue placeholder="Select dataset" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Datasets</SelectItem>
-                  {datasets.map(dataset => (
-                    <SelectItem key={dataset.id} value={dataset.id}>
-                      {dataset.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <Search className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Search conversation</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-8 w-8"
-                    onClick={handleResetChat}
-                    disabled={isProcessing}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Reset conversation</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            
-            {/* Model selector dropdown */}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowFeedbackDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={submitFeedback}>
+              Submit Feedback
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Improved Response Dialog */}
+      <Dialog open={showImprovedResponseDialog} onOpenChange={setShowImprovedResponseDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Improved Response</DialogTitle>
+            <DialogDescription>
+              We've generated an improved version of the response based on feedback and evaluation.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-4">
+            <div className="p-4 border rounded-md bg-secondary/20">
+              {improvedResponse}
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowImprovedResponseDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={applyImprovedResponse}>
+              Use This Response
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <Card className={`flex flex-col h-full ${className}`}>
+      <CardHeader className="px-4 py-3 border-b">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-lg">{title}</CardTitle>
+            <p className="text-sm text-muted-foreground">{subtitle}</p>
+          </div>
+          
+          <div className="flex items-center space-x-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -386,186 +640,118 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem className="text-xs text-muted-foreground" disabled>
-                  Current model: {modelId.split('/').pop() || modelId}
+                <DropdownMenuItem onClick={() => clearHistory()}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  <span>Clear History</span>
                 </DropdownMenuItem>
+                {conversationId && (
+                  <>
+                    <DropdownMenuItem>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      <span>Conversation ID: {conversationId.substring(0, 8)}...</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
+        
+        <div className="flex flex-col sm:flex-row gap-3 mt-3">
+          {/* Model Selector */}
+          <ModelSelector
+            models={availableModels}
+            selectedModel={modelId}
+            onModelChange={setModelId}
+            isLoading={isLoadingModels}
+            className="flex-grow"
+          />
+          
+          {/* Dataset Selector */}
+          {showDatasetSelector && (
+            <DatasetSelector
+              datasets={datasets}
+              selectedDataset={currentDataset}
+              onDatasetChange={handleSetDataset}
+              isLoading={isLoading}
+              className="flex-grow"
+            />
+          )}
+        </div>
       </CardHeader>
       
-      {/* Suggestions area */}
-      {suggestions && suggestions.length > 0 && (
-        <div className="px-4 py-2 border-b flex gap-2 overflow-x-auto">
-          {suggestions.map(suggestion => (
-            <Badge 
-              key={suggestion.id} 
-              variant="outline" 
-              className="cursor-pointer hover:bg-muted whitespace-nowrap"
-              onClick={() => applySuggestion(suggestion.text)}
-            >
-              {suggestion.text}
-            </Badge>
-          ))}
-        </div>
-      )}
-      
       <CardContent className="flex-grow p-0 overflow-hidden">
-        <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
-          <div className="space-y-4">
-            {isHistoryLoading ? (
-              // Loading skeleton
-              <>
-                <div className="flex justify-start">
-                  <Skeleton className="h-16 w-3/4 rounded-lg" />
-                </div>
-                <div className="flex justify-end">
-                  <Skeleton className="h-12 w-2/3 rounded-lg" />
-                </div>
-                <div className="flex justify-start">
-                  <Skeleton className="h-24 w-4/5 rounded-lg" />
-                </div>
-              </>
-            ) : (
-              // Actual messages
-              messages.map((message) => (
-                <div key={message.id} className={`flex ${
-                  message.type === 'user' ? 'justify-end' : 
-                  message.type === 'system' ? 'justify-center' : 'justify-start'
-                }`}>
-                  <div 
-                    className={`max-w-[90%] sm:max-w-[85%] md:max-w-[80%] rounded-lg p-3 ${
-                      message.type === 'user' 
-                        ? 'bg-primary text-primary-foreground' 
-                        : message.type === 'system'
-                          ? 'bg-muted text-foreground' 
-                          : 'bg-accent text-accent-foreground'
-                    }`}
-                  >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                    
-                    {/* Show AI Insights for assistant responses */}
-                    {message.type === 'assistant' && message.metadata?.insights && message.metadata.insights.length > 0 && (
-                      <Collapsible
-                        className="w-full mt-2 border-t border-border pt-1"
-                        open={isInsightExpanded(message.id)}
-                        onOpenChange={() => toggleInsightExpansion(message.id)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs flex items-center gap-1 text-muted-foreground">
-                            <Lightbulb className="h-3 w-3" />
-                            <span>AI Insights</span>
-                          </p>
-                          <CollapsibleTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                              {isInsightExpanded(message.id) ? (
-                                <ChevronUp className="h-3 w-3" />
-                              ) : (
-                                <ChevronDown className="h-3 w-3" />
-                              )}
-                            </Button>
-                          </CollapsibleTrigger>
-                        </div>
-                        <CollapsibleContent className="mt-2">
-                          <div className="pl-4 border-l-2 border-muted space-y-1">
-                            {message.metadata.insights.map((insight, index) => (
-                              <p key={index} className="text-xs">
-                                • {insight}
-                              </p>
-                            ))}
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
-                    
-                    {/* Show confidence and sources for AI responses */}
-                    {message.type === 'assistant' && message.metadata?.confidence && (
-                      <div className="mt-2 text-xs text-muted-foreground border-t border-border pt-1">
-                        <div className="flex items-center">
-                          <span>Confidence: {Math.round(message.metadata.confidence * 100)}%</span>
-                          {message.metadata.confidence < 0.7 && (
-                            <AlertCircle className="h-3 w-3 ml-1 text-amber-500" />
-                          )}
-                        </div>
-                        
-                        {message.metadata.sources && message.metadata.sources.length > 0 && (
-                          <div className="mt-1">
-                            <span>Sources: {message.metadata.sources.join(", ")}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    
-                    <div className="flex justify-between items-center mt-1">
-                      <p className="text-xs opacity-70">
-                        {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                      
-                      {/* Show dataset if available */}
-                      {message.metadata?.dataset && message.metadata.dataset !== "all" && (
-                        <Badge variant="outline" className="text-xs">
-                          {message.metadata.dataset}
-                        </Badge>
-                      )}
-                      
-                      {/* Show model if available */}
-                      {message.metadata?.modelId && (
-                        <Badge variant="outline" className="text-xs ml-1">
-                          {message.metadata.modelId.split('/').pop() || 'AI'}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-            
-            {isTyping && (
-              <div className="flex justify-start">
-                <div className="bg-accent text-accent-foreground rounded-lg p-3">
-                  <div className="flex space-x-1">
-                    <div className="h-2 w-2 bg-current rounded-full animate-bounce"></div>
-                    <div className="h-2 w-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                    <div className="h-2 w-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-                  </div>
-                </div>
+        <ScrollArea className="h-full max-h-[calc(100vh-13rem)]" ref={scrollAreaRef}>
+          <div className="p-4">
+            {messages.length === 0 && !isHistoryLoading ? (
+              <div className="flex flex-col items-center justify-center h-full py-12 text-center">
+                <Bot className="h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">How can I help you?</h3>
+                <p className="text-sm text-muted-foreground max-w-md mb-8">
+                  Ask me anything about your data. I can analyze trends, explain patterns, and help you explore your datasets.
+                </p>
+                {suggestions.length > 0 && (
+                  <ChatSuggestions 
+                    suggestions={suggestions}
+                    onSuggestionClick={applySuggestion}
+                    layout="grid"
+                    className="w-full max-w-lg"
+                  />
+                )}
               </div>
+            ) : (
+              <MessageList
+                messages={messages}
+                isLoading={isProcessing}
+                expandedMessageIds={expandedMessageIds}
+                toggleMessageExpanded={toggleMessageExpanded}
+              />
             )}
           </div>
         </ScrollArea>
       </CardContent>
-      
       <Separator />
-      
-      <CardFooter className="p-3">
-        <div className="flex w-full items-center space-x-2">
-          <Input
-            placeholder="Ask me about your dataset..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyPress}
-            className="flex-grow"
-            disabled={isProcessing}
-          />
-          <Button 
-            onClick={handleSendMessage} 
-            disabled={!input.trim() || isProcessing} 
-            size="icon"
-          >
-            <SendHorizontal className="h-4 w-4" />
-          </Button>
-        </div>
-        
-        {/* Input history indicator */}
-        {historyIndex !== -1 && (
-          <div className="absolute right-16 bottom-5 text-xs text-muted-foreground flex items-center">
-            <Clock className="h-3 w-3 mr-1" />
-            <span>{historyIndex + 1}/{inputHistory.length}</span>
+      <CardFooter className="p-4 pt-2">
+        <form 
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSendMessage();
+          }}
+          className="flex flex-col w-full space-y-4"
+        >
+          {suggestions.length > 0 && messages.length > 0 && (
+            <ChatSuggestions 
+              suggestions={suggestions}
+              onSuggestionClick={applySuggestion}
+              layout="flow"
+              maxSuggestions={4}
+            />
+          )}
+          <div className="flex space-x-2">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyPress}
+              placeholder="Ask a question about your data..."
+              className="flex-grow"
+              disabled={isProcessing}
+            />
+            <Button 
+              type="submit"
+              size="icon"
+              disabled={!input.trim() || isProcessing}
+            >
+              {isProcessing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <SendHorizontal className="h-4 w-4" />
+              )}
+            </Button>
           </div>
-        )}
+        </form>
       </CardFooter>
     </Card>
+    </>
   );
 };
 

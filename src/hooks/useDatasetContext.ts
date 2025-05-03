@@ -1,10 +1,9 @@
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api } from '@/api/api';
-import { DatasetSummary } from '@/api/api';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { api, Dataset } from '@/api/api';
 
 interface DatasetContextType {
-  datasets: DatasetSummary[];
+  datasets: Dataset[];
   activeDataset: string;
   setActiveDataset: (datasetId: string) => void;
   isLoading: boolean;
@@ -12,36 +11,29 @@ interface DatasetContextType {
   refreshDatasets: () => Promise<void>;
 }
 
-// Create context with default values
-const DatasetContext = createContext<DatasetContextType>({
-  datasets: [],
-  activeDataset: '',
-  setActiveDataset: () => {},
-  isLoading: false,
-  error: null,
-  refreshDatasets: async () => {},
-});
+// Create context without default value (safer)
+const DatasetContext = createContext<DatasetContextType | undefined>(undefined);
 
-/**
- * Provider component to wrap application and provide dataset context
- */
-export const DatasetProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
+// Provider component to wrap application and provide dataset context
+interface DatasetProviderProps {
+  children: React.ReactNode;
+}
+
+export const DatasetProvider: React.FC<DatasetProviderProps> = ({ children }) => {
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [activeDataset, setActiveDataset] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Function to load available datasets
+  // Function to load available datasets using central API
   const loadDatasets = async () => {
     setIsLoading(true);
     setError(null);
-    
     try {
-      const response = await api.getDatasets();
-      
+      // Use the centralized api.datasets.getDatasets function
+      const response = await api.datasets.getDatasets();
       if (response.success && response.data) {
         setDatasets(response.data);
-        
         // Set active dataset to first one if none is selected
         if (!activeDataset && response.data.length > 0) {
           setActiveDataset(response.data[0].id);
@@ -60,27 +52,30 @@ export const DatasetProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Load datasets on mount
   useEffect(() => {
     loadDatasets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value = {
+  const contextValue = useMemo(() => ({
     datasets,
     activeDataset,
     setActiveDataset,
     isLoading,
     error,
     refreshDatasets: loadDatasets
-  };
+  }), [datasets, activeDataset, isLoading, error]);
 
   return (
-    <DatasetContext.Provider value={value}>
+    <DatasetContext.Provider value={contextValue}>
       {children}
     </DatasetContext.Provider>
   );
 };
 
-/**
- * Hook to use dataset context in components
- */
-export const useDatasetContext = () => {
-  return useContext(DatasetContext);
+// Hook to use dataset context in components (with runtime safety)
+export const useDatasetContext = (): DatasetContextType => {
+  const context = useContext(DatasetContext);
+  if (!context) {
+    throw new Error('useDatasetContext must be used within a DatasetProvider');
+  }
+  return context;
 };

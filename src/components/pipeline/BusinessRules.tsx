@@ -1,148 +1,137 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Save, RefreshCw, Sparkles, AlertTriangle, Info, Check, X } from 'lucide-react';
+import { PlusCircle, Save, RefreshCw, Sparkles, AlertTriangle, Info, Check, X, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { pythonApi } from '@/api/pythonIntegration';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+// import { pythonApi } from '@/api/pythonIntegration'; // Removed: No longer available, see handleGenerateRule for status handling.
 import { api } from '@/api/api';
+import type { BusinessRule } from '@/api/services/businessRules/businessRulesService';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-interface Rule {
-  id: string;
-  name: string;
-  description?: string;
-  condition: string;
-  severity: 'low' | 'medium' | 'high';
-  message: string;
-  enabled?: boolean;
-  confidence?: number;
-  model_generated?: boolean;
+type RuleSeverity = 'low' | 'medium' | 'high';
+
+interface BusinessRulesResponse {
+  success: boolean;
+  data?: BusinessRule[];
+  error?: string;
 }
 
 const BusinessRules: React.FC = () => {
   const { toast } = useToast();
-  const [jsonInput, setJsonInput] = useState<string>('');
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [rules, setRules] = useState<BusinessRule[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [selectedDataset, setSelectedDataset] = useState<string>("ds001");
+  const [jsonInput, setJsonInput] = useState('');
   const [showAddRuleDialog, setShowAddRuleDialog] = useState(false);
   
-  const [newRule, setNewRule] = useState<Rule>({
+  const [newRule, setNewRule] = useState<BusinessRule>({
     id: '',
     name: '',
     description: '',
     condition: '',
     severity: 'medium',
     message: '',
-    enabled: true
+    active: true
   });
-  
-  const [rules, setRules] = useState<Rule[]>([
-    {
-      id: '1',
-      name: 'Missing Values Check',
-      description: 'Flag records with null values in critical fields',
-      condition: 'column.isNull("customer_id") || column.isNull("order_date")',
-      severity: 'high',
-      message: 'Missing critical data in required fields',
-      enabled: true
-    },
-    {
-      id: '2',
-      name: 'Date Range Validation',
-      description: 'Ensure order dates are within acceptable range',
-      condition: 'column.date("order_date") < "2023-01-01" || column.date("order_date") > currentDate()',
-      severity: 'medium',
-      message: 'Order date outside acceptable range',
-      enabled: true
-    }
-  ]);
 
-  const handleImportJSON = () => {
+  const fetchRules = useCallback(async () => {
+    if (!selectedDataset) return;
+    
+    setIsLoading(true);
     try {
-      const importedRules = JSON.parse(jsonInput);
-      if (Array.isArray(importedRules)) {
-        setRules(importedRules);
-        toast({
-          title: "Rules imported successfully",
-          description: `${importedRules.length} rules have been imported.`
-        });
-      } else {
-        throw new Error("Invalid format. JSON must be an array of rule objects.");
-      }
-    } catch (error) {
-      toast({
-        title: "Import failed",
-        description: error instanceof Error ? error.message : "Invalid JSON format",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const handleExportJSON = () => {
-    const jsonString = JSON.stringify(rules, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const href = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = href;
-    link.download = 'business_rules.json';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(href);
-    
-    toast({
-      title: "Rules exported",
-      description: `${rules.length} rules have been exported to JSON.`
-    });
-  };
-
-  const handleGenerateRule = async () => {
-    setIsGenerating(true);
-    
-    toast({
-      title: "Generating rules",
-      description: "Analyzing data patterns with Hugging Face models..."
-    });
-    
-    try {
-      const response = await pythonApi.generateBusinessRules(selectedDataset, {
-        use_ml: true,
-        confidence_threshold: 0.7
-      });
+      const response = await api.businessRules.getBusinessRules(selectedDataset);
       
-      if (response.success && response.data) {
-        const generatedRules = response.data.rules;
-        setRules([...rules, ...generatedRules]);
-        
-        toast({
-          title: "Rules generated successfully",
-          description: `${generatedRules.length} new rules have been created based on data patterns.`
-        });
+      if (response.success) {
+        setRules(response.data as BusinessRule[] || []);
       } else {
         toast({
-          title: "Rule generation failed",
-          description: response.error || "Failed to generate rules",
-          variant: "destructive"
+          title: 'Failed to load rules',
+          description: response.error || 'Unknown error occurred',
+          variant: 'destructive'
         });
       }
     } catch (error) {
       toast({
-        title: "Error",
-        description: "An unexpected error occurred while generating rules.",
-        variant: "destructive"
+        title: 'Error',
+        description: 'Failed to fetch business rules',
+        variant: 'destructive'
       });
     } finally {
-      setIsGenerating(false);
+      setIsLoading(false);
+    }
+  }, [selectedDataset, toast]);
+
+  useEffect(() => {
+    fetchRules();
+  }, [fetchRules]);
+
+  const handleSaveRules = async () => {
+    setIsLoading(true);
+    try {
+      const response = await api.businessRules.saveBusinessRules(selectedDataset, rules);
+      
+      if (response.success) {
+        toast({
+          title: 'Success',
+          description: 'Business rules saved successfully'
+        });
+      } else {
+        throw new Error(response.error || 'Failed to save rules');
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to save rules',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
-  
-  const handleAddRule = () => {
+
+  const handleImport = () => {
+    try {
+      const parsedRules = JSON.parse(jsonInput);
+      if (!Array.isArray(parsedRules)) {
+        throw new Error('Invalid format: Expected array of rules');
+      }
+      setRules(Array.isArray(parsedRules) ? parsedRules : []);
+      toast({
+        title: 'Success',
+        description: `${parsedRules.length} rules imported`
+      });
+    } catch (error) {
+      toast({
+        title: 'Import failed',
+        description: error instanceof Error ? error.message : 'Invalid JSON',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleExport = () => {
+    const dataStr = JSON.stringify(rules, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `business_rules_${new Date().toISOString()}.json`;
+    link.click();
+    
+    toast({
+      title: 'Exported',
+      description: 'Business rules exported to JSON'
+    });
+  };
+
+  const handleAddRule = async () => {
     if (!newRule.name || !newRule.condition || !newRule.message) {
       toast({
         title: "Missing information",
@@ -154,12 +143,18 @@ const BusinessRules: React.FC = () => {
     
     const ruleToAdd = {
       ...newRule,
-      id: newRule.id || `manual-${Date.now()}`
+      id: newRule.id || `manual-${Date.now()}`,
+      dataset_id: selectedDataset,
+      active: newRule.active,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
     
-    setRules([...rules, ruleToAdd]);
+    // Add locally first for immediate UI feedback
+    setRules(prev => [...prev, ruleToAdd]);
     setShowAddRuleDialog(false);
     
+    // Reset the form
     setNewRule({
       id: '',
       name: '',
@@ -167,15 +162,119 @@ const BusinessRules: React.FC = () => {
       condition: '',
       severity: 'medium',
       message: '',
-      enabled: true
+      active: true
     });
     
-    toast({
-      title: "Rule added successfully",
-      description: `"${ruleToAdd.name}" has been added to your rule set.`
-    });
+    // Then save to the server
+    try {
+      // We'll use saveBusinessRules to add a new rule
+      const response = await api.businessRules.saveBusinessRules(selectedDataset, [...rules, ruleToAdd]);
+      
+      if (response.success) {
+        toast({
+          title: "Rule added successfully",
+          description: `"${ruleToAdd.name}" has been added to your rule set.`
+        });
+      } else {
+        // Remove the rule if the server save failed
+        setRules(rules);
+        toast({
+          title: "Failed to add rule",
+          description: response.error || "An unknown error occurred",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      // Remove the rule if there was an error
+      setRules(rules);
+      toast({
+        title: "Error adding rule",
+        description: "An unexpected error occurred while adding the rule.",
+        variant: "destructive"
+      });
+    }
   };
-  
+
+  const handleDeleteRule = async (id: string) => {
+    // Find the rule to delete
+    const ruleToDelete = rules.find(rule => rule.id === id);
+    if (!ruleToDelete) return;
+    
+    try {
+      const updatedRules = rules.filter(rule => rule.id !== id);
+      const response = await api.businessRules.saveBusinessRules(selectedDataset, updatedRules);
+      
+      if (response.success) {
+        setRules(updatedRules);
+        toast({
+          title: "Rule deleted",
+          description: "The rule has been removed from your rule set."
+        });
+      } else {
+        toast({
+          title: "Delete failed",
+          description: response.error || "Failed to delete rule",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Delete error",
+        description: "An unexpected error occurred while deleting the rule.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleToggleRule = async (id: string) => {
+    // Find the rule to toggle
+    const ruleToToggle = rules.find(rule => rule.id === id);
+    if (!ruleToToggle) return;
+    
+    // Update locally first for immediate UI feedback
+    const updatedRules = rules.map(rule => 
+      rule.id === id ? {...rule, active: !rule.active} : rule
+    );
+    
+    // Then update on the server
+    try {
+      const response = await api.businessRules.saveBusinessRules(selectedDataset, updatedRules);
+      
+      if (response.success) {
+        setRules(updatedRules);
+      } else {
+        // Revert the change if the server update failed
+        setRules(rules);
+        toast({
+          title: "Update failed",
+          description: response.error || "Failed to update rule status",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      // Revert the change if there was an error
+      setRules(rules);
+      toast({
+        title: "Update error",
+        description: "An unexpected error occurred while updating the rule.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // AI Rule Generation is currently disabled. This is a placeholder for future implementation.
+  const handleGenerateRule = async (): Promise<void> => {
+    setIsLoading(true);
+    toast({
+      title: "AI Rule Generation Unavailable",
+      description: "Automatic business rule generation via AI is not currently supported. Please define rules manually.",
+      variant: "destructive"
+    });
+    setIsLoading(false);
+    // If/when AI-based rule generation is restored, implement here.
+    return;
+  }
+
   const handleSaveRulesToAPI = async () => {
     toast({
       title: "Saving rules",
@@ -183,17 +282,17 @@ const BusinessRules: React.FC = () => {
     });
     
     try {
-      const response = await api.saveBusinessRules(selectedDataset, rules);
+      const response = await api.businessRules.saveBusinessRules(selectedDataset, rules);
       
       if (response.success) {
         toast({
           title: "Rules saved successfully",
-          description: response.data?.message || `${rules.length} rules have been saved.`
+          description: response && response.data && response.data.message ? response.data.message : `${rules.length} rules have been saved.`
         });
       } else {
         toast({
           title: "Failed to save rules",
-          description: response.error || "An unknown error occurred",
+          description: response && response.error ? response.error : "An unknown error occurred",
           variant: "destructive"
         });
       }
@@ -204,15 +303,6 @@ const BusinessRules: React.FC = () => {
         variant: "destructive"
       });
     }
-  };
-  
-  const handleToggleRule = (ruleId: string) => {
-    setRules(rules.map(rule => {
-      if (rule.id === ruleId) {
-        return { ...rule, enabled: !rule.enabled };
-      }
-      return rule;
-    }));
   };
 
   return (
@@ -232,11 +322,15 @@ const BusinessRules: React.FC = () => {
               </p>
             </div>
             <div className="flex gap-2">
-              <Button size="sm" className="mb-2" onClick={() => setShowAddRuleDialog(true)}>
+              <Button className="mb-2" onClick={() => setShowAddRuleDialog(true)}>
                 <PlusCircle className="h-4 w-4 mr-2" />
                 Add Rule
               </Button>
-              <Button size="sm" className="mb-2" onClick={handleSaveRulesToAPI} variant="outline">
+              <Button
+                variant="outline"
+                className="mb-2"
+                onClick={handleSaveRulesToAPI}
+              >
                 <Save className="h-4 w-4 mr-2" />
                 Save Rules
               </Button>
@@ -269,15 +363,15 @@ const BusinessRules: React.FC = () => {
                       variant="ghost" 
                       size="sm" 
                       onClick={() => handleToggleRule(rule.id)}
-                      className={rule.enabled === false ? 'text-muted-foreground' : 'text-primary'}
+                      className={rule.active === false ? 'text-muted-foreground' : 'text-primary'}
                     >
-                      {rule.enabled === false ? 'Disabled' : 'Active'}
+                      {rule.active === false ? 'Disabled' : 'Active'}
                     </Button>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
-                {rule.confidence && (
+                {typeof rule.confidence === 'number' && (
                   <div className="mb-3 flex items-center text-xs">
                     <Info className="h-3 w-3 mr-1 text-blue-500" />
                     <span>
@@ -330,14 +424,17 @@ const BusinessRules: React.FC = () => {
                 />
               </div>
               <div className="flex space-x-2">
-                <Button onClick={handleImportJSON}>
+                <Button onClick={handleImport}>
                   <Check className="h-4 w-4 mr-2" />
                   Import Rules
                 </Button>
-                <Button variant="outline" onClick={handleExportJSON}>
+                <button
+                  className={buttonVariants({ variant: 'outline' })}
+                  onClick={handleExport}
+                >
                   <Save className="h-4 w-4 mr-2" />
                   Export Current Rules
-                </Button>
+                </button>
               </div>
             </CardContent>
           </Card>
@@ -374,18 +471,26 @@ const BusinessRules: React.FC = () => {
                 <div className="space-y-2">
                   <Label htmlFor="detection-type">Detection Type</Label>
                   <div className="grid grid-cols-3 gap-2">
-                    <Button variant="outline" className="justify-start" id="detection-type">
+                    <button
+                      className={buttonVariants({ variant: 'outline', className: 'justify-start' })}
+                      id="detection-type"
+                    >
                       <Check className="h-4 w-4 mr-2" />
                       Outliers
-                    </Button>
-                    <Button variant="outline" className="justify-start">
-                      <Check className="h-4 w-4 mr-2" />
-                      Patterns
-                    </Button>
-                    <Button variant="outline" className="justify-start">
+                    </button>
+                    <button
+                      className={buttonVariants({ variant: 'outline', className: 'w-full' })}
+                      id="import-button"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Import Rules
+                    </button>
+                    <button
+                      className={buttonVariants({ variant: 'outline', className: 'justify-start' })}
+                    >
                       <Check className="h-4 w-4 mr-2" />
                       Data Quality
-                    </Button>
+                    </button>
                   </div>
                 </div>
 
@@ -407,9 +512,9 @@ const BusinessRules: React.FC = () => {
               <Button 
                 onClick={handleGenerateRule} 
                 className="w-full" 
-                disabled={isGenerating}
+                disabled={isLoading}
               >
-                {isGenerating ? (
+                {isLoading ? (
                   <>
                     <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                     Generating Rules...
@@ -499,10 +604,13 @@ const BusinessRules: React.FC = () => {
           </div>
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddRuleDialog(false)}>
+            <button
+              className={buttonVariants({ variant: 'outline' })}
+              onClick={() => setShowAddRuleDialog(false)}
+            >
               <X className="h-4 w-4 mr-2" />
               Cancel
-            </Button>
+            </button>
             <Button onClick={handleAddRule}>
               <PlusCircle className="h-4 w-4 mr-2" />
               Add Rule

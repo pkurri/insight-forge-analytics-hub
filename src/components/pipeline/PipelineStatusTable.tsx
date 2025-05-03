@@ -1,6 +1,9 @@
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { api } from '@/api/api';
+// import { api.pipelineService } from '@/api/services/pipeline/api.pipelineService';
+import { useToast } from '@/hooks/use-toast';
+import { Loader2 } from 'lucide-react';
 
 interface PipelineJob {
   id: string;
@@ -10,53 +13,102 @@ interface PipelineJob {
   progress: number;
   startTime: string;
   endTime?: string;
+  businessRulesStatus?: {
+    total: number;
+    passed: number;
+    failed: number;
+  };
 }
 
-const PipelineStatusTable: React.FC = () => {
-  const pipelineJobs: PipelineJob[] = [
-    {
-      id: 'job-001',
-      name: 'Customer Data Processing',
-      status: 'completed',
-      type: 'CSV File',
-      progress: 100,
-      startTime: '2025-04-08 08:30:00',
-      endTime: '2025-04-08 08:35:12'
-    },
-    {
-      id: 'job-002',
-      name: 'Product Catalog Import',
-      status: 'running',
-      type: 'JSON API',
-      progress: 68,
-      startTime: '2025-04-08 09:15:00'
-    },
-    {
-      id: 'job-003',
-      name: 'Sales Data Validation',
-      status: 'running',
-      type: 'Excel File',
-      progress: 32,
-      startTime: '2025-04-08 09:20:00'
-    },
-    {
-      id: 'job-004',
-      name: 'Inventory Analysis',
-      status: 'queued',
-      type: 'Database',
-      progress: 0,
-      startTime: '2025-04-08 09:30:00'
-    },
-    {
-      id: 'job-005',
-      name: 'Financial Report PDF',
-      status: 'failed',
-      type: 'PDF Document',
-      progress: 45,
-      startTime: '2025-04-08 07:45:00',
-      endTime: '2025-04-08 07:52:30'
+interface PipelineStatusTableProps {
+  datasetId?: string;
+}
+
+const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) => {
+  const [pipelineJobs, setPipelineJobs] = useState<PipelineJob[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const { toast } = useToast();
+  
+  useEffect(() => {
+    if (datasetId) {
+      fetchPipelineRuns(datasetId);
     }
-  ];
+  }, [datasetId]);
+  
+  const fetchPipelineRuns = async (datasetId: string) => {
+    setIsLoading(true);
+    try {
+      const response = await api.pipelineService.getPipelineRuns(datasetId);
+      
+      if (response.success && response.data) {
+        // Transform pipeline data to match our component's format
+        const jobs: PipelineJob[] = response.data.map(run => {
+          // Find business rules stage if it exists
+          const businessRulesStage = run.stages.find(stage => 
+            stage.name.toLowerCase().includes('business') || 
+            stage.name.toLowerCase().includes('rule')
+          );
+          
+          return {
+            id: run.id,
+            name: `Pipeline Run ${run.id.substring(0, 8)}`,
+            status: run.status === 'pending' ? 'queued' : run.status,
+            type: run.current_stage,
+            progress: run.progress,
+            startTime: run.created_at,
+            endTime: run.updated_at,
+            businessRulesStatus: businessRulesStage ? {
+              total: 0, // These would come from the actual API response
+              passed: 0,
+              failed: 0
+            } : undefined
+          };
+        });
+        
+        setPipelineJobs(jobs);
+      } else {
+        toast({
+          title: "Failed to fetch pipeline runs",
+          description: response.error || "An error occurred while fetching pipeline runs",
+          variant: "destructive"
+        });
+        // Fall back to mock data if API fails
+        setPipelineJobs([
+          {
+            id: 'job-001',
+            name: 'Customer Data Processing',
+            status: 'completed',
+            type: 'CSV File',
+            progress: 100,
+            startTime: '2025-04-08 08:30:00',
+            endTime: '2025-04-08 08:35:12',
+            businessRulesStatus: {
+              total: 10,
+              passed: 8,
+              failed: 2
+            }
+          },
+          {
+            id: 'job-002',
+            name: 'Product Catalog Import',
+            status: 'running',
+            type: 'JSON API',
+            progress: 68,
+            startTime: '2025-04-08 09:15:00'
+          }
+        ]);
+      }
+    } catch (error) {
+      console.error("Error fetching pipeline runs:", error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch pipeline runs",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
   
   const getStatusBadge = (status: PipelineJob['status']) => {
     switch (status) {
@@ -87,6 +139,15 @@ const PipelineStatusTable: React.FC = () => {
     );
   };
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Loading pipeline data...</span>
+      </div>
+    );
+  }
+  
   return (
     <div className="overflow-x-auto">
       <table className="w-full divide-y divide-gray-200">
@@ -98,6 +159,7 @@ const PipelineStatusTable: React.FC = () => {
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business Rules</th>
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
@@ -125,17 +187,21 @@ const PipelineStatusTable: React.FC = () => {
                 {job.startTime}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                {job.endTime 
-                  ? (() => {
-                      const start = new Date(job.startTime);
-                      const end = new Date(job.endTime);
-                      const diffInSeconds = (end.getTime() - start.getTime()) / 1000;
-                      return `${diffInSeconds.toFixed(1)}s`;
-                    })()
-                  : job.status === 'running' 
-                    ? 'In progress...' 
-                    : '--'
-                }
+                {job.endTime ? 
+                  new Date(new Date(job.endTime).getTime() - new Date(job.startTime).getTime()).toISOString().substr(11, 8) : 
+                  'In progress'}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                {job.businessRulesStatus ? (
+                  <div className="flex flex-col">
+                    <span className="font-medium">{job.businessRulesStatus.passed} / {job.businessRulesStatus.total} passed</span>
+                    {job.businessRulesStatus.failed > 0 && (
+                      <span className="text-red-500 text-xs mt-1">{job.businessRulesStatus.failed} rules failed</span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-gray-400">Not available</span>
+                )}
               </td>
             </tr>
           ))}
