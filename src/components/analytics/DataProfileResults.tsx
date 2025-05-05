@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -32,16 +31,17 @@ export interface ProfileSummary {
   memory_usage: number;
 }
 
-const DataProfileResults: React.FC = () => {
+const DataProfileResults: React.FC<any> = (props) => {
   const [profileData, setProfileData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const { toast } = useToast();
+  const { datasetId, options } = props;
 
   useEffect(() => {
     const fetchProfileData = async () => {
       try {
         // Use sample dataset ID for demo
-        const response = await api.profileDataset('ds001');
+        const response = await api.analyticsService.profileDataset(datasetId, options);
         if (response.success && response.data) {
           setProfileData(response.data);
         } else {
@@ -64,7 +64,7 @@ const DataProfileResults: React.FC = () => {
     };
 
     fetchProfileData();
-  }, [toast]);
+  }, [toast, datasetId, options]);
 
   const renderSummaryCards = () => {
     if (!profileData?.summary) {

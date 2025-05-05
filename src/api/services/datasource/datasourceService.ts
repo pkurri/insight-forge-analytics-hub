@@ -1,204 +1,114 @@
-import { callApi } from '@/api/utils/apiUtils';
-import { ApiResponse } from '@/api/types';
 
-export interface ApiConnection {
-  id: string;
-  name: string;
-  url: string;
-  authType: string;
-  username?: string;
-  password?: string;
-  apiKey?: string;
-  apiKeyName?: string;
-  bearerToken?: string;
-  headers?: string;
-  createdAt: string;
-}
-
-export interface DbConnection {
-  id: string;
-  name: string;
-  connectionType: string;
-  host: string;
-  port: string;
-  database: string;
-  username?: string;
-  password?: string;
-  ssl: boolean;
-  options?: string;
-  createdAt: string;
-}
+import { callApi } from '../../../utils/apiUtils';
+import { DataSource, ApiResponse } from '../../../api/types';
 
 /**
- * Service for managing data source connections (API and Database)
+ * Data Source Service - Handles operations related to data sources
  */
 export const datasourceService = {
   /**
-   * Get all API connections
+   * Get all available data sources
    */
-  getApiConnections: async (): Promise<ApiResponse> => {
+  getDataSources: async (): Promise<ApiResponse<DataSource[]>> => {
     try {
-      return await callApi('/datasource/api', { method: 'GET' });
+      const response = await callApi('datasources');
+      return response;
     } catch (error) {
-      console.error('Error fetching API connections:', error);
+      console.error("Error fetching data sources:", error);
       return {
         success: false,
-        error: 'Failed to fetch API connections',
-        data: null
+        error: error instanceof Error ? error.message : "Failed to fetch data sources"
       };
     }
   },
 
   /**
-   * Get all database connections
+   * Get a specific data source by ID
    */
-  getDbConnections: async (): Promise<ApiResponse> => {
+  getDataSource: async (id: string): Promise<ApiResponse<DataSource>> => {
     try {
-      return await callApi('/datasource/db', { method: 'GET' });
+      const response = await callApi(`datasources/${id}`);
+      return response;
     } catch (error) {
-      console.error('Error fetching database connections:', error);
+      console.error(`Error fetching data source ${id}:`, error);
       return {
         success: false,
-        error: 'Failed to fetch database connections',
-        data: null
+        error: error instanceof Error ? error.message : "Failed to fetch data source"
       };
     }
   },
 
   /**
-   * Create a new API connection
+   * Create a new data source
    */
-  createApiConnection: async (connection: Omit<ApiConnection, 'id' | 'createdAt'>): Promise<ApiResponse> => {
+  createDataSource: async (dataSource: Omit<DataSource, 'id'>): Promise<ApiResponse<DataSource>> => {
     try {
-      return await callApi('/datasource/api', { method: 'POST', body: JSON.stringify(connection) });
+      const response = await callApi('datasources', {
+        method: 'POST',
+        body: dataSource
+      });
+      return response;
     } catch (error) {
-      console.error('Error creating API connection:', error);
+      console.error("Error creating data source:", error);
       return {
         success: false,
-        error: 'Failed to create API connection',
-        data: null
+        error: error instanceof Error ? error.message : "Failed to create data source"
       };
     }
   },
 
   /**
-   * Create a new database connection
+   * Update an existing data source
    */
-  createDbConnection: async (connection: Omit<DbConnection, 'id' | 'createdAt'>): Promise<ApiResponse> => {
+  updateDataSource: async (id: string, dataSource: Partial<DataSource>): Promise<ApiResponse<DataSource>> => {
     try {
-      return await callApi('/datasource/db', { method: 'POST', body: JSON.stringify(connection) });
+      const response = await callApi(`datasources/${id}`, {
+        method: 'PUT',
+        body: dataSource
+      });
+      return response;
     } catch (error) {
-      console.error('Error creating database connection:', error);
+      console.error(`Error updating data source ${id}:`, error);
       return {
         success: false,
-        error: 'Failed to create database connection',
-        data: null
+        error: error instanceof Error ? error.message : "Failed to update data source"
       };
     }
   },
 
   /**
-   * Delete an API connection
+   * Delete a data source
    */
-  deleteApiConnection: async (id: string): Promise<ApiResponse> => {
+  deleteDataSource: async (id: string): Promise<ApiResponse<void>> => {
     try {
-      return await callApi(`/datasource/api/${id}`, { method: 'DELETE' });
+      const response = await callApi(`datasources/${id}`, {
+        method: 'DELETE'
+      });
+      return response;
     } catch (error) {
-      console.error('Error deleting API connection:', error);
+      console.error(`Error deleting data source ${id}:`, error);
       return {
         success: false,
-        error: 'Failed to delete API connection',
-        data: null
+        error: error instanceof Error ? error.message : "Failed to delete data source"
       };
     }
   },
 
   /**
-   * Delete a database connection
+   * Test connection to a data source
    */
-  deleteDbConnection: async (id: string): Promise<ApiResponse> => {
+  testConnection: async (dataSource: Partial<DataSource>): Promise<ApiResponse<{ connectable: boolean }>> => {
     try {
-      return await callApi(`/datasource/db/${id}`, { method: 'DELETE' });
+      const response = await callApi('datasources/test-connection', {
+        method: 'POST',
+        body: dataSource
+      });
+      return response;
     } catch (error) {
-      console.error('Error deleting database connection:', error);
+      console.error("Error testing data source connection:", error);
       return {
         success: false,
-        error: 'Failed to delete database connection',
-        data: null
-      };
-    }
-  },
-
-  /**
-   * Update an existing API connection
-   */
-  updateApiConnection: async (id: string, connection: Omit<ApiConnection, 'id' | 'createdAt'>): Promise<ApiResponse> => {
-    try {
-      return await callApi(`/datasource/api/${id}`, { method: 'PUT', body: JSON.stringify(connection) });
-    } catch (error) {
-      console.error('Error updating API connection:', error);
-      return {
-        success: false,
-        error: 'Failed to update API connection',
-        data: null
-      };
-    }
-  },
-
-  /**
-   * Update an existing database connection
-   */
-  updateDbConnection: async (id: string, connection: Omit<DbConnection, 'id' | 'createdAt'>): Promise<ApiResponse> => {
-    try {
-      return await callApi(`/datasource/db/${id}`, { method: 'PUT', body: JSON.stringify(connection) });
-    } catch (error) {
-      console.error('Error updating database connection:', error);
-      return {
-        success: false,
-        error: 'Failed to update database connection',
-        data: null
-      };
-    }
-  },
-
-  /**
-   * Test an API connection by id
-   */
-  testApiConnection: async (id: string): Promise<ApiResponse> => {
-    try {
-      // Fetch the connection first
-      const connResp = await callApi(`/datasource/api/${id}`, { method: 'GET' });
-      if (!connResp.success || !connResp.data) {
-        return { success: false, error: 'API connection not found', data: null };
-      }
-      return await callApi('/datasource/api/test', { method: 'POST', body: JSON.stringify(connResp.data) });
-    } catch (error) {
-      console.error('Error testing API connection:', error);
-      return {
-        success: false,
-        error: 'Failed to test API connection',
-        data: null
-      };
-    }
-  },
-
-  /**
-   * Test a database connection by id
-   */
-  testDbConnection: async (id: string): Promise<ApiResponse> => {
-    try {
-      // Fetch the connection first
-      const connResp = await callApi(`/datasource/db/${id}`, { method: 'GET' });
-      if (!connResp.success || !connResp.data) {
-        return { success: false, error: 'DB connection not found', data: null };
-      }
-      return await callApi('/datasource/db/test', { method: 'POST', body: JSON.stringify(connResp.data) });
-    } catch (error) {
-      console.error('Error testing database connection:', error);
-      return {
-        success: false,
-        error: 'Failed to test database connection',
-        data: null
+        error: error instanceof Error ? error.message : "Failed to test data source connection"
       };
     }
   }

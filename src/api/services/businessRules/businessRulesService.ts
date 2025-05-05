@@ -1,68 +1,18 @@
-import { callApi } from '../../utils/apiUtils';
-import { ApiResponse } from '../../api';
+
+import { callApi } from '../../../utils/apiUtils';
+import { BusinessRule } from '../../../api/types';
 
 /**
- * Business Rules Service - Handles business rule operations
+ * Business Rules Service - Handles CRUD operations for business rules
  */
-export interface BusinessRule {
-  id: string;
-  name: string;
-  description?: string;
-  condition: string;
-  severity: 'low' | 'medium' | 'high';
-  message: string;
-  active: boolean;
-  confidence?: number;
-  lastUpdated?: string;
-  model_generated?: boolean;
-}
-
 export const businessRulesService = {
   /**
-   * Get business rules for a dataset
+   * Get all business rules
    */
-  getBusinessRules: async (datasetId: string): Promise<ApiResponse<BusinessRule[]>> => {
-    const endpoint = `datasets/${datasetId}/business-rules`;
-    
+  getAllBusinessRules: async (): Promise<any> => {
     try {
-      const response = await callApi(endpoint);
-      if (response.success) {
-        return response;
-      }
-      
-      // Fallback to mock data if API fails
-      console.log(`Falling back to mock data for: ${endpoint}`);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      return {
-        success: true,
-        data: [
-          {
-            id: 'br001',
-            name: 'Price Range Rule',
-            description: 'Product price must be between $0 and $10,000',
-            dataset_id: datasetId,
-            rule_type: 'range',
-            condition: 'price >= 0 AND price <= 10000',
-            severity: 'high',
-            active: true,
-            created_at: '2023-05-15T10:23:45Z',
-            updated_at: '2023-06-02T14:10:22Z'
-          },
-          {
-            id: 'br002',
-            name: 'Required Fields Rule',
-            description: 'Name and category fields must not be empty',
-            dataset_id: datasetId,
-            rule_type: 'not_null',
-            condition: 'name IS NOT NULL AND category IS NOT NULL',
-            severity: 'critical',
-            active: true,
-            created_at: '2023-05-16T11:30:00Z',
-            updated_at: '2023-06-01T09:15:10Z'
-          }
-        ]
-      };
+      const response = await callApi('business-rules');
+      return response;
     } catch (error) {
       console.error("Error fetching business rules:", error);
       return {
@@ -71,70 +21,54 @@ export const businessRulesService = {
       };
     }
   },
-  
+
   /**
-   * Save business rules for a dataset
+   * Get business rules for a specific dataset
    */
-  saveBusinessRules: async (datasetId: string, rules: BusinessRule[]): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/business-rules`;
-    
+  getDatasetBusinessRules: async (datasetId: string): Promise<any> => {
     try {
-      const response = await callApi(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ rules })
-      });
-      if (response.success) {
-        return response;
-      }
-      
-      // Mock successful response
-      console.log(`Falling back to mock data for: ${endpoint}`);
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      return {
-        success: true,
-        data: {
-          message: `${rules.length} business rules saved successfully`,
-          rules_saved: rules.length
-        }
-      };
+      const response = await callApi(`datasets/${datasetId}/business-rules`);
+      return response;
     } catch (error) {
-      console.error("Error saving business rules:", error);
+      console.error(`Error fetching business rules for dataset ${datasetId}:`, error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to save business rules"
+        error: error instanceof Error ? error.message : "Failed to fetch dataset business rules"
       };
     }
   },
 
   /**
-   * Update a business rule
+   * Create a new business rule
    */
-  updateBusinessRule: async (datasetId: string, ruleId: string, rule: Partial<BusinessRule>): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/business-rules/${ruleId}`;
-    
+  createBusinessRule: async (businessRule: Omit<BusinessRule, 'id'>): Promise<any> => {
     try {
-      const response = await callApi(endpoint, {
-        method: 'PUT',
-        body: JSON.stringify(rule)
+      const response = await callApi('business-rules', {
+        method: 'POST',
+        body: businessRule
       });
-      if (response.success) {
-        return response;
-      }
-      
-      // Mock successful response
-      console.log(`Falling back to mock data for: ${endpoint}`);
-      await new Promise(resolve => setTimeout(resolve, 600));
-      
-      return {
-        success: true,
-        data: {
-          message: 'Business rule updated successfully',
-          rule_id: ruleId
-        }
-      };
+      return response;
     } catch (error) {
-      console.error("Error updating business rule:", error);
+      console.error("Error creating business rule:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to create business rule"
+      };
+    }
+  },
+
+  /**
+   * Update an existing business rule
+   */
+  updateBusinessRule: async (id: string, businessRule: Partial<BusinessRule>): Promise<any> => {
+    try {
+      const response = await callApi(`business-rules/${id}`, {
+        method: 'PUT',
+        body: businessRule
+      });
+      return response;
+    } catch (error) {
+      console.error(`Error updating business rule ${id}:`, error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to update business rule"
@@ -145,30 +79,14 @@ export const businessRulesService = {
   /**
    * Delete a business rule
    */
-  deleteBusinessRule: async (datasetId: string, ruleId: string): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/business-rules/${ruleId}`;
-    
+  deleteBusinessRule: async (id: string): Promise<any> => {
     try {
-      const response = await callApi(endpoint, {
+      const response = await callApi(`business-rules/${id}`, {
         method: 'DELETE'
       });
-      if (response.success) {
-        return response;
-      }
-      
-      // Mock successful response
-      console.log(`Falling back to mock data for: ${endpoint}`);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      return {
-        success: true,
-        data: {
-          message: 'Business rule deleted successfully',
-          rule_id: ruleId
-        }
-      };
+      return response;
     } catch (error) {
-      console.error("Error deleting business rule:", error);
+      console.error(`Error deleting business rule ${id}:`, error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to delete business rule"
@@ -177,74 +95,44 @@ export const businessRulesService = {
   },
 
   /**
-   * Import business rules from JSON
+   * Generate example business rules
    */
-  importBusinessRules: async (datasetId: string, rulesJson: string): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/business-rules/import`;
-    
-    try {
-      // Parse JSON to validate it before sending
-      const rules = JSON.parse(rulesJson);
-      
-      const response = await callApi(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ rules })
-      });
-      if (response.success) {
-        return response;
-      }
-      
-      // Mock successful response
-      console.log(`Falling back to mock data for: ${endpoint}`);
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      return {
-        success: true,
-        data: {
-          message: `${rules.length} business rules imported successfully`,
-          rules_imported: rules.length
+  getExampleRules: async (): Promise<any> => {
+    // These are hardcoded examples
+    return {
+      success: true,
+      data: [
+        {
+          id: "example-1",
+          name: "Email Format Validation",
+          description: "Validates that all email addresses match standard format",
+          condition: "REGEXP_MATCH(email, '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$')",
+          severity: "high",
+          column: "email",
+          active: true,
+          created_at: new Date().toISOString()
+        },
+        {
+          id: "example-2",
+          name: "Price Range Check",
+          description: "Ensures all prices fall within acceptable range",
+          condition: "price >= 0 AND price <= 10000",
+          severity: "medium",
+          column: "price",
+          active: true,
+          created_at: new Date().toISOString()
+        },
+        {
+          id: "example-3",
+          name: "Date Format Check",
+          description: "Validates date format is YYYY-MM-DD",
+          condition: "REGEXP_MATCH(date_field, '^[0-9]{4}-[0-9]{2}-[0-9]{2}$')",
+          severity: "medium",
+          column: "date_field",
+          active: true,
+          created_at: new Date().toISOString()
         }
-      };
-    } catch (error) {
-      console.error("Error importing business rules:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to import business rules"
-      };
-    }
-  },
-
-  /**
-   * Export business rules to JSON
-   */
-  exportBusinessRules: async (datasetId: string): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/business-rules/export`;
-    
-    try {
-      const response = await callApi(endpoint);
-      if (response.success) {
-        return response;
-      }
-      
-      // Get rules and format them for export
-      const rulesResponse = await businessRulesService.getBusinessRules(datasetId);
-      if (!rulesResponse.success) {
-        throw new Error("Failed to fetch rules for export");
-      }
-      
-      return {
-        success: true,
-        data: {
-          rules: rulesResponse.data,
-          export_time: new Date().toISOString()
-        }
-      };
-    } catch (error) {
-      console.error("Error exporting business rules:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to export business rules"
-      };
-    }
+      ]
+    };
   }
 };

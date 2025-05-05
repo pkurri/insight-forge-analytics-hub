@@ -10,9 +10,19 @@ export interface MetricCardProps {
   icon: React.ReactNode;
   change?: number;
   loading?: boolean;
+  trend?: 'up' | 'down' | 'none';
+  trendText?: string;
 }
 
-const MetricCard: React.FC<MetricCardProps> = ({ title, value, icon, change, loading = false }) => {
+const MetricCard: React.FC<MetricCardProps> = ({ 
+  title, 
+  value, 
+  icon, 
+  change, 
+  loading = false,
+  trend,
+  trendText
+}) => {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -28,14 +38,20 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, icon, change, loa
         
         {change !== undefined && !loading && (
           <div className="flex items-center pt-1">
-            {change > 0 ? (
+            {trend === 'up' || (change > 0 && !trend) ? (
               <ArrowUp className="h-4 w-4 text-green-500 mr-1" />
-            ) : change < 0 ? (
+            ) : trend === 'down' || (change < 0 && !trend) ? (
               <ArrowDown className="h-4 w-4 text-red-500 mr-1" />
             ) : null}
             
-            <p className={`text-xs ${change > 0 ? 'text-green-500' : change < 0 ? 'text-red-500' : 'text-gray-500'}`}>
-              {Math.abs(change)}% from previous period
+            <p className={`text-xs ${
+              trend === 'up' || (change > 0 && !trend) 
+                ? 'text-green-500' 
+                : trend === 'down' || (change < 0 && !trend) 
+                  ? 'text-red-500' 
+                  : 'text-gray-500'
+            }`}>
+              {Math.abs(change || 0)}% {trendText || 'from previous period'}
             </p>
           </div>
         )}

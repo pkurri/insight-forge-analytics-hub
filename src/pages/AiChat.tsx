@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import ChatInterface from '@/components/ai/ChatInterface';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +13,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 // Interface for AI Model selection
 interface AIModel {
   id: string;
-  type: string;
+  name: string;
+  provider?: string;
+  type?: string;
   dimensions?: number;
   is_default?: boolean;
 }
@@ -32,16 +35,16 @@ const AiChat: React.FC = () => {
       
       try {
         // Using aiAgentService to get models
-        const response = await api.models.getAvailableModels();
-        if (response.success && response.data && response.data.models) {
-          setAvailableModels(response.data.models);
+        const response = await api.agents.getAvailableModels();
+        if (response.success && response.data) {
+          setAvailableModels(response.data);
           
           // Set default model
-          const defaultModel = response.data.models.find((model: AIModel) => model.is_default && model.type === "generation");
+          const defaultModel = response.data.find((model: AIModel) => model.is_default);
           if (defaultModel) {
             setSelectedModel(defaultModel.id);
-          } else if (response.data.models.length > 0) {
-            setSelectedModel(response.data.models[0].id);
+          } else if (response.data.length > 0) {
+            setSelectedModel(response.data[0].id);
           }
         }
       } catch (error) {
@@ -136,10 +139,10 @@ const AiChat: React.FC = () => {
                     </SelectTrigger>
                     <SelectContent>
                       {availableModels
-                        .filter(model => model.type === "generation")
+                        .filter(model => model.provider === "huggingface" || model.provider === "openai")
                         .map(model => (
                           <SelectItem key={model.id} value={model.id}>
-                            {model.id.split('/').pop() || model.id}
+                            {model.name || model.id}
                           </SelectItem>
                         ))
                       }
@@ -241,16 +244,16 @@ const AiChat: React.FC = () => {
                       
                       <div>
                         <h3 className="text-sm font-medium mb-2">Embedding Model</h3>
-                        <Select defaultValue={availableModels.find(model => model.type === "embedding")?.id || ""}>
+                        <Select defaultValue={availableModels.find(model => model.provider === "huggingface")?.id || ""}>
                           <SelectTrigger>
                             <SelectValue placeholder="Embedding model" />
                           </SelectTrigger>
                           <SelectContent>
                             {availableModels
-                              .filter(model => model.type === "embedding")
+                              .filter(model => model.provider === "huggingface")
                               .map(model => (
                                 <SelectItem key={model.id} value={model.id}>
-                                  {model.id.split('/').pop() || model.id}
+                                  {model.name || model.id}
                                 </SelectItem>
                               ))
                             }

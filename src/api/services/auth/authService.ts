@@ -1,5 +1,6 @@
 
 import { callApi, ApiCallOptions } from '@/utils/apiUtils';
+import { ApiResponse } from '@/api/types';
 
 export interface AuthUser {
   id: string;
@@ -12,11 +13,7 @@ export interface AuthResponseData {
   user: AuthUser;
 }
 
-interface AuthResponse {
-  success: boolean;
-  data?: AuthResponseData;
-  error?: string;
-}
+interface AuthResponse extends ApiResponse<AuthResponseData> {}
 
 class AuthService {
   private tokenKey = 'auth_token';
@@ -36,7 +33,7 @@ class AuthService {
         localStorage.setItem(this.userKey, JSON.stringify(response.data.user));
       }
 
-      return response;
+      return response as AuthResponse;
     } catch (error) {
       return {
         success: false,

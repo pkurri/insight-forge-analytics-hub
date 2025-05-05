@@ -3,9 +3,6 @@ import React from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Info, AlertCircle, TrendingUp } from 'lucide-react';
 
-// Update component to fix alert variant type issue
-type AlertVariant = 'default' | 'destructive' | 'outline' | 'secondary';
-
 interface Insight {
   id: string;
   title: string;
@@ -20,17 +17,6 @@ interface InsightsListProps {
   className?: string;
 }
 
-// Map insight types to alert variants
-const getAlertVariant = (type: Insight['type'], importance: Insight['importance']): AlertVariant => {
-  if (type === 'anomaly') {
-    return importance === 'high' ? 'destructive' : 'default';
-  }
-  if (type === 'trend') {
-    return 'secondary';
-  }
-  return 'outline';
-};
-
 // Map insight types to icons
 const getInsightIcon = (type: Insight['type']) => {
   switch (type) {
@@ -42,6 +28,17 @@ const getInsightIcon = (type: Insight['type']) => {
     default:
       return <Info className="h-4 w-4" />;
   }
+};
+
+// Map insight importance to alert variants
+const getAlertVariant = (type: Insight['type'], importance: Insight['importance']) => {
+  if (type === 'anomaly' && importance === 'high') {
+    return 'destructive';
+  }
+  if (type === 'trend') {
+    return 'default';
+  }
+  return 'default';
 };
 
 const InsightsList: React.FC<InsightsListProps> = ({ 

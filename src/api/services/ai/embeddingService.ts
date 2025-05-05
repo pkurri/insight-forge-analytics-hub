@@ -1,5 +1,6 @@
-import { callApi } from '../../utils/apiUtils';
-import { ApiResponse } from '../../api';
+
+import { callApi } from '../../../utils/apiUtils';
+import { ApiResponse } from '../../../api/types';
 
 export interface EmbeddingVector {
   id?: string;
@@ -36,7 +37,10 @@ export const embeddingService = {
     const endpoint = `ai/embeddings`;
     
     try {
-      const response = await callApi(endpoint, 'POST', request);
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: request
+      });
       
       if (response.success) {
         return response;
@@ -79,10 +83,13 @@ export const embeddingService = {
     const endpoint = `ai/search`;
     
     try {
-      const response = await callApi(endpoint, 'POST', {
-        query,
-        dataset_id: datasetId,
-        limit
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: {
+          query,
+          dataset_id: datasetId,
+          limit
+        }
       });
       
       if (response.success) {
@@ -128,9 +135,12 @@ export const embeddingService = {
     const endpoint = `ai/store-embeddings`;
     
     try {
-      const response = await callApi(endpoint, 'POST', {
-        vectors,
-        dataset_id: datasetId
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: {
+          vectors,
+          dataset_id: datasetId
+        }
       });
       
       if (response.success) {

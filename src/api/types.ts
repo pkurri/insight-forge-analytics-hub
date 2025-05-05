@@ -36,3 +36,11 @@ export interface ChatSuggestion {
   text: string;
   category: string;
 }
+
+// Adding ApiResponse interface to centralize API response types
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  status?: number;
+}

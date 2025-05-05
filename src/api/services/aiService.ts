@@ -12,9 +12,12 @@ export const aiService = {
     const endpoint = `ai/ask`;
     
     try {
-      const response = await callApi(endpoint, 'POST', {
-        dataset_id: datasetId,
-        question: question
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: {
+          dataset_id: datasetId,
+          question: question
+        }
       });
       
       if (response.success) {
@@ -66,9 +69,12 @@ export const aiService = {
     const endpoint = `ai/assistant`;
     
     try {
-      const response = await callApi(endpoint, 'POST', {
-        message,
-        context
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: {
+          message,
+          context
+        }
       });
       
       if (response.success) {
@@ -124,7 +130,11 @@ export const aiService = {
     const endpoint = `ai/analyze-anomalies/${datasetId}`;
     
     try {
-      const response = await callApi(endpoint, 'POST', { config });
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: { config }
+      });
+      
       if (response.success) {
         return response;
       }

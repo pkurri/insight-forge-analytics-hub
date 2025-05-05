@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -60,16 +59,18 @@ interface CleaningSummary {
   operations: CleaningOperation[];
 }
 
-const DataQualityDashboard: React.FC<{ datasetId?: string }> = ({ datasetId = 'ds001' }) => {
+const DataQualityDashboard: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [validationData, setValidationData] = useState<any>(null);
   const [cleaningData, setCleaningData] = useState<any>(null);
   const { toast } = useToast();
+  const [selectedDataset, setSelectedDataset] = useState('ds001');
+  const [selectedOperations, setSelectedOperations] = useState([]);
 
-  const fetchDataQuality = async () => {
+  const loadQualityData = async () => {
     setLoading(true);
     try {
-      const response = await api.getDataQuality(datasetId);
+      const response = await api.analyticsService.getDataQuality(selectedDataset);
       if (response.success) {
         setValidationData(response.data.validation);
         setCleaningData(response.data.cleaning);
@@ -96,11 +97,12 @@ const DataQualityDashboard: React.FC<{ datasetId?: string }> = ({ datasetId = 'd
     }
   };
 
-  const runDataCleaning = async () => {
+  const handleCleanData = async () => {
     setLoading(true);
     try {
-      // Pass empty options object as second argument
-      const response = await api.cleanData(datasetId, {});
+      const response = await api.analyticsService.cleanData(selectedDataset, {
+        operations: selectedOperations
+      });
       if (response.success) {
         setCleaningData(response.data);
         toast({
@@ -182,7 +184,7 @@ const DataQualityDashboard: React.FC<{ datasetId?: string }> = ({ datasetId = 'd
         <h2 className="text-2xl font-bold">Data Quality</h2>
         <div className="space-x-2">
           <Button 
-            onClick={fetchDataQuality} 
+            onClick={loadQualityData} 
             disabled={loading}
             variant="outline"
           >
@@ -190,7 +192,7 @@ const DataQualityDashboard: React.FC<{ datasetId?: string }> = ({ datasetId = 'd
             Check Quality
           </Button>
           <Button 
-            onClick={runDataCleaning} 
+            onClick={handleCleanData} 
             disabled={loading}
             variant="default"
           >
