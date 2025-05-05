@@ -1,5 +1,5 @@
 
-import { callApi } from '../../utils/apiUtils';
+import { callApi, ApiCallOptions } from '@/utils/apiUtils';
 import { ApiResponse } from '../../api';
 
 /**
@@ -14,10 +14,15 @@ export const aiChatService = {
     const endpoint = `ai/assistant`;
     
     try {
-      const response = await callApi(endpoint, 'POST', {
-        message,
-        context: context || {}
-      });
+      const options: ApiCallOptions = {
+        method: 'POST',
+        body: {
+          message,
+          context: context || {}
+        }
+      };
+      
+      const response = await callApi(endpoint, options);
       
       if (response.success) {
         return response;
@@ -54,7 +59,12 @@ export const aiChatService = {
     const endpoint = `ai/question`;
     
     try {
-      const response = await callApi(endpoint, 'POST', params);
+      const options: ApiCallOptions = {
+        method: 'POST',
+        body: params
+      };
+      
+      const response = await callApi(endpoint, options);
       
       if (response.success) {
         return response;
@@ -95,10 +105,15 @@ export const aiChatService = {
     const endpoint = `ai/suggestions`;
     
     try {
-      const response = await callApi(endpoint, 'POST', {
-        dataset_id: datasetId,
-        context: context || {}
-      });
+      const options: ApiCallOptions = {
+        method: 'POST',
+        body: {
+          dataset_id: datasetId,
+          context: context || {}
+        }
+      };
+      
+      const response = await callApi(endpoint, options);
       
       if (response.success) {
         return response;
@@ -136,7 +151,7 @@ export const aiChatService = {
     const endpoint = `ai/chat-history/${datasetId}`;
     
     try {
-      const response = await callApi(endpoint, 'GET');
+      const response = await callApi(endpoint);
       
       if (response.success) {
         return response;
@@ -172,10 +187,15 @@ export const aiChatService = {
     const endpoint = `ai/embeddings`;
     
     try {
-      const response = await callApi(endpoint, 'POST', {
-        text,
-        model: model || "sentence-transformers/all-MiniLM-L6-v2"
-      });
+      const options: ApiCallOptions = {
+        method: 'POST',
+        body: {
+          text,
+          model: model || "sentence-transformers/all-MiniLM-L6-v2"
+        }
+      };
+      
+      const response = await callApi(endpoint, options);
       
       if (response.success) {
         return response;
@@ -209,7 +229,12 @@ export const aiChatService = {
     const endpoint = `ai/chat-history/${datasetId}`;
     
     try {
-      const response = await callApi(endpoint, 'POST', { messages });
+      const options: ApiCallOptions = {
+        method: 'POST',
+        body: { messages }
+      };
+      
+      const response = await callApi(endpoint, options);
       
       if (response.success) {
         return response;
@@ -241,7 +266,7 @@ export const aiChatService = {
     const endpoint = `ai/models`;
     
     try {
-      const response = await callApi(endpoint, 'GET');
+      const response = await callApi(endpoint);
       
       if (response.success) {
         return response;

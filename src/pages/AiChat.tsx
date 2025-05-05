@@ -1,10 +1,9 @@
-
 import React, { useState, useEffect } from 'react';
 import ChatInterface from '@/components/ai/ChatInterface';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DatasetProvider } from '@/hooks/useDatasetContext';
 import { api } from '@/api/api';
-import { ChatSuggestion } from '@/components/ai/ChatInterface';
+import { ChatSuggestion } from '@/api/types';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -32,7 +31,8 @@ const AiChat: React.FC = () => {
       setIsLoadingModels(true);
       
       try {
-        const response = await api.getAvailableModels();
+        // Using aiAgentService to get models
+        const response = await api.models.getAvailableModels();
         if (response.success && response.data && response.data.models) {
           setAvailableModels(response.data.models);
           
@@ -63,8 +63,10 @@ const AiChat: React.FC = () => {
         // Call AI service to get suggested questions for the selected dataset
         const datasetParam = selectedDataset !== "all" ? selectedDataset : undefined;
         const response = await api.getAiAssistantResponse("Generate chat suggestions", {
-          type: "suggestion_generation",
-          dataset_id: datasetParam
+          dataset_id: datasetParam,
+          model_id: selectedModel,
+          agent_type: "suggestion_generation",
+          context: {}
         });
         
         if (response.success && response.data) {
@@ -85,7 +87,7 @@ const AiChat: React.FC = () => {
     };
     
     loadSuggestions();
-  }, [selectedDataset]);
+  }, [selectedDataset, selectedModel]);
   
   return (
     <DatasetProvider>

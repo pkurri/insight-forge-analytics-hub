@@ -1,15 +1,20 @@
-import { callApi } from '@/api/api';
+
+import { callApi, ApiCallOptions } from '@/utils/apiUtils';
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  role: string;
+}
+
+export interface AuthResponseData {
+  token: string;
+  user: AuthUser;
+}
 
 interface AuthResponse {
   success: boolean;
-  data?: {
-    token: string;
-    user: {
-      id: string;
-      username: string;
-      role: string;
-    };
-  };
+  data?: AuthResponseData;
   error?: string;
 }
 
@@ -19,10 +24,12 @@ class AuthService {
 
   async login(username: string, password: string): Promise<AuthResponse> {
     try {
-      const response = await callApi<AuthResponse>('/auth/login', {
+      const options: ApiCallOptions = {
         method: 'POST',
-        body: { username, password },
-      });
+        body: { username, password }
+      };
+      
+      const response = await callApi('/auth/login', options);
 
       if (response.success && response.data) {
         localStorage.setItem(this.tokenKey, response.data.token);
@@ -52,7 +59,7 @@ class AuthService {
     return localStorage.getItem(this.tokenKey);
   }
 
-  getUser(): { id: string; username: string; role: string } | null {
+  getUser(): AuthUser | null {
     const userData = localStorage.getItem(this.userKey);
     return userData ? JSON.parse(userData) : null;
   }

@@ -7,14 +7,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from "@/hooks/use-toast";
 import { api } from '@/api/api';
-// import { api.pipelineService } from '@/api/services/pipeline/api.pipelineService';
-// import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
 import { Stepper, Step } from '@/components/ui/stepper';
 import { Card } from '@/components/ui/card';
+import { PipelineStatus } from '@/api/types';
 
 type DataSource = 'local' | 'api' | 'database';
 type PipelineStage = 'validate' | 'transform' | 'enrich' | 'load';
-type PipelineStatus = 'running' | 'completed' | 'failed';
 
 interface PipelineResponse {
   success: boolean;
@@ -26,7 +24,7 @@ interface PipelineResponse {
 
 interface PipelineStatusResponse {
   success: boolean;
-  data?: PipelineStatusData;
+  data?: PipelineStatus;
   error?: string;
 }
 
@@ -34,13 +32,6 @@ interface PipelineStep {
   label: string;
   description: string;
   icon?: React.ReactNode;
-}
-
-interface PipelineStatusData {
-  current_stage: PipelineStage;
-  progress: number;
-  status: PipelineStatus;
-  message?: string;
 }
 
 const PipelineUploadForm: React.FC = () => {
@@ -178,7 +169,7 @@ const PipelineUploadForm: React.FC = () => {
         const status = await api.pipelineService.getPipelineStatus(pipelineId);
         
         if (status.success && status.data) {
-          const { current_stage, progress, status: pipelineStatus, message } = status.data;
+          const { current_stage, progress, status: pipelineStatus, statusMessage } = status.data;
           
           // Update loading states
           setStageLoading(prev => ({
@@ -202,10 +193,10 @@ const PipelineUploadForm: React.FC = () => {
             setIsProcessing(false);
             toast({
               title: "Pipeline completed",
-              description: message || "Data processing completed successfully",
+              description: statusMessage || "Data processing completed successfully",
             });
           } else if (pipelineStatus === 'failed') {
-            throw new Error(message || "Pipeline processing failed");
+            throw new Error(statusMessage || "Pipeline processing failed");
           }
         }
 

@@ -1,53 +1,44 @@
 
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowUpIcon, ArrowDownIcon } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { ArrowDown, ArrowUp } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
-interface MetricCardProps {
+export interface MetricCardProps {
   title: string;
-  value: string | number;
+  value: number | string;
   icon: React.ReactNode;
   change?: number;
-  trend?: 'up' | 'down' | 'neutral';
-  trendText?: string;
+  loading?: boolean;
 }
 
-const MetricCard: React.FC<MetricCardProps> = ({
-  title,
-  value,
-  icon,
-  change,
-  trend,
-  trendText,
-}) => {
-  const renderTrend = () => {
-    if (!trend || trend === 'neutral') return null;
-    
-    const isPositive = trend === 'up';
-    const trendClass = isPositive ? 'text-success' : 'text-error';
-    const TrendIcon = isPositive ? ArrowUpIcon : ArrowDownIcon;
-    
-    return (
-      <div className={cn("flex items-center text-sm font-medium", trendClass)}>
-        <TrendIcon className="h-4 w-4 mr-1" />
-        <span>{change}%</span>
-        {trendText && <span className="ml-1 text-gray-500">{trendText}</span>}
-      </div>
-    );
-  };
-
+const MetricCard: React.FC<MetricCardProps> = ({ title, value, icon, change, loading = false }) => {
   return (
-    <Card className="shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <div className="h-8 w-8 rounded-md bg-primary/10 p-1.5 text-primary">
-          {icon}
-        </div>
+        {icon}
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        {renderTrend()}
+        {loading ? (
+          <Skeleton className="h-8 w-24" />
+        ) : (
+          <div className="text-2xl font-bold">{value}</div>
+        )}
+        
+        {change !== undefined && !loading && (
+          <div className="flex items-center pt-1">
+            {change > 0 ? (
+              <ArrowUp className="h-4 w-4 text-green-500 mr-1" />
+            ) : change < 0 ? (
+              <ArrowDown className="h-4 w-4 text-red-500 mr-1" />
+            ) : null}
+            
+            <p className={`text-xs ${change > 0 ? 'text-green-500' : change < 0 ? 'text-red-500' : 'text-gray-500'}`}>
+              {Math.abs(change)}% from previous period
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
