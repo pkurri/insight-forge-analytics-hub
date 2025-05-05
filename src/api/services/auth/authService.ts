@@ -18,9 +18,35 @@ interface AuthResponse extends ApiResponse<AuthResponseData> {}
 class AuthService {
   private tokenKey = 'auth_token';
   private userKey = 'user_data';
+  
+  // Demo user credentials
+  private demoUser: AuthUser = {
+    id: 'demo-123',
+    username: 'demo',
+    role: 'viewer'
+  };
+  private demoToken = 'demo-token-xyz-123';
+  private demoPassword = 'demo123';
 
   async login(username: string, password: string): Promise<AuthResponse> {
     try {
+      // Check for demo user first
+      if (username === this.demoUser.username && password === this.demoPassword) {
+        console.log('Demo login successful');
+        // Store demo credentials
+        localStorage.setItem(this.tokenKey, this.demoToken);
+        localStorage.setItem(this.userKey, JSON.stringify(this.demoUser));
+        
+        return {
+          success: true,
+          data: {
+            token: this.demoToken,
+            user: this.demoUser
+          }
+        };
+      }
+      
+      // Normal authentication flow
       const options: ApiCallOptions = {
         method: 'POST',
         body: { username, password }
