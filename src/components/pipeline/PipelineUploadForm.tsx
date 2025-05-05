@@ -7,10 +7,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from "@/hooks/use-toast";
 import { api } from '@/api/api';
-// import { api.pipelineService } from '@/api/services/pipeline/api.pipelineService';
-// import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
 import { Stepper, Step } from '@/components/ui/stepper';
 import { Card } from '@/components/ui/card';
+import { pipelineService } from '@/api/services/pipeline/pipelineService';
+import type { BusinessRule } from '@/api/services/businessRules/businessRulesService';
 
 type DataSource = 'local' | 'api' | 'database';
 type PipelineStage = 'validate' | 'transform' | 'enrich' | 'load';
@@ -30,7 +30,7 @@ interface PipelineStatusResponse {
   error?: string;
 }
 
-interface PipelineStep {
+interface PipelineStepUI {
   label: string;
   description: string;
   icon?: React.ReactNode;
@@ -41,33 +41,39 @@ interface PipelineStatusData {
   progress: number;
   status: PipelineStatus;
   message?: string;
+  stages: {
+    name: string;
+    status: PipelineStatus;
+    start_time?: string;
+    end_time?: string;
+    error?: string;
+    metadata?: any;
+  }[];
+  pipeline_metadata?: any;
 }
 
-import type { BusinessRule } from '@/api/services/businessRules/businessRulesService';
+interface RuleResult {
+  id: string;
+  name: string;
+  severity: string;
+  model_generated?: boolean;
+  source?: string;
+  violation_count: number;
+  violations: any[];
+}
+
+interface RulesValidation {
+  total_rules: number;
+  passed_rules: number;
+  failed_rules: number;
+  total_violations: number;
+  rule_results: RuleResult[];
+}
 
 const PipelineUploadForm: React.FC = () => {
   const [businessRules, setBusinessRules] = useState<BusinessRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(false);
   const [rulesError, setRulesError] = useState<string | null>(null);
-  
-  interface RuleResult {
-    id: string;
-    name: string;
-    severity: string;
-    model_generated?: boolean;
-    source?: string;
-    violation_count: number;
-    violations: any[];
-  }
-  
-  interface RulesValidation {
-    total_rules: number;
-    passed_rules: number;
-    failed_rules: number;
-    total_violations: number;
-    rule_results: RuleResult[];
-  }
-
   const [rulesValidation, setRulesValidation] = useState<RulesValidation | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dataSource, setDataSource] = useState<DataSource>('local');
@@ -88,8 +94,9 @@ const PipelineUploadForm: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const [isOverrideActive, setIsOverrideActive] = useState(false);
+  const [pipelineSteps, setPipelineSteps] = useState<PipelineStepUI[]>([]);
 
-  const pipelineSteps: PipelineStep[] = [
+  const defaultPipelineSteps: PipelineStepUI[] = [
     { label: "Upload", description: "Upload data file", icon: <UploadCloud className="h-4 w-4" /> },
     { label: "Validate", description: "Validate data integrity", icon: <AlertCircle className="h-4 w-4" /> },
     { label: "Business Rules", description: "Apply business rules", icon: <Check className="h-4 w-4" /> },
@@ -97,6 +104,10 @@ const PipelineUploadForm: React.FC = () => {
     { label: "Enrich", description: "Add derived fields", icon: <Table className="h-4 w-4" /> },
     { label: "Load", description: "Save processed data", icon: <Check className="h-4 w-4" /> }
   ];
+
+  useEffect(() => {
+    setPipelineSteps(defaultPipelineSteps);
+  }, []);
 
   const validateInputs = (): boolean => {
     if (dataSource === "local" && !selectedFile) {
@@ -157,13 +168,12 @@ const PipelineUploadForm: React.FC = () => {
 
       formData.append('dataSource', dataSource);
 
-      const onUploadProgress = (progressEvent) => {
+      const onUploadProgress = (progressEvent: { loaded: number; total: number }) => {
         const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         setUploadProgress(percentCompleted);
       };
 
-      // Use the api.pipelineService for consistent API access
-      const response = await api.pipelineService.uploadData(formData, onUploadProgress);
+      const response = await pipelineService.uploadData(formData, { onUploadProgress });
 
       if (response.success && response.data) {
         setIsUploading(false);
@@ -185,7 +195,7 @@ const PipelineUploadForm: React.FC = () => {
           const rulesResp = await api.businessRules.getBusinessRules(response.data.id);
           if (rulesResp.success && rulesResp.data) {
             setBusinessRules(rulesResp.data);
-            const validationResp = await api.pipelineService.applyBusinessRules(response.data.id);
+            const validationResp = await pipelineService.applyBusinessRules(response.data.id);
             if (validationResp.success && validationResp.data) {
               setRulesValidation(validationResp.data);
               toast({
@@ -227,16 +237,16 @@ const PipelineUploadForm: React.FC = () => {
     }
   };
 
-  const monitorPipelineProgress = async (pipelineId: string): Promise<void> => {
+  const monitorPipelineProgress = async (pipelineId: string): Promise<() => void> => {
     let isRunning = true;
-    let intervalId: NodeJS.Timeout;
+    let intervalId: ReturnType<typeof setInterval>;
 
     const checkStatus = async () => {
       try {
-        const response = await api.pipelineService.getPipelineStatus(pipelineId);
+        const response = await pipelineService.getPipelineStatus(pipelineId);
         
         if (response.success && response.data) {
-          const { current_stage, progress, status, message } = response.data;
+          const { current_stage, progress, status, error, stages } = response.data;
           
           // Update loading state for the current stage
           setStageLoading(prev => ({
@@ -260,59 +270,125 @@ const PipelineUploadForm: React.FC = () => {
             case 'load':
               setCurrentStep(5);
               break;
+            default:
+              setCurrentStep(0);
           }
-          
+
+          // Check for OpenEvals evaluations
+          if (stages) {
+            for (const stage of stages) {
+              if (stage.status === 'completed' && stage.metadata?.evaluations) {
+                const evaluations = await pipelineService.getPipelineStepEvaluations(pipelineId, stage.name);
+                if (evaluations.success && evaluations.data) {
+                  toast({
+                    title: `${stage.name} evaluations complete`,
+                    description: `Quality score: ${evaluations.data.quality_score || 'N/A'}`
+                  });
+                }
+              }
+            }
+          }
+
           if (status === 'completed') {
             isRunning = false;
+            clearInterval(intervalId);
             setIsProcessing(false);
             toast({
               title: "Pipeline completed",
-              description: "Data processing pipeline has completed successfully.",
+              description: "All stages have been processed successfully",
             });
           } else if (status === 'failed') {
             isRunning = false;
+            clearInterval(intervalId);
             setIsProcessing(false);
-            setError(message || "Pipeline failed");
+            setError(error || "Pipeline failed");
             toast({
               title: "Pipeline failed",
-              description: message || "Data processing pipeline has failed.",
-              variant: "destructive",
-            });
-          }
-        } else {
-          // Handle error response
-          console.error("Error checking pipeline status:", response.error);
-          if (response.error && response.error.includes("not found")) {
-            isRunning = false;
-            setIsProcessing(false);
-            setError("Pipeline not found or was terminated");
-            toast({
-              title: "Pipeline error",
-              description: "Pipeline not found or was terminated",
+              description: error || "An error occurred during pipeline execution",
               variant: "destructive",
             });
           }
         }
-      } catch (err) {
-        console.error("Error monitoring pipeline:", err);
+      } catch (err: any) {
+        isRunning = false;
+        clearInterval(intervalId);
+        setIsProcessing(false);
+        setError(err.message || "Error monitoring pipeline progress");
+        toast({
+          title: "Monitoring error",
+          description: err.message || "Error monitoring pipeline progress",
+          variant: "destructive",
+        });
       }
-      
-      if (!isRunning) {
+    };
+
+    // Initial check
+    await checkStatus();
+
+    // Set up interval for subsequent checks
+    intervalId = setInterval(checkStatus, 5000);
+
+    // Cleanup function
+    const cleanup = () => {
+      if (intervalId) {
         clearInterval(intervalId);
       }
     };
-    
-    // Initial check
-    await checkStatus();
-    
-    // Set up interval for checking status
-    if (isRunning) {
-      intervalId = setInterval(checkStatus, 3000);
-      
-      // Clean up interval on component unmount
-      return () => {
-        clearInterval(intervalId);
-      };
+
+    return cleanup;
+  };
+
+  const handleRetryStep = async (stepName: string) => {
+    if (!datasetId) return;
+
+    try {
+      const response = await pipelineService.retryPipelineStep(datasetId, stepName);
+      if (response.success) {
+        toast({
+          title: "Step retry initiated",
+          description: `Retrying ${stepName} step...`,
+        });
+        await monitorPipelineProgress(datasetId);
+      } else {
+        toast({
+          title: "Retry failed",
+          description: response.error || "Failed to retry step",
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: "Retry error",
+        description: err.message || "Error retrying step",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleResumePipeline = async () => {
+    if (!datasetId) return;
+
+    try {
+      const response = await pipelineService.resumePipelineRun(datasetId);
+      if (response.success) {
+        toast({
+          title: "Pipeline resumed",
+          description: "Pipeline execution has been resumed",
+        });
+        await monitorPipelineProgress(datasetId);
+      } else {
+        toast({
+          title: "Resume failed",
+          description: response.error || "Failed to resume pipeline",
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: "Resume error",
+        description: err.message || "Error resuming pipeline",
+        variant: "destructive",
+      });
     }
   };
 
@@ -321,9 +397,19 @@ const PipelineUploadForm: React.FC = () => {
       <div className="p-6">
         <h2 className="text-2xl font-bold mb-4">Data Pipeline</h2>
         
-        <Stepper activeStep={currentStep} orientation="horizontal" className="mb-8">
+        <Stepper
+          currentStep={currentStep}
+          orientation="horizontal"
+          error={error || undefined}
+        >
           {pipelineSteps.map((step, index) => (
-            <Step key={index} completed={index < currentStep}>
+            <Step
+              key={step.label}
+              isActive={index === currentStep}
+              isCompleted={index < currentStep}
+              description={step.description}
+              icon={step.icon}
+            >
               <div className="flex items-center gap-2">
                 {step.icon}
                 <div>
@@ -463,7 +549,7 @@ const PipelineUploadForm: React.FC = () => {
                 const rulesResp = await api.businessRules.getBusinessRules(datasetId);
                 if (rulesResp.success && rulesResp.data) {
                   setBusinessRules(rulesResp.data);
-                  const validationResp = await api.pipelineService.applyBusinessRules(datasetId);
+                  const validationResp = await pipelineService.applyBusinessRules(datasetId);
                   if (validationResp.success && validationResp.data) {
                     setRulesValidation(validationResp.data);
                     toast({

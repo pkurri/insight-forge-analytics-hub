@@ -3,29 +3,15 @@
 This module provides the BusinessRulesService class for managing business rules, including:
 - Manual and AI-assisted rule creation
 - Rule import/export via JSON
-- Rule execution and logging
-- Integration with OpenAI, Hugging Face, Great Expectations, and Pydantic
-- Support for extensible rule sources and validation frameworks
 """
 
-import logging
-import pandas as pd
-import numpy as np
-from typing import Dict, Any, List, Optional, Callable
-from datetime import datetime
-import ast
-import re
-import json
-import uuid
-import asyncio
-from openai import OpenAI
-import great_expectations as ge
-from pydantic import BaseModel, ValidationError, create_model
-from sqlalchemy import text
-from sqlalchemy.sql import text
+# Re-export the business rules service from the new modular structure
+from api.services.business_rules import business_rules_service
 
-from api.config.settings import get_settings
-from api.models.dataset import DatasetStatus
+# For backward compatibility, export all attributes from the service instance
+for attr_name in dir(business_rules_service):
+    if not attr_name.startswith('_'):
+        globals()[attr_name] = getattr(business_rules_service, attr_name)
 from api.db.connection import get_db_session
 from api.services.internal_ai_service import generate_text_internal
 
@@ -45,6 +31,8 @@ class BusinessRulesService:
     - Execute rules on datasets
     - Log rule execution results
     - Extensible for additional rule sources and validation logic
+    - Apply rules during data pipeline processing
+    - Validate data against rules before vectorization
     """
 
     def __init__(self):
@@ -733,7 +721,6 @@ class BusinessRulesService:
                         rule_id += 1
                         
                 elif col_type == 'categorical':
-                    # Value set rule
                     categories = col_info.get('stats', {}).get('categories', [])
                     if categories and len(categories) <= 20:  # Only if reasonable number of categories
                         categories_str = str(categories).replace("'", "\"")
@@ -1276,7 +1263,10 @@ class BusinessRulesService:
             "hf": self._execute_hf_rule,
             "manual": self._execute_python_rule,
             "ai": self._execute_python_rule,
-            "python": self._execute_python_rule
+            "python": self._execute_python_rule,
+            "validation": self._execute_python_rule,
+            "transformation": self._execute_transformation_rule,
+            "enrichment": self._execute_enrichment_rule
         }
         
         return execution_functions.get(source)
@@ -1313,3 +1303,366 @@ class BusinessRulesService:
         except Exception as e:
             logger.error(f"Error compiling condition: {str(e)}")
             return None
+            
+    async def get_rules_for_dataset(self, dataset_id: str, rule_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Get rules for a dataset, optionally filtered by rule IDs.
+        
+        Args:
+            dataset_id: ID of the dataset
+            rule_ids: Optional list of rule IDs to filter by
+            
+        Returns:
+            List of rule dictionaries
+        """
+        try:
+            # Import here to avoid circular imports
+            from api.repositories.business_rules_repository import business_rules_repository as rules_repo
+            
+            # Get all rules for the dataset
+            rules = await rules_repo.get_rules_by_dataset(dataset_id)
+            
+            # Filter by rule IDs if provided
+            if rule_ids:
+                rules = [r for r in rules if r["id"] in rule_ids]
+                
+            # Sort by execution order if available
+            rules.sort(key=lambda r: r.get("execution_order", 0))
+            
+            return rules
+        except Exception as e:
+            logger.error(f"Error getting rules for dataset {dataset_id}: {str(e)}")
+            return []
+            
+    async def apply_rules_to_dataset(self, dataset_id: str, data: List[Dict[str, Any]], rule_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Apply business rules to a dataset.
+        
+        Args:
+            dataset_id: ID of the dataset
+            data: List of data records to apply rules to
+            rule_ids: Optional list of rule IDs to apply (if None, all active rules for the dataset are applied)
+            
+        Returns:
+            Dictionary with rule application results
+        """
+        try:
+            # Get rules for the dataset
+            rules = await self.get_rules_for_dataset(dataset_id, rule_ids)
+            
+            # Initialize results
+            results = {
+                "total_rules": len(rules),
+                "passed_rules": 0,
+                "failed_rules": 0,
+                "total_violations": 0,
+                "rule_results": []
+            }
+            
+            # Convert data to DataFrame for rule application
+            df = pd.DataFrame(data)
+            
+            # Apply each rule
+            for rule in rules:
+                rule_result = await self.apply_rule(rule, df)
+                results["rule_results"].append(rule_result)
+                
+                # Update counters
+                if rule_result["violation_count"] > 0:
+                    results["failed_rules"] += 1
+                    results["total_violations"] += rule_result["violation_count"]
+                else:
+                    results["passed_rules"] += 1
+                    
+                # Update rule execution stats
+                await self.update_rule_stats(rule["id"], rule_result["violation_count"] == 0)
+                
+            return results
+        except Exception as e:
+            logger.error(f"Error applying rules to dataset {dataset_id}: {str(e)}")
+            return {
+                "total_rules": 0,
+                "passed_rules": 0,
+                "failed_rules": 0,
+                "total_violations": 0,
+                "rule_results": [],
+                "error": str(e)
+            }
+            
+    async def apply_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+        """Apply a single rule to data.
+        
+        Args:
+            rule: Rule dictionary
+            df: DataFrame containing data to apply rule to
+            
+        Returns:
+            Dictionary with rule application results
+        """
+        try:
+            # Get rule information
+            rule_id = rule["id"]
+            rule_name = rule["name"]
+            rule_type = rule.get("rule_type", "validation")
+            rule_severity = rule.get("severity", "medium")
+            rule_source = rule.get("source", "manual")
+            rule_condition = rule["condition"]
+            rule_message = rule.get("message", "Rule violation")
+            
+            # Get execution function based on rule source
+            execute_fn = self._get_execution_function(rule_source)
+            if not execute_fn:
+                execute_fn = self._execute_python_rule
+                
+            # Execute rule
+            execution_result = await execute_fn(rule, df)
+            
+            # Process violations
+            violations = []
+            if not execution_result["success"]:
+                # Get violation details from execution result
+                if "meta" in execution_result and "errors" in execution_result["meta"]:
+                    for idx, error in execution_result["meta"]["errors"]:
+                        if idx < len(df):
+                            violations.append({
+                                "row": int(idx),
+                                "message": error,
+                                "data": df.iloc[idx].to_dict()
+                            })
+                else:
+                    # Generic violation for the whole dataset
+                    violations.append({
+                        "message": execution_result["message"],
+                        "data": None
+                    })
+            
+            # Create rule result
+            rule_result = {
+                "id": rule_id,
+                "name": rule_name,
+                "severity": rule_severity,
+                "rule_type": rule_type,
+                "source": rule_source,
+                "model_generated": rule.get("model_generated", False),
+                "violation_count": len(violations),
+                "violations": violations[:10]  # Limit to first 10 for performance
+            }
+            
+            return rule_result
+        except Exception as e:
+            logger.error(f"Error applying rule {rule.get('id', 'unknown')}: {str(e)}")
+            return {
+                "id": rule.get("id", "unknown"),
+                "name": rule.get("name", "Unknown Rule"),
+                "severity": rule.get("severity", "medium"),
+                "rule_type": rule.get("rule_type", "validation"),
+                "source": rule.get("source", "manual"),
+                "model_generated": rule.get("model_generated", False),
+                "violation_count": 1,
+                "violations": [{
+                    "message": f"Error applying rule: {str(e)}",
+                    "data": None
+                }]
+            }
+            
+    async def update_rule_stats(self, rule_id: str, success: bool) -> None:
+        """Update rule execution statistics.
+        
+        Args:
+            rule_id: ID of the rule
+            success: Whether the rule execution was successful
+        """
+        try:
+            # Import here to avoid circular imports
+            from api.repositories.business_rules_repository import business_rules_repository as rules_repo
+            
+            # Get current rule
+            rule = await rules_repo.get_rule(rule_id)
+            if not rule:
+                return
+                
+            # Update execution count and success rate
+            execution_count = rule.get("execution_count", 0) + 1
+            success_count = rule.get("success_count", 0) + (1 if success else 0)
+            success_rate = success_count / execution_count if execution_count > 0 else 0
+            
+            # Update rule
+            updates = {
+                "execution_count": execution_count,
+                "success_count": success_count,
+                "success_rate": success_rate,
+                "last_executed": datetime.utcnow().isoformat()
+            }
+            
+            await rules_repo.update_rule(rule_id, updates)
+        except Exception as e:
+            logger.error(f"Error updating rule stats for {rule_id}: {str(e)}")
+            
+    async def validate_data_with_rules(self, dataset_id: str, data: List[Dict[str, Any]], rule_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Validate data against rules before vectorization.
+        
+        Args:
+            dataset_id: ID of the dataset
+            data: List of data records to validate
+            rule_ids: Optional list of rule IDs to apply (if None, all active validation rules for the dataset are applied)
+            
+        Returns:
+            Dictionary with validation results and filtered data
+        """
+        try:
+            # Get rules for the dataset, filtered by validation type if no specific rule_ids
+            rules = await self.get_rules_for_dataset(dataset_id, rule_ids)
+            if not rule_ids:
+                # If no specific rules requested, filter to validation rules only
+                rules = [r for r in rules if r.get("rule_type", "validation") == "validation"]
+                
+            # Apply rules
+            validation_results = await self.apply_rules_to_dataset(dataset_id, data, [r["id"] for r in rules])
+            
+            # Filter data based on validation results
+            filtered_data = data.copy()
+            skipped_indices = set()
+            
+            # Find records that failed critical validation rules
+            for rule_result in validation_results["rule_results"]:
+                # Skip non-critical rules
+                if rule_result["severity"] != "high":
+                    continue
+                    
+                # Get indices of violated records
+                for violation in rule_result["violations"]:
+                    if "row" in violation:
+                        skipped_indices.add(violation["row"])
+            
+            # Remove skipped records
+            if skipped_indices:
+                filtered_data = [d for i, d in enumerate(data) if i not in skipped_indices]
+                
+            return {
+                "validation_results": validation_results,
+                "filtered_data": filtered_data,
+                "skipped_count": len(skipped_indices),
+                "original_count": len(data),
+                "filtered_count": len(filtered_data)
+            }
+        except Exception as e:
+            logger.error(f"Error validating data for dataset {dataset_id}: {str(e)}")
+            return {
+                "validation_results": {
+                    "total_rules": 0,
+                    "passed_rules": 0,
+                    "failed_rules": 0,
+                    "total_violations": 0,
+                    "rule_results": [],
+                    "error": str(e)
+                },
+                "filtered_data": data,
+                "skipped_count": 0,
+                "original_count": len(data),
+                "filtered_count": len(data)
+            }
+            
+    async def _execute_transformation_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+        """Execute a transformation rule.
+        
+        Args:
+            rule: Rule dictionary
+            df: DataFrame containing data to transform
+            
+        Returns:
+            Dictionary with transformation results
+        """
+        try:
+            # Compile transformation function
+            transform_fn = self._compile_condition(rule["condition"])
+            if not transform_fn:
+                return {
+                    "success": False,
+                    "message": "Failed to compile transformation function",
+                    "meta": {}
+                }
+                
+            # Apply transformation to each row
+            transformed_rows = 0
+            errors = []
+            
+            for idx, row in df.iterrows():
+                try:
+                    # Apply transformation
+                    result = transform_fn(row.to_dict())
+                    
+                    # Update row with transformation result
+                    if isinstance(result, dict):
+                        for k, v in result.items():
+                            df.at[idx, k] = v
+                        transformed_rows += 1
+                except Exception as e:
+                    errors.append((idx, str(e)))
+                    
+            return {
+                "success": len(errors) == 0,
+                "message": f"Transformed {transformed_rows} rows with {len(errors)} errors",
+                "meta": {"errors": errors, "transformed_rows": transformed_rows}
+            }
+        except Exception as e:
+            logger.error(f"Error executing transformation rule: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Error executing transformation rule: {str(e)}",
+                "meta": {}
+            }
+            
+    async def _execute_enrichment_rule(self, rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+        """Execute an enrichment rule.
+        
+        Args:
+            rule: Rule dictionary
+            df: DataFrame containing data to enrich
+            
+        Returns:
+            Dictionary with enrichment results
+        """
+        try:
+            # Compile enrichment function
+            enrich_fn = self._compile_condition(rule["condition"])
+            if not enrich_fn:
+                return {
+                    "success": False,
+                    "message": "Failed to compile enrichment function",
+                    "meta": {}
+                }
+                
+            # Apply enrichment to each row
+            enriched_rows = 0
+            errors = []
+            
+            # Get target field from rule action
+            target_field = rule.get("action", "")
+            if not target_field:
+                return {
+                    "success": False,
+                    "message": "No target field specified in rule action",
+                    "meta": {}
+                }
+                
+            for idx, row in df.iterrows():
+                try:
+                    # Apply enrichment
+                    result = enrich_fn(row.to_dict())
+                    
+                    # Add new field with enrichment result
+                    df.at[idx, target_field] = result
+                    enriched_rows += 1
+                except Exception as e:
+                    errors.append((idx, str(e)))
+                    
+            return {
+                "success": len(errors) == 0,
+                "message": f"Enriched {enriched_rows} rows with {len(errors)} errors",
+                "meta": {"errors": errors, "enriched_rows": enriched_rows}
+            }
+        except Exception as e:
+            logger.error(f"Error executing enrichment rule: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Error executing enrichment rule: {str(e)}",
+                "meta": {}
+            }

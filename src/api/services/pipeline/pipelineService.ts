@@ -16,10 +16,109 @@ export interface PipelineStatus {
     start_time?: string;
     end_time?: string;
     error?: string;
+    metadata?: any;
   }[];
+  pipeline_metadata?: any;
+}
+
+export interface PipelineStep {
+  name: string;
+  type: string;
+  config: any;
+  order: number;
 }
 
 export const pipelineService = {
+  /**
+   * Run a dynamic pipeline with user-specified steps
+   */
+  runDynamicPipeline: async (
+    datasetId: string,
+    steps: PipelineStep[]
+  ): Promise<ApiResponse<any>> => {
+    const endpoint = `pipeline/dynamic/run`;
+    try {
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({
+          dataset_id: datasetId,
+          steps
+        })
+      });
+      return response;
+    } catch (error) {
+      console.error("Error running dynamic pipeline:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to run dynamic pipeline'
+      };
+    }
+  },
+
+  /**
+   * Get OpenEvals evaluations for pipeline steps
+   */
+  getPipelineStepEvaluations: async (
+    datasetId: string,
+    stepName: string
+  ): Promise<ApiResponse<any>> => {
+    const endpoint = `pipeline/evaluations/${datasetId}/${stepName}`;
+    try {
+      const response = await callApi(endpoint);
+      return response;
+    } catch (error) {
+      console.error("Error getting pipeline step evaluations:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get pipeline step evaluations'
+      };
+    }
+  },
+
+  /**
+   * Retry a failed pipeline step
+   */
+  retryPipelineStep: async (
+    datasetId: string,
+    stepName: string
+  ): Promise<ApiResponse<any>> => {
+    const endpoint = `pipeline/steps/${stepName}/retry`;
+    try {
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ dataset_id: datasetId })
+      });
+      return response;
+    } catch (error) {
+      console.error("Error retrying pipeline step:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to retry pipeline step'
+      };
+    }
+  },
+
+  /**
+   * Resume a paused pipeline run
+   */
+  resumePipelineRun: async (
+    pipelineId: string
+  ): Promise<ApiResponse<any>> => {
+    const endpoint = `pipeline/${pipelineId}/resume`;
+    try {
+      const response = await callApi(endpoint, {
+        method: 'POST'
+      });
+      return response;
+    } catch (error) {
+      console.error("Error resuming pipeline run:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to resume pipeline run'
+      };
+    }
+  },
+
   /**
    * Override business rules for a dataset and log the override action
    */
@@ -42,12 +141,12 @@ export const pipelineService = {
       };
     }
   },
+
   /**
    * Upload data to the pipeline
    */
   uploadData: async (formData: FormData, config?: { onUploadProgress?: (progressEvent: any) => void }): Promise<ApiResponse<any>> => {
     const endpoint = 'pipeline/upload';
-    
     try {
       const response = await callApi(endpoint, {
         method: 'POST',
@@ -63,13 +162,12 @@ export const pipelineService = {
       };
     }
   },
-  
+
   /**
    * Apply business rules to a dataset
    */
   applyBusinessRules: async (datasetId: string, options: any = {}): Promise<ApiResponse<any>> => {
     const endpoint = `pipeline/${datasetId}/business-rules`;
-    
     try {
       const response = await callApi(endpoint, {
         method: 'POST',
@@ -90,7 +188,6 @@ export const pipelineService = {
    */
   getPipelineStatus: async (pipelineId: string): Promise<ApiResponse<PipelineStatus>> => {
     const endpoint = `pipeline/status/${pipelineId}`;
-    
     try {
       const response = await callApi(endpoint);
       return response;
@@ -108,7 +205,6 @@ export const pipelineService = {
    */
   getPipelineRuns: async (datasetId: string): Promise<ApiResponse<PipelineStatus[]>> => {
     const endpoint = `pipeline/runs/${datasetId}`;
-    
     try {
       const response = await callApi(endpoint);
       return response;
@@ -126,7 +222,6 @@ export const pipelineService = {
    */
   configurePipeline: async (datasetId: string, config: any): Promise<ApiResponse<any>> => {
     const endpoint = `pipeline/configure/${datasetId}`;
-    
     try {
       const response = await callApi(endpoint, {
         method: 'POST',
@@ -151,7 +246,6 @@ export const pipelineService = {
     params?: any
   ): Promise<ApiResponse<any>> => {
     const endpoint = `pipeline/steps/${stage}/run`;
-    
     try {
       const response = await callApi(endpoint, {
         method: 'POST',
@@ -178,7 +272,6 @@ export const pipelineService = {
     stage: string
   ): Promise<ApiResponse<any>> => {
     const endpoint = `pipeline/results/${datasetId}/${stage}`;
-    
     try {
       const response = await callApi(endpoint);
       return response;
@@ -190,13 +283,12 @@ export const pipelineService = {
       };
     }
   },
-  
+
   /**
    * Get business rules validation results
    */
   getBusinessRulesResults: async (datasetId: string): Promise<ApiResponse<any>> => {
     const endpoint = `pipeline/results/${datasetId}/business-rules`;
-    
     try {
       const response = await callApi(endpoint);
       return response;

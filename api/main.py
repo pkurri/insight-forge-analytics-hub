@@ -6,6 +6,9 @@ from fastapi.responses import JSONResponse
 import time
 from typing import Callable
 
+# Track application startup time
+startup_time = time.time()
+
 # Import routers
 from routes.ai_router import router as ai_router
 from routes.openevals_router import router as openevals_router
@@ -15,6 +18,8 @@ from routes.project_eval_router import router as project_eval_router
 from routes.dashboard_router import router as dashboard_router
 from routes.analytics_router import router as analytics_router
 from routes.connection_router import router as connection_router
+from routes.vector_router import router as vector_router
+from routes.business_rules_router import router as business_rules_router
 
 # Configure logging
 logging.basicConfig(
@@ -88,10 +93,58 @@ async def root():
 # Health check endpoint
 @app.get("/health")
 async def health_check():
+    from datetime import datetime
+    from db.connection import check_db_connection, get_connection_stats
+    from services.vector_service import vector_service
+    from services.cache_service import cache_service
+    
+    # Check database connection
+    db_healthy = await check_db_connection()
+    db_stats = await get_connection_stats() if db_healthy else {"status": "unhealthy"}
+    
+    # Check vector service
+    vector_initialized = getattr(vector_service, "initialized", False)
+    
+    # Check cache service
+    cache_initialized = getattr(cache_service, "initialized", False)
+    cache_stats = {
+        "size": getattr(cache_service, "size", 0),
+        "hit_rate": getattr(cache_service, "hit_rate", 0)
+    } if cache_initialized else {}
+    
+    # Overall status
+    overall_status = "healthy" if (db_healthy and vector_initialized) else "degraded"
+    
+    # System info
+    import platform
+    import psutil
+    
+    system_info = {
+        "cpu_usage": psutil.cpu_percent(),
+        "memory_usage": psutil.virtual_memory().percent,
+        "disk_usage": psutil.disk_usage("/").percent,
+        "platform": platform.platform(),
+        "python_version": platform.python_version()
+    }
+    
     return {
         "success": True,
-        "status": "healthy",
-        "timestamp": time.time()
+        "status": overall_status,
+        "timestamp": datetime.utcnow().isoformat(),
+        "uptime": time.time() - startup_time,
+        "services": {
+            "database": db_stats,
+            "vector_service": {
+                "status": "healthy" if vector_initialized else "not_initialized",
+                "initialized": vector_initialized
+            },
+            "cache_service": {
+                "status": "healthy" if cache_initialized else "not_initialized",
+                "initialized": cache_initialized,
+                **cache_stats
+            }
+        },
+        "system": system_info
     }
 
 # Include routers
@@ -103,6 +156,8 @@ app.include_router(project_eval_router, prefix="/project-eval")
 app.include_router(dashboard_router, prefix="/dashboard")
 app.include_router(analytics_router, prefix="/analytics")
 app.include_router(connection_router, prefix="/connections")
+app.include_router(vector_router, prefix="/vectors")
+app.include_router(business_rules_router, prefix="/business-rules")
 
 # Add startup event
 @app.on_event("startup")
@@ -116,6 +171,7 @@ async def startup_event():
         from services.cache_service import cache_service
         from services.ai_service import ai_service
         from services.project_evaluator import project_evaluator
+        from services.business_rules_service import BusinessRulesService
         from config.openevals_config import openevals_config
         
         # Initialize services
