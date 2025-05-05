@@ -35,9 +35,6 @@ const getAlertVariant = (type: Insight['type'], importance: Insight['importance'
   if (type === 'anomaly' && importance === 'high') {
     return 'destructive';
   }
-  if (type === 'trend') {
-    return 'default';
-  }
   return 'default';
 };
 

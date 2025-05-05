@@ -1,23 +1,38 @@
 
-import { callApi } from '../../../utils/apiUtils';
-import { BusinessRule } from '../../../api/types';
+import { callApi, ApiCallOptions } from '@/utils/apiUtils';
+import { ApiResponse } from '@/api/types';
 
-/**
- * Business Rules Service - Handles CRUD operations for business rules
- */
+export interface BusinessRule {
+  id: string;
+  name: string;
+  description?: string;
+  condition: string;
+  severity: 'low' | 'medium' | 'high';
+  datasetId?: string; // For attaching to datasets
+  column?: string;
+  active: boolean;
+  created_at?: string;
+  updated_at?: string;
+  message?: string;
+  confidence?: number;
+  model_generated?: boolean;
+}
+
 export const businessRulesService = {
   /**
    * Get all business rules
    */
-  getAllBusinessRules: async (): Promise<any> => {
+  getAllBusinessRules: async (): Promise<ApiResponse<BusinessRule[]>> => {
     try {
-      const response = await callApi('business-rules');
-      return response;
+      const options: ApiCallOptions = {
+        method: 'GET'
+      };
+      return await callApi('business-rules', options);
     } catch (error) {
-      console.error("Error fetching business rules:", error);
+      console.error("Error getting business rules:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to fetch business rules"
+        error: error instanceof Error ? error.message : "Failed to get business rules"
       };
     }
   },
@@ -25,29 +40,31 @@ export const businessRulesService = {
   /**
    * Get business rules for a specific dataset
    */
-  getDatasetBusinessRules: async (datasetId: string): Promise<any> => {
+  getBusinessRules: async (datasetId: string): Promise<ApiResponse<BusinessRule[]>> => {
     try {
-      const response = await callApi(`datasets/${datasetId}/business-rules`);
-      return response;
+      const options: ApiCallOptions = {
+        method: 'GET'
+      };
+      return await callApi(`business-rules/dataset/${datasetId}`, options);
     } catch (error) {
-      console.error(`Error fetching business rules for dataset ${datasetId}:`, error);
+      console.error(`Error getting business rules for dataset ${datasetId}:`, error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to fetch dataset business rules"
+        error: error instanceof Error ? error.message : "Failed to get business rules"
       };
     }
   },
-
+  
   /**
-   * Create a new business rule
+   * Create a business rule
    */
-  createBusinessRule: async (businessRule: Omit<BusinessRule, 'id'>): Promise<any> => {
+  createBusinessRule: async (businessRule: Omit<BusinessRule, "id">): Promise<ApiResponse<BusinessRule>> => {
     try {
-      const response = await callApi('business-rules', {
+      const options: ApiCallOptions = {
         method: 'POST',
-        body: businessRule
-      });
-      return response;
+        body: JSON.stringify(businessRule)
+      };
+      return await callApi('business-rules', options);
     } catch (error) {
       console.error("Error creating business rule:", error);
       return {
@@ -56,17 +73,17 @@ export const businessRulesService = {
       };
     }
   },
-
+  
   /**
-   * Update an existing business rule
+   * Update a business rule
    */
-  updateBusinessRule: async (id: string, businessRule: Partial<BusinessRule>): Promise<any> => {
+  updateBusinessRule: async (id: string, businessRule: Partial<BusinessRule>): Promise<ApiResponse<BusinessRule>> => {
     try {
-      const response = await callApi(`business-rules/${id}`, {
+      const options: ApiCallOptions = {
         method: 'PUT',
-        body: businessRule
-      });
-      return response;
+        body: JSON.stringify(businessRule)
+      };
+      return await callApi(`business-rules/${id}`, options);
     } catch (error) {
       console.error(`Error updating business rule ${id}:`, error);
       return {
@@ -75,16 +92,16 @@ export const businessRulesService = {
       };
     }
   },
-
+  
   /**
    * Delete a business rule
    */
-  deleteBusinessRule: async (id: string): Promise<any> => {
+  deleteBusinessRule: async (id: string): Promise<ApiResponse<void>> => {
     try {
-      const response = await callApi(`business-rules/${id}`, {
+      const options: ApiCallOptions = {
         method: 'DELETE'
-      });
-      return response;
+      };
+      return await callApi(`business-rules/${id}`, options);
     } catch (error) {
       console.error(`Error deleting business rule ${id}:`, error);
       return {
@@ -93,46 +110,41 @@ export const businessRulesService = {
       };
     }
   },
-
+  
   /**
-   * Generate example business rules
+   * Save business rules for a dataset (batch save)
    */
-  getExampleRules: async (): Promise<any> => {
-    // These are hardcoded examples
-    return {
-      success: true,
-      data: [
-        {
-          id: "example-1",
-          name: "Email Format Validation",
-          description: "Validates that all email addresses match standard format",
-          condition: "REGEXP_MATCH(email, '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$')",
-          severity: "high",
-          column: "email",
-          active: true,
-          created_at: new Date().toISOString()
-        },
-        {
-          id: "example-2",
-          name: "Price Range Check",
-          description: "Ensures all prices fall within acceptable range",
-          condition: "price >= 0 AND price <= 10000",
-          severity: "medium",
-          column: "price",
-          active: true,
-          created_at: new Date().toISOString()
-        },
-        {
-          id: "example-3",
-          name: "Date Format Check",
-          description: "Validates date format is YYYY-MM-DD",
-          condition: "REGEXP_MATCH(date_field, '^[0-9]{4}-[0-9]{2}-[0-9]{2}$')",
-          severity: "medium",
-          column: "date_field",
-          active: true,
-          created_at: new Date().toISOString()
-        }
-      ]
-    };
+  saveBusinessRules: async (datasetId: string, rules: BusinessRule[]): Promise<ApiResponse<any>> => {
+    try {
+      const options: ApiCallOptions = {
+        method: 'POST',
+        body: JSON.stringify({ datasetId, rules })
+      };
+      return await callApi('business-rules/batch', options);
+    } catch (error) {
+      console.error("Error saving business rules:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to save business rules"
+      };
+    }
+  },
+  
+  /**
+   * Get example business rules based on a schema or dataset
+   */
+  getExampleRules: async (datasetId: string): Promise<ApiResponse<BusinessRule[]>> => {
+    try {
+      const options: ApiCallOptions = {
+        method: 'GET'
+      };
+      return await callApi(`business-rules/examples/${datasetId}`, options);
+    } catch (error) {
+      console.error("Error getting example business rules:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to get example business rules"
+      };
+    }
   }
 };

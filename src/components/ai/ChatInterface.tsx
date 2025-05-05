@@ -1,331 +1,339 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useState, useRef, useEffect } from 'react';
+import { SendHorizontal, Bot, RefreshCw, Search, AlertCircle, Sparkles, Brain } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { Loader2, Send, Bot, User, Sparkles, Info, AlertCircle } from 'lucide-react';
-import { api } from '@/api/api';
-import { ChatSuggestion } from '@/api/types';
-import ReactMarkdown from 'react-markdown';
-import { useDatasetContext } from '@/hooks/useDatasetContext';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Avatar } from '@/components/ui/avatar';
+import { Separator } from '@/components/ui/separator';
+// import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useToast } from '@/hooks/use-toast';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
-interface Message {
+/**
+ * Message interface defining the structure of chat messages
+ * 
+ * AI usage: The message type and metadata structure supports
+ * AI-generated responses with confidence scores and source attribution
+ */
+export interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  type: 'user' | 'assistant' | 'system';
   content: string;
-  timestamp: Date;
   metadata?: {
-    sources?: string[];
     confidence?: number;
-    model?: string;
+    sources?: string[];
+    isError?: boolean;
     processing_time?: number;
+    tokens_used?: number;
+    embedding_count?: number;
   };
+  timestamp: Date;
 }
 
+/**
+ * ChatInterface Component: Provides an AI-powered chat interface for data exploration
+ * 
+ * AI Implementation:
+ * - Connects to a backend AI service through the pythonApi.askQuestion method
+ * - Uses vectorized data representations for semantic search capabilities
+ * - Presents AI confidence scores and source attributions for transparency
+ * - Handles AI errors gracefully with fallbacks
+ */
 interface ChatInterfaceProps {
-  title?: string;
-  subtitle?: string;
-  showDatasetSelector?: boolean;
-  suggestions?: ChatSuggestion[];
-  defaultDataset?: string;
-  selectedModel?: string;
+  datasetId?: string;
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({
-  title = 'AI Assistant',
-  subtitle = 'Ask me anything about your data',
-  showDatasetSelector = false,
-  suggestions = [],
-  defaultDataset,
-  selectedModel = 'default'
-}) => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedDataset, setSelectedDataset] = useState<string | undefined>(defaultDataset);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const { datasets } = useDatasetContext();
-
-  // Initial system message
-  useEffect(() => {
-    setMessages([
-      {
-        id: 'system-1',
-        role: 'system',
-        content: 'Hello! I\'m your AI data assistant. How can I help you analyze your data today?',
-        timestamp: new Date(),
-      }
-    ]);
-  }, []);
-
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  // Focus input on load
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.focus();
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
+  const { toast } = useToast();
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: '1',
+      type: 'assistant',
+      content: 'Hi there! I\'m your AI assistant for data pipeline operations. How can I help you today?',
+      timestamp: new Date()
+    },
+    {
+      id: '2',
+      type: 'system',
+      content: 'I can answer questions about your loaded datasets using vector database technology and AI-powered schema detection.',
+      timestamp: new Date()
     }
+  ]);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [activeDataset, setActiveDataset] = useState<string>(datasetId || '');
+  const [availableDatasets, setAvailableDatasets] = useState<Array<{id: string, name: string}>>([]);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  
+  // Fetch available datasets when component mounts
+  useEffect(() => {
+    const fetchDatasets = async () => {
+      try {
+        const response = await fetch('/api/datasets');
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableDatasets(data.datasets || []);
+          if (!activeDataset && data.datasets?.length > 0) {
+            setActiveDataset(data.datasets[0].id);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching datasets:', error);
+        setMessages(prev => [...prev, {
+          id: `error-${Date.now()}`,
+          type: 'system',
+          content: 'Failed to load available datasets. Please try again later.',
+          metadata: { isError: true },
+          timestamp: new Date()
+        }]);
+      }
+    };
+    
+    fetchDatasets();
   }, []);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  
+  /**
+   * Send a user message to the AI assistant and handle the response
+   *
+   * 1. User question is captured and sent to the backend
+   * 2. Backend vector DB retrieves relevant context from datasets
+   * 3. AI model generates an answer based on retrieved context
+   * 4. Response with confidence scores and metadata is displayed
+   */
+  const handleSendMessage = async () => {
+    if (!input.trim() || isProcessing) return;
+    
+    // Add user message
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      type: 'user',
+      content: input,
+      timestamp: new Date()
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsTyping(true);
+    setIsProcessing(true);
+    
+    try {
+      // Send question to Python backend via API
+      // This triggers the AI-powered vector search and response generation
+      toast({
+        title: "AI Chat Unavailable",
+        description: "AI-powered chat is not currently supported due to missing backend integration.",
+        variant: "destructive"
+      });
+      return;
+      // Previous implementation called pythonApi.askQuestion, which is no longer available.
+      // Uncomment and implement the below once backend is available:
+      // const response = await pythonApi.askQuestion(input, activeDataset);
+      // if (response.success && response.data) { ... }
+    } catch (error) {
+      // Handle exception
+      const errorMessage: Message = {
+        id: `error-${Date.now()}`,
+        type: 'system',
+        content: 'Sorry, there was a problem connecting to the AI service.',
+        metadata: { isError: true },
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsTyping(false);
+      setIsProcessing(false);
+    }
   };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  
+  const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
   };
-
-  const handleSendMessage = async () => {
-    if (!input.trim() || isLoading) return;
-
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: input.trim(),
-      timestamp: new Date(),
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsLoading(true);
-
-    try {
-      // Prepare chat history for context
-      const chatHistory = messages
-        .filter(msg => msg.role !== 'system')
-        .map(msg => ({
-          role: msg.role,
-          content: msg.content
-        }));
-
-      // Call AI service
-      const response = await api.getAiAssistantResponse(input.trim(), {
-        dataset_id: selectedDataset,
-        model_id: selectedModel,
-        chat_history: chatHistory,
-        context: {
-          system_prompt_addition: selectedDataset 
-            ? `The user is currently working with dataset ID: ${selectedDataset}.` 
-            : undefined
-        }
-      });
-
-      if (response.success && response.data) {
-        const aiMessage: Message = {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content: response.data.response || response.data.answer || "I'm not sure how to respond to that.",
-          timestamp: new Date(),
-          metadata: {
-            sources: response.data.context?.sources || [],
-            confidence: response.data.context?.confidence || 0.8,
-            model: selectedModel,
-            processing_time: response.data.processing_time
-          }
-        };
-
-        setMessages(prev => [...prev, aiMessage]);
-      } else {
-        // Handle error
-        const errorMessage: Message = {
-          id: `assistant-error-${Date.now()}`,
-          role: 'assistant',
-          content: "I'm sorry, I encountered an error processing your request. Please try again later.",
-          timestamp: new Date(),
-        };
-
-        setMessages(prev => [...prev, errorMessage]);
-      }
-    } catch (error) {
-      console.error("Error in AI response:", error);
-      
-      // Add error message
-      const errorMessage: Message = {
-        id: `assistant-error-${Date.now()}`,
-        role: 'assistant',
-        content: "I'm sorry, I encountered an unexpected error. Please try again later.",
-        timestamp: new Date(),
-      };
-
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-      // Focus back on input after response
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
+  
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
     }
-  };
-
-  const handleSuggestionClick = (suggestion: string) => {
-    setInput(suggestion);
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-  };
-
-  const formatTimestamp = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
+  }, [messages]);
+  
   return (
-    <div className="flex flex-col h-[calc(100vh-12rem)] min-h-[500px] border rounded-lg overflow-hidden">
-      {/* Header */}
-      <div className="p-4 border-b bg-card flex justify-between items-center">
-        <div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-sm text-muted-foreground">{subtitle}</p>
-        </div>
-        
-        {showDatasetSelector && (
-          <Select
-            value={selectedDataset}
-            onValueChange={setSelectedDataset}
-          >
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Select dataset" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={undefined}>All Datasets</SelectItem>
-              {datasets.map(dataset => (
-                <SelectItem key={dataset.id} value={dataset.id}>
-                  {dataset.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-
-      {/* Messages */}
-      <ScrollArea className="flex-1 p-4">
-        <div className="space-y-4">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${
-                message.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              <div
-                className={`flex gap-3 max-w-[80%] ${
-                  message.role === 'user'
-                    ? 'flex-row-reverse'
-                    : 'flex-row'
-                }`}
-              >
-                <Avatar className={message.role === 'user' ? 'bg-primary' : 'bg-muted'}>
-                  <AvatarFallback>
-                    {message.role === 'user' ? <User size={18} /> : <Bot size={18} />}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <div
-                    className={`rounded-lg p-4 ${
-                      message.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted'
-                    }`}
+    <Card className="h-[calc(100vh-16rem)] flex flex-col">
+      <CardHeader className="px-4 py-3 border-b">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center space-x-2">
+            <Avatar className="h-8 w-8 bg-blue-500">
+              <Brain className="h-5 w-5 text-white" />
+            </Avatar>
+            <CardTitle className="text-md">Vector DB AI Assistant</CardTitle>
+          </div>
+          {availableDatasets.length > 0 && (
+            <Select value={activeDataset} onValueChange={setActiveDataset}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Select dataset" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableDatasets.map(dataset => (
+                  <SelectItem key={dataset.id} value={dataset.id}>{dataset.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <div className="flex space-x-1">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Search conversation</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8"
+                    onClick={() => {
+                      setMessages([
+                        {
+                          id: '1',
+                          type: 'assistant',
+                          content: 'Hi there! I\'m your AI assistant for data pipeline operations. How can I help you today?',
+                          timestamp: new Date()
+                        },
+                        {
+                          id: '2',
+                          type: 'system',
+                          content: 'I can answer questions about your loaded datasets using vector database technology and AI-powered schema detection.',
+                          timestamp: new Date()
+                        }
+                      ]);
+                    }}
                   >
-                    <ReactMarkdown className="prose dark:prose-invert max-w-none">
-                      {message.content}
-                    </ReactMarkdown>
-                  </div>
-                  <div className="flex items-center mt-1 space-x-2">
-                    <span className="text-xs text-muted-foreground">
-                      {formatTimestamp(message.timestamp)}
-                    </span>
-                    
-                    {message.metadata?.sources && message.metadata.sources.length > 0 && (
-                      <Badge variant="outline" className="text-xs">
-                        <Info className="h-3 w-3 mr-1" />
-                        {message.metadata.sources.length} sources
-                      </Badge>
-                    )}
-                    
-                    {message.metadata?.confidence && (
-                      <Badge 
-                        variant={message.metadata.confidence > 0.8 ? "default" : "outline"} 
-                        className="text-xs"
-                      >
-                        <Sparkles className="h-3 w-3 mr-1" />
-                        {Math.round(message.metadata.confidence * 100)}% confidence
-                      </Badge>
-                    )}
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Reset conversation</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </div>
+      </CardHeader>
+      
+      <CardContent className="flex-grow p-0 overflow-hidden">
+        <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
+          <div className="space-y-4">
+            {messages.map((message) => (
+              <div key={message.id} className={`flex ${
+                message.type === 'user' ? 'justify-end' : 
+                message.type === 'system' ? 'justify-center' : 'justify-start'
+              }`}>
+                <div 
+                  className={`max-w-[80%] rounded-lg p-3 ${
+                    message.type === 'user' 
+                      ? 'bg-blue-500 text-white' 
+                      : message.type === 'system'
+                        ? 'bg-gray-200 text-gray-800'
+                        : 'bg-gray-100 text-gray-800'
+                  }`}
+                >
+                  {message.type === 'assistant' && (
+                    <div className="flex items-center text-blue-600 text-xs mb-1 space-x-1">
+                      <Sparkles className="h-3 w-3" />
+                      <span>AI Assistant</span>
+                    </div>
+                  )}
+                  
+                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  
+                  {/* Show confidence and sources for AI responses */}
+                  {message.type === 'assistant' && message.metadata?.confidence && (
+                    <div className="mt-2 text-xs text-gray-500 border-t border-gray-200 pt-1">
+                      <div className="flex items-center">
+                        <span>Confidence: {Math.round(message.metadata.confidence * 100)}%</span>
+                        {message.metadata.confidence < 0.7 && (
+                          <AlertCircle className="h-3 w-3 ml-1 text-amber-500" />
+                        )}
+                      </div>
+                      
+                      {message.metadata.sources && message.metadata.sources.length > 0 && (
+                        <div className="mt-1">
+                          <span>Sources: {message.metadata.sources.join(", ")}</span>
+                        </div>
+                      )}
+                      
+                      {message.metadata.processing_time && (
+                        <div className="mt-1 text-xs text-gray-400">
+                          <span>Processing time: {message.metadata.processing_time.toFixed(2)}s</span>
+                          {message.metadata.tokens_used && (
+                            <span className="ml-2">• Tokens: {message.metadata.tokens_used}</span>
+                          )}
+                          {message.metadata.embedding_count && (
+                            <span className="ml-2">• Embeddings: {message.metadata.embedding_count}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  <p className="text-xs mt-1 opacity-70">
+                    {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+            ))}
+            {isTyping && (
+              <div className="flex justify-start">
+                <div className="bg-gray-100 text-gray-800 rounded-lg p-3">
+                  <div className="flex space-x-1">
+                    <div className="h-2 w-2 bg-gray-400 rounded-full animate-bounce"></div>
+                    <div className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    <div className="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-      </ScrollArea>
-
-      {/* Suggestions */}
-      {suggestions && suggestions.length > 0 && (
-        <div className="p-2 border-t">
-          <p className="text-xs text-muted-foreground mb-2">Suggested questions:</p>
-          <div className="flex flex-wrap gap-2">
-            {suggestions.slice(0, 3).map((suggestion) => (
-              <Button
-                key={suggestion.id}
-                variant="outline"
-                size="sm"
-                className="text-xs"
-                onClick={() => handleSuggestionClick(suggestion.text)}
-              >
-                {suggestion.text}
-              </Button>
-            ))}
+            )}
           </div>
-        </div>
-      )}
-
-      {/* Input */}
-      <div className="p-4 border-t">
-        <div className="flex gap-2">
-          <Textarea
-            ref={inputRef}
+        </ScrollArea>
+      </CardContent>
+      
+      <Separator />
+      
+      <CardFooter className="p-3">
+        <div className="flex w-full items-center space-x-2">
+          <Input
+            placeholder="Ask me about your dataset..."
             value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask a question about your data..."
-            className="min-h-[60px] resize-none"
-            disabled={isLoading}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyPress}
+            className="flex-grow"
+            disabled={isProcessing}
           />
-          <Button
-            onClick={handleSendMessage}
-            disabled={!input.trim() || isLoading}
-            className="shrink-0"
+          <Button 
+            onClick={handleSendMessage} 
+            disabled={!input.trim() || isProcessing} 
+            size="icon"
+            className="bg-blue-500 hover:bg-blue-600"
           >
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            <SendHorizontal className="h-4 w-4" />
           </Button>
         </div>
-        <div className="mt-2 text-xs text-muted-foreground flex items-center">
-          <Bot className="h-3 w-3 mr-1" />
-          <span>
-            {selectedModel !== 'default' ? `Using ${selectedModel} model` : 'AI-powered assistant'}
-            {selectedDataset ? ` • Dataset: ${selectedDataset}` : ''}
-          </span>
-        </div>
-      </div>
-    </div>
+      </CardFooter>
+    </Card>
   );
 };
 

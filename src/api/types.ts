@@ -21,6 +21,9 @@ export interface BusinessRule {
   active: boolean;
   created_at?: string;
   updated_at?: string;
+  message?: string;
+  confidence?: number;
+  model_generated?: boolean;
 }
 
 export interface PipelineStatus {
