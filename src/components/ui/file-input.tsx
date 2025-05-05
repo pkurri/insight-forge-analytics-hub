@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Upload } from 'lucide-react';
 
 export interface FileInputProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> {
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange'> {
   onChange?: (file: File | null) => void;
 }
 

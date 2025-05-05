@@ -6,7 +6,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-// import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
@@ -28,6 +27,9 @@ export interface Message {
     processing_time?: number;
     tokens_used?: number;
     embedding_count?: number;
+    insights?: string[];
+    timestamp?: string | Date;
+    modelId?: string;
   };
   timestamp: Date;
 }
@@ -43,9 +45,23 @@ export interface Message {
  */
 interface ChatInterfaceProps {
   datasetId?: string;
+  title?: string;
+  subtitle?: string;
+  showDatasetSelector?: boolean;
+  suggestions?: Array<{id: string; text: string; category: string;}>;
+  defaultDataset?: string;
+  selectedModel?: string;
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
+  datasetId,
+  title = "Vector DB AI Assistant",
+  subtitle,
+  showDatasetSelector = false,
+  suggestions = [],
+  defaultDataset,
+  selectedModel
+}) => {
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -171,9 +187,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
             <Avatar className="h-8 w-8 bg-blue-500">
               <Brain className="h-5 w-5 text-white" />
             </Avatar>
-            <CardTitle className="text-md">Vector DB AI Assistant</CardTitle>
+            <CardTitle className="text-md">{title}</CardTitle>
           </div>
-          {availableDatasets.length > 0 && (
+          {showDatasetSelector && (
             <Select value={activeDataset} onValueChange={setActiveDataset}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Select dataset" />

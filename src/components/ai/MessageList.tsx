@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Message } from './ChatInterface';
 import { Avatar } from '@/components/ui/avatar';
@@ -126,7 +127,9 @@ const MessageList: React.FC<MessageListProps> = ({
                         {message.metadata?.timestamp && (
                           <div className="flex items-center space-x-1 text-xs text-muted-foreground">
                             <Clock className="h-3 w-3" />
-                            <span>{new Date(message.metadata.timestamp).toLocaleTimeString()}</span>
+                            <span>{message.metadata.timestamp instanceof Date 
+                              ? message.metadata.timestamp.toLocaleTimeString() 
+                              : new Date(message.metadata.timestamp).toLocaleTimeString()}</span>
                           </div>
                         )}
                         
