@@ -1,18 +1,23 @@
+
 import React from "react";
+import { Printer } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function PrintMenu() {
   const handlePrint = () => {
     window.print();
   };
+  
   return (
-    <div style={{ marginBottom: 18 }}>
-      <button
-        className="btn"
-        onClick={handlePrint}
-        style={{ padding: "6px 18px", borderRadius: 8, background: "#f59e42", color: "#fff", border: 0, fontWeight: 500, cursor: "pointer" }}
+    <div className="mb-4">
+      <Button 
+        onClick={handlePrint} 
+        variant="outline"
+        className="flex items-center gap-2 hover:bg-orange-50 border-orange-300 text-orange-600 hover:text-orange-700"
       >
+        <Printer size={18} />
         Print / Save as PDF
-      </button>
+      </Button>
     </div>
   );
 }

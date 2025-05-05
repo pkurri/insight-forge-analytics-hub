@@ -16,22 +16,8 @@ import NotFound from './pages/NotFound';
 import Login from './pages/Login';
 import { ThemeProvider } from './components/theme/ThemeProvider';
 import { Toaster } from '@/components/ui/toaster';
-import StatsCards from "./components/analytics/StatsCards";
-import FeedbackChart from "./components/analytics/FeedbackChart";
-import MessageVolumeChart from "./components/analytics/MessageVolumeChart";
-import AnomalyTimeline from "./components/analytics/AnomalyTimeline";
-import CommonFeedback from "./components/analytics/CommonFeedback";
-import FeedbackRatingsBar from "./components/analytics/FeedbackRatingsBar";
-import ActiveUsersChart from "./components/analytics/ActiveUsersChart";
-import DashboardGrid from "./components/analytics/DashboardGrid";
-import CohortAnalysis from "./components/analytics/CohortAnalysis";
-import FirstResponseTime from "./components/analytics/FirstResponseTime";
-import ConversationLengthChart from "./components/analytics/ConversationLengthChart";
-import FunnelAnalysis from "./components/analytics/FunnelAnalysis";
-import UserSegmentationChart from "./components/analytics/UserSegmentationChart";
-import ExportMenu from "./components/analytics/ExportMenu";
-import PrintMenu from "./components/analytics/PrintMenu";
-import PdfExportMenu from "./components/analytics/PdfExportMenu";
+import { AnalyticsFunctions } from './components/analytics/AnalyticsFunctions';
+import { conversationAnalyticsService } from "./api/services/analytics/conversationAnalyticsService";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -48,24 +34,21 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   return <>{children}</>;
 };
 
-
-import { conversationAnalyticsService, Stats, Feedback, Volume, Anomaly } from "./api/services/analytics/conversationAnalyticsService";
-
 function ConversationAnalyticsDashboard() {
-  const [stats, setStats] = React.useState<Stats>({});
-  const [feedback, setFeedback] = React.useState<Feedback>({});
-  const [volume, setVolume] = React.useState<Volume>({});
-  const [anomalies, setAnomalies] = React.useState<Anomaly[]>([]);
-  const [commonFeedback, setCommonFeedback] = React.useState<string[]>([]);
-  const [ratings, setRatings] = React.useState<Record<string, number>>({});
-  const [activeUsers, setActiveUsers] = React.useState<Record<string, number>>({});
-  const [cohort, setCohort] = React.useState<{ cohorts: any[]; periods: string[] }>({ cohorts: [], periods: [] });
-  const [firstResponseTime, setFirstResponseTime] = React.useState<{ avgTime: number; medianTime?: number }>({ avgTime: 0 });
-  const [lengthDist, setLengthDist] = React.useState<any[]>([]);
-  const [funnel, setFunnel] = React.useState<any[]>([]);
-  const [userSegmentation, setUserSegmentation] = React.useState<any[]>([]);
+  const [stats, setStats] = React.useState({});
+  const [feedback, setFeedback] = React.useState({});
+  const [volume, setVolume] = React.useState({});
+  const [anomalies, setAnomalies] = React.useState([]);
+  const [commonFeedback, setCommonFeedback] = React.useState([]);
+  const [ratings, setRatings] = React.useState({});
+  const [activeUsers, setActiveUsers] = React.useState({});
+  const [cohort, setCohort] = React.useState({ cohorts: [], periods: [] });
+  const [firstResponseTime, setFirstResponseTime] = React.useState({ avgTime: 0 });
+  const [lengthDist, setLengthDist] = React.useState([]);
+  const [funnel, setFunnel] = React.useState([]);
+  const [userSegmentation, setUserSegmentation] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState(null);
 
   React.useEffect(() => {
     setLoading(true);
@@ -118,36 +101,24 @@ function ConversationAnalyticsDashboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Prepare data for CSV export
-  const volumeCsv = Object.entries(volume).map(([date, count]) => ({ date, count }));
-  const activeUsersCsv = Object.entries(activeUsers).map(([date, count]) => ({ date, count }));
-  const ratingsCsv = Object.entries(ratings).map(([rating, count]) => ({ rating, count }));
-
-  if (loading) return <div>Loading analytics...</div>;
-  if (error) return <div style={{ color: 'red' }}>{error}</div>;
-
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: 32 }}>
-      <h1 style={{ marginBottom: 32 }}>Conversation Analytics Dashboard</h1>
-      <PdfExportMenu />
-      <PrintMenu />
-      <ExportMenu csvData={volumeCsv} fileName="message_volume" />
-      <ExportMenu csvData={activeUsersCsv} fileName="active_users" />
-      <ExportMenu csvData={ratingsCsv} fileName="feedback_ratings" />
-      <DashboardGrid>
-        <StatsCards stats={stats} />
-        <FeedbackChart feedback={feedback} />
-        <FeedbackRatingsBar ratings={ratings} />
-        <CommonFeedback feedbacks={commonFeedback} />
-        <MessageVolumeChart volume={volume} />
-        <ActiveUsersChart activeUsers={activeUsers} />
-        <CohortAnalysis cohortData={cohort.cohorts} periods={cohort.periods} />
-        <FirstResponseTime avgTime={firstResponseTime.avgTime} medianTime={firstResponseTime.medianTime} />
-        <ConversationLengthChart data={lengthDist} />
-        <UserSegmentationChart data={userSegmentation} />
-        <FunnelAnalysis stages={funnel} />
-        <AnomalyTimeline anomalies={anomalies} />
-      </DashboardGrid>
+      <AnalyticsFunctions
+        stats={stats}
+        feedback={feedback}
+        volume={volume}
+        anomalies={anomalies}
+        commonFeedback={commonFeedback}
+        ratings={ratings}
+        activeUsers={activeUsers}
+        cohort={cohort}
+        firstResponseTime={firstResponseTime}
+        lengthDist={lengthDist}
+        funnel={funnel}
+        userSegmentation={userSegmentation}
+        loading={loading}
+        error={error}
+      />
     </div>
   );
 }
