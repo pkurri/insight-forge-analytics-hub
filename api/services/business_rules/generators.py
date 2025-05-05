@@ -21,6 +21,7 @@ from pydantic import create_model, Field
 
 from api.config.settings import get_settings
 from api.utils.openai_client import get_openai_client
+from services.internal_ai_service import generate_text_internal
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -34,49 +35,287 @@ RULE_ENGINES = {
 }
 
 async def generate_rules_with_engine(
-    dataset_id: str, 
-    column_meta: Dict[str, Any], 
-    engine: str = "ai_default", 
-    model_type: Optional[str] = None
+    dataset_id: str,
+    column_meta: Dict[str, Any],
+    engine: str = "ai_default",
+    model_type: str = None
 ) -> Dict[str, Any]:
-    """
-    Generate business rules using the specified engine.
+    """Generate business rules using different AI engines based on column meta.
     
     Args:
         dataset_id: ID of the dataset to generate rules for
         column_meta: Dictionary containing column information about the dataset
-        engine: Engine to use for rule generation
+        engine: AI engine to use for rule generation
         model_type: Type of model to use for generation
         
     Returns:
         Dictionary containing generated rules and meta
     """
     try:
-        # Get generator function
-        generator_fn_name = RULE_ENGINES.get(engine, "ai_default")
-        generator_fn = globals().get(generator_fn_name)
-        
-        if not generator_fn:
-            return {
-                "success": False,
-                "error": f"Unsupported rule generation engine: {engine}"
-            }
+        # Validate engine parameter
+        valid_engines = ["huggingface", "pydantic", "great_expectations", "ai_default"]
+        if engine not in valid_engines:
+            logger.warning(f"Invalid engine '{engine}', defaulting to 'ai_default'")
+            engine = "ai_default"
             
-        # Generate rules
-        result = await generator_fn(dataset_id, column_meta, model_type)
+        logger.info(f"Generating business rules using {engine} engine for dataset {dataset_id}")
         
-        # Auto-create rules if specified
-        if result.get("success") and result.get("auto_create", False):
-            rules_created = await _create_generated_rules(dataset_id, result["rules"])
-            result["rules_created"] = rules_created
-            
-        return result
+        # Generate rules based on the selected engine
+        if engine == "huggingface":
+            return await generate_huggingface_rules(dataset_id, column_meta)
+        elif engine == "pydantic":
+            return await generate_pydantic_rules(dataset_id, column_meta)
+        elif engine == "great_expectations":
+            return await generate_great_expectations_rules(dataset_id, column_meta)
+        else:  # ai_default
+            # Only allow internal models
+            allowed_models = getattr(settings, "ALLOWED_TEXT_GEN_MODELS", ["Mistral-3.2-instruct"])
+            if not model_type or model_type not in allowed_models:
+                model_type = allowed_models[0]
+
+            # Use internal text generation models
+            prompt = build_prompt(column_meta)
+            generated = await generate_text_internal(prompt, model=model_type)
+            # Parse the generated text into rules
+            return {"rules": generated, "meta": {"model": model_type, "source": "ai_default"}}
     except Exception as e:
-        logger.error(f"Error generating rules with engine {engine}: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        logger.error(f"Error generating AI rules with {engine} engine: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+async def generate_huggingface_rules(dataset_id: str, column_meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate business rules using Hugging Face models."""
+    try:
+        prompt = f"""Generate business rules for data validation using Hugging Face models.
+        Dataset columns: {json.dumps(column_meta, indent=2)}
+        Generate 3-5 business rules that would be useful for validating this data.
+        Each rule should include name, description, condition (as a Python expression), severity (low/medium/high), and message.
+        """
+        
+        # Use internal text generation as a placeholder for actual Hugging Face API call
+        generated = await generate_text_internal(prompt)
+        
+        # Process the generated rules to ensure they have the source field
+        if isinstance(generated, list):
+            for rule in generated:
+                if isinstance(rule, dict):
+                    rule["source"] = "huggingface"
+        
+        return {"rules": generated, "meta": {"source": "huggingface"}}
+    except Exception as e:
+        logger.error(f"Error generating Hugging Face rules: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+async def generate_pydantic_rules(dataset_id: str, column_meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate business rules using Pydantic models."""
+    try:
+        rules = []
+        
+        # Generate rules based on column types and constraints
+        for col_name, col_info in column_meta.items():
+            # Skip if no type information
+            if not col_info.get("type"):
+                continue
+                
+            col_type = col_info.get("type").lower()
+            
+            # Generate type validation rules
+            if col_type in ["int", "integer", "float", "number"]:
+                # Numeric validation
+                rules.append({
+                    "name": f"{col_name} Type Validation",
+                    "description": f"Validates that {col_name} contains only {col_type} values",
+                    "condition": f"df['{col_name}'].apply(lambda x: isinstance(x, {col_type}) if pd.notna(x) else True).all()",
+                    "severity": "high",
+                    "message": f"Column {col_name} must contain only {col_type} values",
+                    "source": "pydantic"
+                })
+                
+                # Add range validation if min/max are provided
+                if "min" in col_info and "max" in col_info:
+                    rules.append({
+                        "name": f"{col_name} Range Validation",
+                        "description": f"Validates that {col_name} values are within the allowed range",
+                        "condition": f"df[df['{col_name}'].notna()]['{col_name}'].between({col_info['min']}, {col_info['max']}).all()",
+                        "severity": "medium",
+                        "message": f"Column {col_name} values must be between {col_info['min']} and {col_info['max']}",
+                        "source": "pydantic"
+                    })
+                    
+            elif col_type in ["str", "string", "text"]:
+                # String validation
+                rules.append({
+                    "name": f"{col_name} Type Validation",
+                    "description": f"Validates that {col_name} contains only string values",
+                    "condition": f"df['{col_name}'].apply(lambda x: isinstance(x, str) if pd.notna(x) else True).all()",
+                    "severity": "high",
+                    "message": f"Column {col_name} must contain only string values",
+                    "source": "pydantic"
+                })
+                
+                # Add length validation if max_length is provided
+                if "max_length" in col_info:
+                    rules.append({
+                        "name": f"{col_name} Length Validation",
+                        "description": f"Validates that {col_name} values don't exceed the maximum length",
+                        "condition": f"df[df['{col_name}'].notna()]['{col_name}'].str.len().max() <= {col_info['max_length']}",
+                        "severity": "medium",
+                        "message": f"Column {col_name} values must not exceed {col_info['max_length']} characters",
+                        "source": "pydantic"
+                    })
+                    
+            elif col_type in ["date", "datetime"]:
+                # Date validation
+                rules.append({
+                    "name": f"{col_name} Date Validation",
+                    "description": f"Validates that {col_name} contains valid date values",
+                    "condition": f"pd.to_datetime(df['{col_name}'], errors='coerce').notna().all()",
+                    "severity": "high",
+                    "message": f"Column {col_name} must contain valid date values",
+                    "source": "pydantic"
+                })
+            
+            # Add not-null validation if required
+            if col_info.get("required", False):
+                rules.append({
+                    "name": f"{col_name} Required Validation",
+                    "description": f"Validates that {col_name} does not contain null values",
+                    "condition": f"df['{col_name}'].notna().all()",
+                    "severity": "high",
+                    "message": f"Column {col_name} must not contain null values",
+                    "source": "pydantic"
+                })
+        
+        return {"rules": rules, "meta": {"source": "pydantic"}}
+    except Exception as e:
+        logger.error(f"Error generating Pydantic rules: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+async def generate_great_expectations_rules(dataset_id: str, column_meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate business rules using Great Expectations."""
+    try:
+        rules = []
+        
+        # Generate rules based on column types and common validation patterns
+        for col_name, col_info in column_meta.items():
+            # Skip if no type information
+            if not col_info.get("type"):
+                continue
+                
+            col_type = col_info.get("type").lower()
+            
+            # Column existence check
+            rules.append({
+                "name": f"Expect {col_name} to exist",
+                "description": f"Validates that column {col_name} exists in the dataset",
+                "condition": f"'{col_name}' in df.columns",
+                "severity": "high",
+                "message": f"Column {col_name} must exist in the dataset",
+                "source": "great_expectations"
+            })
+            
+            # Type-specific validations
+            if col_type in ["int", "integer", "float", "number"]:
+                # Numeric validation
+                rules.append({
+                    "name": f"Expect {col_name} values to be valid numbers",
+                    "description": f"Validates that {col_name} contains valid numeric values",
+                    "condition": f"pd.to_numeric(df['{col_name}'], errors='coerce').notna().all()",
+                    "severity": "high",
+                    "message": f"Column {col_name} must contain valid numeric values",
+                    "source": "great_expectations"
+                })
+                
+                # Statistical validations
+                rules.append({
+                    "name": f"Expect {col_name} values to be reasonable",
+                    "description": f"Validates that {col_name} values are within a reasonable range (not extreme outliers)",
+                    "condition": f"(df['{col_name}'] - df['{col_name}'].mean()).abs() <= 3 * df['{col_name}'].std()",
+                    "severity": "medium",
+                    "message": f"Column {col_name} contains outlier values that are more than 3 standard deviations from the mean",
+                    "source": "great_expectations"
+                })
+                
+            elif col_type in ["str", "string", "text"]:
+                # String validation
+                rules.append({
+                    "name": f"Expect {col_name} values to be strings",
+                    "description": f"Validates that {col_name} contains string values",
+                    "condition": f"df['{col_name}'].apply(lambda x: isinstance(x, str) if pd.notna(x) else True).all()",
+                    "severity": "high",
+                    "message": f"Column {col_name} must contain string values",
+                    "source": "great_expectations"
+                })
+                
+                # Non-empty string validation
+                rules.append({
+                    "name": f"Expect {col_name} values to not be empty strings",
+                    "description": f"Validates that {col_name} does not contain empty strings",
+                    "condition": f"df[df['{col_name}'].notna()]['{col_name}'].str.strip().str.len().gt(0).all()",
+                    "severity": "medium",
+                    "message": f"Column {col_name} must not contain empty strings",
+                    "source": "great_expectations"
+                })
+                
+            elif col_type in ["date", "datetime"]:
+                # Date validation
+                rules.append({
+                    "name": f"Expect {col_name} values to be valid dates",
+                    "description": f"Validates that {col_name} contains valid date values",
+                    "condition": f"pd.to_datetime(df['{col_name}'], errors='coerce').notna().all()",
+                    "severity": "high",
+                    "message": f"Column {col_name} must contain valid date values",
+                    "source": "great_expectations"
+                })
+                
+                # Future date validation
+                rules.append({
+                    "name": f"Expect {col_name} values to not be in the future",
+                    "description": f"Validates that {col_name} does not contain future dates",
+                    "condition": f"pd.to_datetime(df['{col_name}'], errors='coerce').dt.date.max() <= pd.Timestamp.now().date()",
+                    "severity": "medium",
+                    "message": f"Column {col_name} must not contain future dates",
+                    "source": "great_expectations"
+                })
+            
+            # Completeness validation (applicable to all types)
+            rules.append({
+                "name": f"Expect {col_name} to be at least 95% complete",
+                "description": f"Validates that {col_name} has at least 95% non-null values",
+                "condition": f"df['{col_name}'].notna().mean() >= 0.95",
+                "severity": "medium",
+                "message": f"Column {col_name} must be at least 95% complete (non-null)",
+                "source": "great_expectations"
+            })
+        
+        return {"rules": rules, "meta": {"source": "great_expectations"}}
+    except Exception as e:
+        logger.error(f"Error generating Great Expectations rules: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+def build_prompt(column_meta: Dict[str, Any]) -> str:
+    """Build a prompt for AI rule generation based on column metadata."""
+    prompt = f"""Generate business rules for data validation based on the following column information:
+
+{json.dumps(column_meta, indent=2)}
+
+Generate 3-5 business rules that would be useful for validating this data.
+Each rule should include:
+1. name: A descriptive name for the rule
+2. description: A clear description of what the rule validates
+3. condition: A Python expression that can be evaluated on a pandas DataFrame
+4. severity: The severity level (low/medium/high)
+5. message: The error message to show when the rule fails
+
+Focus on:
+- Data type validation
+- Range/format validation
+- Completeness checks
+- Business logic validation
+- Data quality rules
+
+Return the rules as a JSON array of objects.
+"""
+    return prompt
 
 async def _create_generated_rules(dataset_id: str, rules: List[Dict[str, Any]]) -> int:
     """

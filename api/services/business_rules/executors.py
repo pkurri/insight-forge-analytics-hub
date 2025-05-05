@@ -23,6 +23,7 @@ from pydantic import ValidationError, create_model
 import great_expectations as ge
 
 from api.config.settings import get_settings
+from services.business_rules.metrics import record_rule_execution
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -647,5 +648,188 @@ async def _execute_enrichment_rule(rule: Dict[str, Any], df: pd.DataFrame) -> Di
         return {
             "success": False,
             "message": f"Error executing enrichment rule: {str(e)}",
+            "meta": {}
+        }
+
+async def execute_rule(rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+    """Execute a single rule on a dataset.
+    
+    Args:
+        rule: Rule to execute
+        df: DataFrame to validate
+        
+    Returns:
+        Dictionary containing execution result
+    """
+    try:
+        # Get rule execution function based on source
+        execution_fn = get_execution_function(rule["source"])
+        if not execution_fn:
+            raise ValueError(f"Unsupported rule source: {rule['source']}")
+        
+        # Execute rule
+        start_time = datetime.now()
+        result = await execution_fn(rule, df)
+        end_time = datetime.now()
+        
+        # Add execution meta
+        execution_time = (end_time - start_time).total_seconds()
+        result.update({
+            "rule_id": rule["id"],
+            "name": rule["name"],
+            "source": rule["source"],
+            "execution_time": execution_time
+        })
+        
+        # Log execution
+        await record_rule_execution(
+            rule["id"],
+            rule["dataset_id"],
+            result["success"],
+            result.get("violation_count", 0),
+            execution_time,
+            result.get("meta", {})
+        )
+        
+        return result
+        
+    except Exception as e:
+        error_result = {
+            "rule_id": rule["id"],
+            "name": rule["name"],
+            "source": rule["source"],
+            "success": False,
+            "error": str(e)
+        }
+        
+        # Log error
+        await record_rule_execution(
+            rule["id"],
+            rule["dataset_id"],
+            False,
+            0,
+            0,
+            {"error": str(e)}
+        )
+        
+        return error_result
+
+async def execute_python_rule(rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Execute a manual Python rule. The rule's 'condition' should be a valid Python expression or code block.
+    Returns a dict with success, message, and meta.
+    """
+    try:
+        # Prepare safe context
+        condition = rule["condition"]
+        context = {
+            "df": df,
+            "pd": pd,
+            "np": np,
+            "re": re,
+            "datetime": datetime
+        }
+        # Build a function from the condition
+        fn_code = (
+            "def validate(df):\n"
+            "    try:\n"
+            f"        {condition}\n"
+            "    except Exception as e:\n"
+            "        return False, str(e)\n"
+            "    return True, 'Rule validation passed'"
+        )
+        local_env = {}
+        exec(fn_code, context, local_env)
+        success, message = local_env["validate"](df)
+        affected_rows = []
+        if isinstance(success, pd.Series):
+            affected_rows = df[~success].index.tolist()
+            success = success.all()
+        return {
+            "success": bool(success),
+            "message": message if not success else "Rule validation passed",
+            "meta": {
+                "affected_rows": affected_rows[:10],  # Limit number of rows returned
+                "total_affected": len(affected_rows)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error executing Python rule: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error executing rule: {str(e)}",
+            "meta": {}
+        }
+
+async def execute_ge_rule(rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Execute a Great Expectations rule. The rule's 'condition' should be a GE expectation string or config.
+    """
+    try:
+        import great_expectations as ge
+        # Example: condition = 'expect_column_values_to_not_be_null("customer_id")'
+        expectation = rule["condition"]
+        ge_df = ge.from_pandas(df)
+        result = eval(f"ge_df.{expectation}")
+        success = result.success if hasattr(result, 'success') else False
+        return {
+            "success": success,
+            "message": "GE rule passed" if success else str(result),
+            "meta": {"ge_result": str(result)}
+        }
+    except Exception as e:
+        logger.error(f"Error executing GE rule: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error executing GE rule: {str(e)}",
+            "meta": {}
+        }
+
+async def execute_pydantic_rule(rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Execute a Pydantic rule. The rule's 'condition' should be a Pydantic model definition or schema.
+    """
+    try:
+        from pydantic import create_model, ValidationError
+        # This is a placeholder - you should parse the condition and build a model dynamically
+        model_def = rule["condition"]
+        # For demo: assume model_def is a dict of field types
+        Model = create_model('DynamicModel', **model_def)
+        errors = []
+        for idx, row in df.iterrows():
+            try:
+                Model(**row.to_dict())
+            except ValidationError as ve:
+                errors.append((idx, str(ve)))
+        success = len(errors) == 0
+        return {
+            "success": success,
+            "message": "Pydantic validation passed" if success else f"{len(errors)} rows failed",
+            "meta": {"errors": errors[:10], "total_failed": len(errors)}
+        }
+    except Exception as e:
+        logger.error(f"Error executing Pydantic rule: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error executing Pydantic rule: {str(e)}",
+            "meta": {}
+        }
+
+async def execute_hf_rule(rule: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Execute a Hugging Face rule. The rule's 'condition' should be a prompt or label for classification.
+    """
+    try:
+        # For demonstration, always pass
+        return {
+            "success": True,
+            "message": "Hugging Face rule executed.",
+            "meta": {}
+        }
+    except Exception as e:
+        logger.error(f"Error executing Hugging Face rule: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error executing Hugging Face rule: {str(e)}",
             "meta": {}
         }

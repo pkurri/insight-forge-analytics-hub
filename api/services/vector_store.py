@@ -7,12 +7,14 @@ from datetime import datetime
 import os
 import json
 import requests
+from sentence_transformers import SentenceTransformer
+from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 
-from api.db.connection import get_db_session
+from db.connection import get_db_session
 Base = declarative_base()
 
 from sqlalchemy.dialects.postgresql import JSONB
-from api.config.settings import get_settings
+from config.settings import get_settings
 
 settings = get_settings()
 
@@ -27,11 +29,17 @@ class VectorEmbedding(Base):
 
 Base.vector_metadata.create_all(bind=engine)
 
-
-
 class VectorStoreService:
     def __init__(self, vector_dim: int = 384):
         self.vector_dim = vector_dim
+        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Connect to Milvus
+        connections.connect(
+            alias="default",
+            host=settings.MILVUS_HOST,
+            port=settings.MILVUS_PORT
+        )
 
     async def store_data(self, data: List[Dict[str, Any]], dataset_id: int, vector_metadata: Dict[str, Any]) -> bool:
         """
@@ -101,20 +109,8 @@ class VectorStoreService:
                 print(f"Error getting dataset info: {str(e)}")
                 return {}
 
-class VectorStoreService:
-    def __init__(self):
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
-        self.vector_dim = 384  # Dimension of the sentence transformer model
-        
-        # Connect to Milvus
-        connections.connect(
-            alias="default",
-            host=settings.MILVUS_HOST,
-            port=settings.MILVUS_PORT
-        )
-
-    async def store_data(self, df: pd.DataFrame, vector_metadata: Dict[str, Any]) -> bool:
-        """Store data and its embeddings in the vector database."""
+    async def store_data_milvus(self, df: pd.DataFrame, vector_metadata: Dict[str, Any]) -> bool:
+        """Store data and its embeddings in Milvus vector database."""
         try:
             collection_name = f"dataset_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
             
@@ -163,13 +159,13 @@ class VectorStoreService:
             print(f"Error storing data in vector database: {str(e)}")
             return False
 
-    async def search_similar_data(
+    async def search_similar_data_milvus(
         self,
         query: str,
         limit: int = 5,
         collection_name: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Search for similar data in the vector database."""
+        """Search for similar data in Milvus vector database."""
         try:
             # If no collection specified, use the most recent one
             if not collection_name:
@@ -216,7 +212,7 @@ class VectorStoreService:
             return []
 
     async def get_collection_info(self, collection_name: str) -> Dict[str, Any]:
-        """Get information about a collection."""
+        """Get information about a Milvus collection."""
         try:
             collection = Collection(collection_name)
             

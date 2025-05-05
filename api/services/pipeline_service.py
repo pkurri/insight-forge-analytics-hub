@@ -14,9 +14,9 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.ensemble import IsolationForest
 
-from api.config.settings import get_settings
-from api.repositories.dataset_repository import DatasetRepository
-from api.models.dataset import DatasetStatus
+from config.settings import get_settings
+from repositories.dataset_repository import DatasetRepository
+from models.dataset import DatasetStatus
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -125,7 +125,7 @@ async def run_pipeline_step(pipeline: 'DataPipeline', step_type: str, df: pd.Dat
     Logs start/end/duration, supports rule-based skipping, and updates status dict.
     Integrates OpenEvals for quality and rule evaluation after each step.
     """
-    from api.services.openevals_service import openevals_service
+    from services.openevals_service import openevals_service
     step_type = step_type.lower()
     rules = rules or {}
     status = status or {}
@@ -236,7 +236,7 @@ async def run_pipeline_step(pipeline: 'DataPipeline', step_type: str, df: pd.Dat
         step_status["duration"] = step_status["end"] - step_status["start"]
         step_status["error"] = str(e)
         # Try OpenEvals error evaluation
-        from api.services.openevals_service import openevals_service
+        from services.openevals_service import openevals_service
         try:
             if step_type == 'business_rules':
                 oeval = await openevals_service.evaluate_business_rules("unknown", df)
@@ -294,7 +294,7 @@ class DataPipeline:
         """
         try:
             # Get dataset
-            from api.repositories.dataset_repository import DatasetRepository
+            from repositories.dataset_repository import DatasetRepository
             dataset_repo = DatasetRepository()
             dataset = await dataset_repo.get_dataset(dataset_id)
             if not dataset:

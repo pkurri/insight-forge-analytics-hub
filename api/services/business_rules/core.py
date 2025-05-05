@@ -14,15 +14,15 @@ from datetime import datetime
 import uuid
 from cachetools import TTLCache
 
-from api.config.settings import get_settings
-from api.db.connection import get_db_session
+from config.settings import get_settings
+from db.connection import get_db_session
 
 # Import submodules
-from api.services.business_rules.validators import validate_rule_format, validate_rule_condition
-from api.services.business_rules.executors import get_execution_function
-from api.services.business_rules.generators import generate_rules_with_engine
-from api.services.business_rules.metrics import get_rule_metrics, record_rule_execution
-from api.services.business_rules.suggestions import suggest_rules_from_data
+from services.business_rules.validators import validate_rule_format, validate_rule_condition
+from services.business_rules.executors import get_execution_function
+from services.business_rules.generators import generate_rules_with_engine
+from services.business_rules.metrics import get_rule_metrics, record_rule_execution
+from services.business_rules.suggestions import suggest_rules_from_data
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class BusinessRulesService:
                 return self.rules_cache[dataset_id]
                 
             # Import here to avoid circular imports
-            from api.repositories import business_rules_repository
+            from repositories import business_rules_repository
             
             # Fetch rules from repository
             rules = await business_rules_repository.get_rules_by_dataset(dataset_id)
@@ -93,7 +93,7 @@ class BusinessRulesService:
         """
         try:
             # Import here to avoid circular imports
-            from api.repositories import business_rules_repository
+            from repositories import business_rules_repository
             
             # Get all rules for the dataset
             rules = await business_rules_repository.get_rules_by_dataset(dataset_id)
@@ -123,7 +123,7 @@ class BusinessRulesService:
         """
         try:
             # Import here to avoid circular imports
-            from api.repositories import business_rules_repository
+            from repositories import business_rules_repository
             
             # Validate rule format
             if not await validate_rule_format(rule_data):
@@ -171,7 +171,7 @@ class BusinessRulesService:
         """
         try:
             # Import here to avoid circular imports
-            from api.repositories import business_rules_repository
+            from repositories import business_rules_repository
             
             # Get existing rule
             existing_rule = await business_rules_repository.get_rule(rule_id)
@@ -212,7 +212,7 @@ class BusinessRulesService:
         """
         try:
             # Import here to avoid circular imports
-            from api.repositories import business_rules_repository
+            from repositories import business_rules_repository
             
             # Get existing rule to find dataset_id
             existing_rule = await business_rules_repository.get_rule(rule_id)
@@ -241,7 +241,7 @@ class BusinessRulesService:
         """
         try:
             # Import here to avoid circular imports
-            from api.repositories import business_rules_repository
+            from repositories import business_rules_repository
             
             return await business_rules_repository.get_rule(rule_id)
         except Exception as e:
@@ -259,7 +259,7 @@ class BusinessRulesService:
         """
         try:
             # Import here to avoid circular imports
-            from api.repositories import business_rules_repository
+            from repositories import business_rules_repository
             
             # If dataset_id is provided, use cached version if available
             if dataset_id and dataset_id in self.rules_cache:
@@ -411,7 +411,7 @@ class BusinessRulesService:
     # are moved to the executors.py module and imported from there
     
     # Import and re-export those methods for backward compatibility
-    from api.services.business_rules.executors import (
+    from services.business_rules.executors import (
         apply_rules_to_dataset, 
         apply_rule, 
         validate_data_with_rules,

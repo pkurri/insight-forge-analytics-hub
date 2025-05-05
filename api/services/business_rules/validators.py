@@ -1,251 +1,163 @@
 """
 Business Rules Validators Module
 
-This module provides functions for validating business rule formats and conditions:
-- Rule schema validation
-- Condition syntax validation
-- Rule dependency validation
+This module provides functions for validating business rules and their execution results.
 """
 
 import logging
-import json
-import ast
-from typing import Dict, List, Any, Optional, Union
-import re
-import jsonschema
-from jsonschema import validate
+from typing import Dict, Any, List, Optional
+import pandas as pd
+import numpy as np
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Rule schema definition
-RULE_SCHEMA = {
-    "type": "object",
-    "required": ["name", "dataset_id", "condition"],
-    "properties": {
-        "id": {"type": "string"},
-        "name": {"type": "string"},
-        "description": {"type": "string"},
-        "dataset_id": {"type": "string"},
-        "condition": {"type": ["string", "object"]},
-        "rule_type": {"type": "string", "enum": ["validation", "transformation", "enrichment"]},
-        "severity": {"type": "string", "enum": ["low", "medium", "high"]},
-        "source": {"type": "string"},
-        "tags": {"type": "array", "items": {"type": "string"}},
-        "model_generated": {"type": "boolean"},
-        "execution_order": {"type": "integer"},
-        "active": {"type": "boolean"},
-        "metadata": {"type": "object"},
-        "created_at": {"type": "string"},
-        "updated_at": {"type": "string"},
-        "execution_count": {"type": "integer"},
-        "success_count": {"type": "integer"},
-        "success_rate": {"type": "number"},
-        "last_executed": {"type": "string"}
-    },
-    "additionalProperties": True
-}
-
-async def validate_rule_format(rule_data: Dict[str, Any]) -> bool:
-    """
-    Validate the format of a business rule.
+def validate_rule_condition(condition: str) -> bool:
+    """Validate that a rule condition is safe and well-formed.
     
     Args:
-        rule_data: Dictionary containing rule information
+        condition: The rule condition to validate
         
     Returns:
-        True if the rule format is valid, False otherwise
+        bool: True if the condition is valid, False otherwise
     """
     try:
-        # Validate against schema
-        validate(instance=rule_data, schema=RULE_SCHEMA)
-        
-        # Set defaults for optional fields
-        rule_data.setdefault("rule_type", "validation")
-        rule_data.setdefault("severity", "medium")
-        rule_data.setdefault("source", "manual")
-        rule_data.setdefault("active", True)
-        rule_data.setdefault("model_generated", False)
-        rule_data.setdefault("execution_order", 0)
-        rule_data.setdefault("tags", [])
-        rule_data.setdefault("metadata", {})
-        rule_data.setdefault("execution_count", 0)
-        rule_data.setdefault("success_count", 0)
-        rule_data.setdefault("success_rate", 0.0)
-        
-        return True
-    except jsonschema.exceptions.ValidationError as e:
-        logger.error(f"Rule validation error: {str(e)}")
-        return False
-    except Exception as e:
-        logger.error(f"Error validating rule format: {str(e)}")
-        return False
-
-async def validate_rule_condition(condition: Union[str, Dict[str, Any]]) -> bool:
-    """
-    Validate a rule condition.
-    
-    Args:
-        condition: Rule condition (string or dictionary)
-        
-    Returns:
-        True if the condition is valid, False otherwise
-    """
-    try:
-        # Handle different condition types
-        if isinstance(condition, dict):
-            # Validate dictionary structure
-            return True
-        elif isinstance(condition, str):
-            # Validate Python syntax for string conditions
-            try:
-                ast.parse(condition)
-                return True
-            except SyntaxError:
-                # Check if it's a Great Expectations expectation
-                if condition.startswith("expect_"):
-                    return True
-                # Check if it's a JSON string
-                try:
-                    json.loads(condition)
-                    return True
-                except json.JSONDecodeError:
-                    pass
-                    
-                logger.error(f"Invalid condition syntax: {condition}")
-                return False
-        else:
-            logger.error(f"Unsupported condition type: {type(condition)}")
+        # Basic security checks
+        if any(keyword in condition.lower() for keyword in [
+            "import", "exec", "eval", "os.", "sys.", "subprocess",
+            "open", "file", "read", "write", "delete", "remove"
+        ]):
+            logger.warning(f"Rule condition contains forbidden keywords: {condition}")
             return False
+            
+        # Try to compile the condition
+        compile(condition, "<string>", "eval")
+        return True
     except Exception as e:
         logger.error(f"Error validating rule condition: {str(e)}")
         return False
 
-async def validate_rule_dependencies(rule: Dict[str, Any], dataset_id: str) -> Dict[str, Any]:
-    """
-    Validate rule dependencies.
+def validate_rule_structure(rule: Dict[str, Any]) -> bool:
+    """Validate that a rule has all required fields and they are of the correct type.
     
     Args:
-        rule: Rule dictionary
-        dataset_id: ID of the dataset
+        rule: The rule to validate
         
     Returns:
-        Dictionary with validation results
+        bool: True if the rule is valid, False otherwise
     """
     try:
-        # Extract dependencies from condition
-        dependencies = []
+        required_fields = {
+            "name": str,
+            "description": str,
+            "condition": str,
+            "severity": str,
+            "message": str,
+            "source": str
+        }
         
-        # Check for column references in the condition
-        if isinstance(rule["condition"], str):
-            # Extract column references using regex
-            column_refs = re.findall(r'df\[[\'"](.*?)[\'"]\]', rule["condition"])
-            dependencies.extend([{"type": "column", "name": col} for col in column_refs])
+        # Check all required fields exist
+        for field, field_type in required_fields.items():
+            if field not in rule:
+                logger.warning(f"Rule missing required field: {field}")
+                return False
+            if not isinstance(rule[field], field_type):
+                logger.warning(f"Rule field {field} has incorrect type: {type(rule[field])}")
+                return False
+                
+        # Validate severity is one of the allowed values
+        if rule["severity"].lower() not in ["low", "medium", "high"]:
+            logger.warning(f"Rule has invalid severity: {rule['severity']}")
+            return False
             
-            # Extract other rule references
-            rule_refs = re.findall(r'apply_rule\([\'"](.*)[\'"]\)', rule["condition"])
-            dependencies.extend([{"type": "rule", "id": rule_id} for rule_id in rule_refs])
-        
-        # Import here to avoid circular imports
-        from api.repositories import business_rules_repository
-        
-        # Validate rule dependencies
-        missing_deps = []
-        for dep in dependencies:
-            if dep["type"] == "column":
-                # Check if column exists in dataset
-                # This would require a dataset service or repository
-                pass
-            elif dep["type"] == "rule":
-                # Check if referenced rule exists
-                dep_rule = await business_rules_repository.get_rule(dep["id"])
-                if not dep_rule:
-                    missing_deps.append(dep)
-        
-        return {
-            "valid": len(missing_deps) == 0,
-            "dependencies": dependencies,
-            "missing_dependencies": missing_deps
-        }
+        # Validate source is one of the allowed values
+        if rule["source"].lower() not in ["manual", "ai_default", "huggingface", "pydantic", "great_expectations"]:
+            logger.warning(f"Rule has invalid source: {rule['source']}")
+            return False
+            
+        return True
     except Exception as e:
-        logger.error(f"Error validating rule dependencies: {str(e)}")
-        return {
-            "valid": False,
-            "dependencies": [],
-            "missing_dependencies": [],
-            "error": str(e)
-        }
+        logger.error(f"Error validating rule structure: {str(e)}")
+        return False
 
-async def validate_rule_circular_dependencies(rule_id: str, dataset_id: str) -> Dict[str, Any]:
-    """
-    Check for circular dependencies in rules.
+def validate_execution_result(result: Dict[str, Any]) -> bool:
+    """Validate that a rule execution result has all required fields and they are of the correct type.
     
     Args:
-        rule_id: ID of the rule to check
-        dataset_id: ID of the dataset
+        result: The execution result to validate
         
     Returns:
-        Dictionary with validation results
+        bool: True if the result is valid, False otherwise
     """
     try:
-        # Import here to avoid circular imports
-        from api.repositories import business_rules_repository
-        
-        # Get rule
-        rule = await business_rules_repository.get_rule(rule_id)
-        if not rule:
-            return {"valid": False, "error": "Rule not found"}
-            
-        # Initialize visited set and path
-        visited = set()
-        path = []
-        
-        # DFS to find cycles
-        async def dfs(current_id):
-            if current_id in path:
-                # Found a cycle
-                cycle_start = path.index(current_id)
-                return False, path[cycle_start:]
-                
-            if current_id in visited:
-                # Already visited, no cycle found
-                return True, []
-                
-            # Mark as visited and add to path
-            visited.add(current_id)
-            path.append(current_id)
-            
-            # Get current rule
-            current_rule = await business_rules_repository.get_rule(current_id)
-            if not current_rule:
-                # Rule not found, skip
-                path.pop()
-                return True, []
-                
-            # Extract rule references
-            if isinstance(current_rule["condition"], str):
-                rule_refs = re.findall(r'apply_rule\([\'"](.*)[\'"]\)', current_rule["condition"])
-                
-                # Check each dependency
-                for dep_id in rule_refs:
-                    valid, cycle = await dfs(dep_id)
-                    if not valid:
-                        return False, cycle
-            
-            # Remove from path
-            path.pop()
-            return True, []
-            
-        # Start DFS from the rule
-        valid, cycle = await dfs(rule_id)
-        
-        return {
-            "valid": valid,
-            "circular_dependencies": cycle if not valid else []
+        required_fields = {
+            "rule_id": (int, str),
+            "dataset_id": (int, str),
+            "status": str,
+            "execution_time": (float, int),
+            "timestamp": (str, datetime),
+            "details": dict
         }
+        
+        # Check all required fields exist
+        for field, field_types in required_fields.items():
+            if field not in result:
+                logger.warning(f"Result missing required field: {field}")
+                return False
+            if not isinstance(result[field], field_types):
+                logger.warning(f"Result field {field} has incorrect type: {type(result[field])}")
+                return False
+                
+        # Validate status is one of the allowed values
+        if result["status"].lower() not in ["passed", "failed", "error"]:
+            logger.warning(f"Result has invalid status: {result['status']}")
+            return False
+            
+        # Validate execution time is positive
+        if result["execution_time"] <= 0:
+            logger.warning(f"Result has invalid execution time: {result['execution_time']}")
+            return False
+            
+        # Validate details contains required fields for failed rules
+        if result["status"].lower() == "failed":
+            if "failed_rows" not in result["details"]:
+                logger.warning("Failed result missing failed_rows in details")
+                return False
+            if not isinstance(result["details"]["failed_rows"], (list, np.ndarray)):
+                logger.warning("failed_rows must be a list or numpy array")
+                return False
+                
+        return True
     except Exception as e:
-        logger.error(f"Error checking circular dependencies: {str(e)}")
-        return {
-            "valid": False,
-            "circular_dependencies": [],
-            "error": str(e)
-        }
+        logger.error(f"Error validating execution result: {str(e)}")
+        return False
+
+def validate_dataset_for_rules(dataset: pd.DataFrame, rules: List[Dict[str, Any]]) -> bool:
+    """Validate that a dataset has all required columns for the given rules.
+    
+    Args:
+        dataset: The dataset to validate
+        rules: List of rules to check against
+        
+    Returns:
+        bool: True if the dataset is valid for all rules, False otherwise
+    """
+    try:
+        # Extract all column names used in rule conditions
+        required_columns = set()
+        for rule in rules:
+            # Simple regex to find column references like df['column_name']
+            import re
+            matches = re.findall(r"df\['([^']+)'\]", rule["condition"])
+            required_columns.update(matches)
+            
+        # Check all required columns exist in dataset
+        missing_columns = required_columns - set(dataset.columns)
+        if missing_columns:
+            logger.warning(f"Dataset missing columns required by rules: {missing_columns}")
+            return False
+            
+        return True
+    except Exception as e:
+        logger.error(f"Error validating dataset for rules: {str(e)}")
+        return False
