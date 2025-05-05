@@ -16,19 +16,7 @@ type DataSource = 'local' | 'api' | 'database';
 type PipelineStage = 'validate' | 'transform' | 'enrich' | 'load';
 type PipelineStatus = 'running' | 'completed' | 'failed';
 
-interface PipelineResponse {
-  success: boolean;
-  data?: {
-    id: string;
-  };
-  error?: string;
-}
 
-interface PipelineStatusResponse {
-  success: boolean;
-  data?: PipelineStatusData;
-  error?: string;
-}
 
 interface PipelineStepUI {
   label: string;
@@ -155,7 +143,6 @@ const PipelineUploadForm: React.FC = () => {
 
     try {
       let formData = new FormData();
-      let endpoint = '/api/pipeline/upload';
 
       if (dataSource === 'local' && selectedFile) {
         formData.append('file', selectedFile);
@@ -338,59 +325,7 @@ const PipelineUploadForm: React.FC = () => {
     return cleanup;
   };
 
-  const handleRetryStep = async (stepName: string) => {
-    if (!datasetId) return;
 
-    try {
-      const response = await pipelineService.retryPipelineStep(datasetId, stepName);
-      if (response.success) {
-        toast({
-          title: "Step retry initiated",
-          description: `Retrying ${stepName} step...`,
-        });
-        await monitorPipelineProgress(datasetId);
-      } else {
-        toast({
-          title: "Retry failed",
-          description: response.error || "Failed to retry step",
-          variant: "destructive",
-        });
-      }
-    } catch (err: any) {
-      toast({
-        title: "Retry error",
-        description: err.message || "Error retrying step",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleResumePipeline = async () => {
-    if (!datasetId) return;
-
-    try {
-      const response = await pipelineService.resumePipelineRun(datasetId);
-      if (response.success) {
-        toast({
-          title: "Pipeline resumed",
-          description: "Pipeline execution has been resumed",
-        });
-        await monitorPipelineProgress(datasetId);
-      } else {
-        toast({
-          title: "Resume failed",
-          description: response.error || "Failed to resume pipeline",
-          variant: "destructive",
-        });
-      }
-    } catch (err: any) {
-      toast({
-        title: "Resume error",
-        description: err.message || "Error resuming pipeline",
-        variant: "destructive",
-      });
-    }
-  };
 
   return (
     <Card className="w-full">
