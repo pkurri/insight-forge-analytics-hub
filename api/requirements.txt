@@ -36,3 +36,4 @@ great-expectations==0.17.18
 dask==2023.9.0
 polars==0.18.2
 fastapi-prometheus-exporter==2.0.0
+gunicorn==20.1.0
