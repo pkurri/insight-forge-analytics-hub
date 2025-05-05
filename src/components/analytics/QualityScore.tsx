@@ -7,15 +7,20 @@ interface QualityScoreProps {
   maxValue?: number;
   showLabel?: boolean;
   className?: string;
+  labelClassName?: string;
+  showPercentage?: boolean;
 }
 
 export default function QualityScore({ 
   value, 
   maxValue = 10, 
-  showLabel = true, 
-  className 
+  showLabel = true,
+  showPercentage = false,
+  className,
+  labelClassName
 }: QualityScoreProps) {
   const percentage = (value / maxValue) * 100;
+  const roundedPercentage = Math.round(percentage);
   
   const getColorClass = () => {
     if (percentage >= 80) return "bg-green-500";
@@ -33,14 +38,22 @@ export default function QualityScore({
 
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <div className="flex items-center justify-between">
-        {showLabel && (
-          <span className={cn("text-sm font-medium", getTextClass())}>
+      {showLabel && (
+        <div className="flex items-center justify-between">
+          <span className={cn("text-sm font-medium", getTextClass(), labelClassName)}>
             Quality Score: {value}/{maxValue}
+            {showPercentage && ` (${roundedPercentage}%)`}
           </span>
-        )}
-      </div>
-      <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+        </div>
+      )}
+      <div 
+        className="h-2 w-full bg-gray-200 rounded-full overflow-hidden"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={roundedPercentage}
+        aria-label={`Quality score: ${value} out of ${maxValue}`}
+      >
         <div 
           className={cn("h-full rounded-full transition-all", getColorClass())} 
           style={{ width: `${percentage}%` }}

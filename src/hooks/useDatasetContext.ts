@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
 import { api, Dataset } from '@/api/api';
 
 interface DatasetContextType {
@@ -16,10 +16,10 @@ const DatasetContext = createContext<DatasetContextType | undefined>(undefined);
 
 // Provider component to wrap application and provide dataset context
 interface DatasetProviderProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
-export const DatasetProvider: React.FC<DatasetProviderProps> = ({ children }) => {
+export const DatasetProvider = ({ children }: DatasetProviderProps) => {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [activeDataset, setActiveDataset] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
