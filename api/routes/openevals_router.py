@@ -10,9 +10,9 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # Import services
-from ..services.openevals_service import openevals_service, EvalType, EvalStatus
-from ..services.dataset_metadataset_processor import get_dataset_metadataset, process_dataset_metadataset
-from ..services.business_rules_service import BusinessRulesService
+from services.openevals_service import openevals_service, EvalType, EvalStatus
+from services.dataset_metadataset_processor import get_dataset_metadataset, process_dataset_metadataset
+from services.business_rules_service import BusinessRulesService
 
 # Create router
 router = APIRouter(prefix="/openevals", tags=["OpenEvals"])

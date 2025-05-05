@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import time
 from typing import Callable
+from prometheus_client import make_asgi_app
 
 # Track application startup time
 startup_time = time.time()
@@ -20,6 +21,16 @@ from routes.analytics_router import router as analytics_router
 from routes.connection_router import router as connection_router
 from routes.vector_router import router as vector_router
 from routes.business_rules_router import router as business_rules_router
+from routes import (
+    auth_router, 
+    user_router, 
+    dataset_router, 
+    analytics_router,
+    pipeline_router,
+    monitoring_router,
+    ai_router
+)
+from services.vector_service import vector_service  # Import the singleton instance
 
 # Configure logging
 logging.basicConfig(

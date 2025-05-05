@@ -1,9 +1,8 @@
-
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
-from api.routes import (
+from routes import (
     auth_router, 
     user_router, 
     dataset_router, 

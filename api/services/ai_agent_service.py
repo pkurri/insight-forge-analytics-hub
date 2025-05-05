@@ -10,11 +10,14 @@ import numpy as np
 from fastapi import HTTPException
 
 from .cache_service import get_cache, set_cache
-from .vector_service import get_vector_db, search_similar_vectors
+from .vector_service import VectorService, search_similar_vectors
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)  
+
+# Initialize vector service
+vector_service = VectorService()
 
 # Environment variables for API keys
 from api.config.settings import get_settings

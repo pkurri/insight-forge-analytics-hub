@@ -1,8 +1,9 @@
-
 import asyncpg
 from typing import Optional
 import logging
-from api.config.settings import get_settings
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from config.settings import get_settings
 
 settings = get_settings()
 _pool: Optional[asyncpg.Pool] = None

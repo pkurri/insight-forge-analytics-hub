@@ -350,17 +350,19 @@ async def save_vector_db():
     return True
 
 class VectorService:
-    """Service for managing vector embeddings and similarity search operations."""
-    
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(VectorService, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self):
-        """Initialize the vector service."""
-        self.engine = engine
-        self.session_factory = AsyncSessionLocal
-        self.initialized = False
-        self.search_cache = {}
-        self.cache_ttl = 300  # 5 minutes in seconds
-        self.cache_max_size = 1000
-        
+        if not self._initialized:
+            self.initialized = False
+            self._initialized = True
+
     async def initialize(self):
         """Initialize the vector database and create tables/indexes if needed"""
         if self.initialized:
@@ -368,7 +370,7 @@ class VectorService:
             
         try:
             logger.info("Initializing vector database...")
-            async with self.engine.begin() as conn:
+            async with engine.begin() as conn:
                 # Create tables if they don't exist
                 await conn.run_sync(Base.metadata.create_all)
                 
@@ -393,7 +395,7 @@ class VectorService:
     
     async def get_session(self):
         """Get a database session"""
-        session = self.session_factory()
+        session = AsyncSessionLocal()
         try:
             yield session
         finally:
@@ -401,7 +403,7 @@ class VectorService:
             
     async def add_vectors(self, dataset_id: int, vectors: List[Dict[str, Any]]):
         """Add vectors to the database for a specific dataset"""
-        async with self.session_factory() as session:
+        async with AsyncSessionLocal() as session:
             try:
                 # Begin transaction
                 async with session.begin():
@@ -474,7 +476,7 @@ class VectorService:
             if (datetime.utcnow() - cache_time).total_seconds() < self.cache_ttl:
                 return cache_result
         
-        async with self.session_factory() as session:
+        async with AsyncSessionLocal() as session:
             try:
                 # Build query conditions
                 conditions = []
@@ -587,7 +589,7 @@ class VectorService:
             if (datetime.utcnow() - cache_time).total_seconds() < self.cache_ttl:
                 return cache_result
         
-        async with self.session_factory() as session:
+        async with AsyncSessionLocal() as session:
             try:
                 # Build query conditions
                 conditions = []
@@ -668,7 +670,7 @@ class VectorService:
         Returns:
             Dictionary with success status and count or error message
         """
-        async with self.session_factory() as session:
+        async with AsyncSessionLocal() as session:
             try:
                 # Begin transaction
                 async with session.begin():
@@ -690,7 +692,7 @@ class VectorService:
         Returns:
             Dictionary with success status and statistics or error message
         """
-        async with self.session_factory() as session:
+        async with AsyncSessionLocal() as session:
             try:
                 # Get total vector count
                 count_result = await session.execute(
@@ -740,7 +742,7 @@ class VectorService:
         Returns:
             List of dictionaries with vector data
         """
-        async with self.session_factory() as session:
+        async with AsyncSessionLocal() as session:
             try:
                 result = await session.execute(
                     select(VectorEmbedding).where(VectorEmbedding.dataset_id == dataset_id)
@@ -763,5 +765,5 @@ class VectorService:
                 logger.error(f"Error fetching vector database: {e}", exc_info=True)
                 return []
 
-# Create a singleton instance
+# Create singleton instance
 vector_service = VectorService()

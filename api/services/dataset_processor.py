@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import HTTPException
 
 # Import vector service for embedding generation
-from .vector_service import add_vectors, get_vector_db
+from .vector_service import VectorService, add_vectors, get_vector_db
 from .ai_agent_service import generate_embeddings
 
 # Configure logging
@@ -24,6 +24,9 @@ os.makedirs(DATASET_PATH, exist_ok=True)
 # Dataset dataset_metadata
 dataset_dataset_metadata = {}
 METADATA_PATH = os.path.join(DATASET_PATH, 'dataset_metadata.json')
+
+# Initialize vector service
+vector_service = VectorService()
 
 # Load dataset_metadata if exists
 def load_dataset_metadata():
