@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Body, Request
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
 import pandas as pd
 import json
 from datetime import datetime
+import time
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Import services
 from ..services.openevals_service import openevals_service, EvalType, EvalStatus
@@ -13,14 +17,19 @@ from ..services.business_rules_service import BusinessRulesService
 # Create router
 router = APIRouter(prefix="/openevals", tags=["OpenEvals"])
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
 # Initialize services
 business_rules_service = BusinessRulesService()
 
 @router.post("/business-rules/evaluate/{dataset_metadataset_id}")
-async def evaluate_business_rules(dataset_metadataset_id: str):
-    """
-    Evaluate business rules for a dataset_metadataset
-    """
+@limiter.limit("10/minute")
+async def evaluate_business_rules(
+    request: Request,
+    dataset_metadataset_id: str
+):
+    """Evaluate business rules for a dataset_metadataset with rate limiting"""
     try:
         # Get dataset_metadataset
         dataset_metadataset_info = await get_dataset_metadataset(dataset_metadataset_id)
@@ -47,8 +56,8 @@ async def evaluate_business_rules(dataset_metadataset_id: str):
         
         return {"success": True, "dataset_metadata": evaluation}
     
-    except HTTPException:
-        raise
+    except RateLimitExceeded:
+        raise HTTPException(status_code=429, detail="Too many requests")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -137,14 +146,16 @@ async def evaluate_dataset_metadata_quality(dataset_metadataset_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/ai-response/evaluate")
-async def evaluate_ai_response(request: Dict[str, Any] = Body(...)):
-    """
-    Evaluate an AI response for accuracy and consistency
-    """
+@limiter.limit("20/minute")
+async def evaluate_ai_response(
+    request: Request,
+    request_data: Dict[str, Any] = Body(...)
+):
+    """Evaluate an AI response with rate limiting"""
     try:
-        query = request.get("query")
-        response = request.get("response")
-        facts = request.get("facts")
+        query = request_data.get("query")
+        response = request_data.get("response")
+        facts = request_data.get("facts")
         
         if not query or not response:
             raise HTTPException(status_code=400, detail="Query and response are required")
@@ -154,6 +165,8 @@ async def evaluate_ai_response(request: Dict[str, Any] = Body(...)):
         
         return {"success": True, "dataset_metadata": evaluation}
     
+    except RateLimitExceeded:
+        raise HTTPException(status_code=429, detail="Too many requests")
     except HTTPException:
         raise
     except Exception as e:
@@ -172,10 +185,12 @@ async def get_evaluation_history(eval_type: Optional[str] = None, limit: int = 1
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history/{eval_id}")
-async def get_evaluation(eval_id: str):
-    """
-    Get a specific evaluation by ID
-    """
+@limiter.limit("30/minute")
+async def get_evaluation(
+    request: Request,
+    eval_id: str
+):
+    """Get a specific evaluation by ID with rate limiting"""
     try:
         evaluation = await openevals_service.get_evaluation(eval_id)
         if not evaluation:
@@ -183,7 +198,46 @@ async def get_evaluation(eval_id: str):
         
         return {"success": True, "dataset_metadata": evaluation}
     
+    except RateLimitExceeded:
+        raise HTTPException(status_code=429, detail="Too many requests")
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/batch-evaluate")
+@limiter.limit("5/minute")
+async def batch_evaluate(
+    request: Request,
+    evaluations: List[Dict[str, Any]] = Body(...)
+):
+    """Evaluate multiple items in batch with rate limiting"""
+    try:
+        if not evaluations:
+            raise HTTPException(status_code=400, detail="No evaluations provided")
+        
+        # Validate evaluation items
+        for eval_item in evaluations:
+            if not isinstance(eval_item, dict):
+                raise HTTPException(status_code=400, detail="Invalid evaluation item format")
+            if "type" not in eval_item or "data" not in eval_item:
+                raise HTTPException(status_code=400, detail="Each evaluation must have 'type' and 'data' fields")
+        
+        # Process batch evaluation
+        results = await openevals_service.evaluate_batch(evaluations)
+        
+        return {
+            "success": True,
+            "results": results,
+            "total": len(results)
+        }
+    
+    except RateLimitExceeded:
+        raise HTTPException(status_code=429, detail="Too many requests")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add error handler for rate limiting
+router.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

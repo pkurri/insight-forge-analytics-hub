@@ -9,6 +9,8 @@ import uuid
 import asyncio
 import time
 from enum import Enum
+import redis
+from functools import lru_cache
 
 # Import other services
 from .ai_agent_service import get_agent_response
@@ -52,12 +54,53 @@ class OpenEvalsService:
     
     def __init__(self):
         """
-        Initialize the OpenEvals service
+        Initialize the OpenEvals service with caching
         """
         self.evaluation_history = {}
         self.eval_logs_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'evaluation_logs')
         os.makedirs(self.eval_logs_path, exist_ok=True)
+        
+        # Initialize Redis cache
+        try:
+            self.redis_client = redis.Redis(
+                host=os.getenv('REDIS_HOST', 'localhost'),
+                port=int(os.getenv('REDIS_PORT', 6379)),
+                db=0,
+                decode_responses=True
+            )
+            self.cache_enabled = True
+        except Exception as e:
+            logger.warning(f"Redis cache initialization failed: {e}")
+            self.cache_enabled = False
     
+    @lru_cache(maxsize=1000)
+    def _get_cached_evaluation(self, eval_id: str) -> Optional[Dict[str, Any]]:
+        """Get evaluation from cache"""
+        if not self.cache_enabled:
+            return None
+        
+        try:
+            cached_data = self.redis_client.get(f"eval:{eval_id}")
+            if cached_data:
+                return json.loads(cached_data)
+        except Exception as e:
+            logger.error(f"Cache retrieval error: {e}")
+        return None
+
+    def _cache_evaluation(self, eval_id: str, evaluation: Dict[str, Any], ttl: int = 3600) -> None:
+        """Cache evaluation result"""
+        if not self.cache_enabled:
+            return
+        
+        try:
+            self.redis_client.setex(
+                f"eval:{eval_id}",
+                ttl,
+                json.dumps(evaluation)
+            )
+        except Exception as e:
+            logger.error(f"Cache storage error: {e}")
+
     async def evaluate_business_rules(self, dataset_id: str, df: pd.DataFrame) -> Dict[str, Any]:
         """
         Evaluate and validate business rules against a dataset
@@ -575,15 +618,20 @@ Also include a brief explanation for each score.
     
     async def get_evaluation(self, eval_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get a specific evaluation by ID
-        
-        Args:
-            eval_id: Evaluation ID
-            
-        Returns:
-            Evaluation details or None if not found
+        Get a specific evaluation by ID with caching
         """
-        return self.evaluation_history.get(eval_id)
+        # Try cache first
+        cached_eval = self._get_cached_evaluation(eval_id)
+        if cached_eval:
+            return cached_eval
+        
+        # If not in cache, get from history
+        evaluation = self.evaluation_history.get(eval_id)
+        if evaluation:
+            # Cache the result
+            self._cache_evaluation(eval_id, evaluation)
+        
+        return evaluation
         
     async def evaluate_conversation_insights(self, conversation_id: str, insights: List[str]) -> Dict[str, Any]:
         """
@@ -918,6 +966,111 @@ Please provide an improved version of the response that addresses the feedback a
             logger.error(f"Error processing user feedback: {str(e)}")
             return {
                 "success": False,
+                "error": str(e)
+            }
+    
+    async def evaluate_batch(self, evaluations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Evaluate multiple items in batch
+        
+        Args:
+            evaluations: List of items to evaluate, each containing:
+                - type: Type of evaluation (business_rule, consistency, etc.)
+                - data: Data to evaluate
+                - metadata: Additional metadata for evaluation
+                
+        Returns:
+            List of evaluation results
+        """
+        results = []
+        
+        try:
+            # Group evaluations by type for efficient processing
+            grouped_evals = {}
+            for eval_item in evaluations:
+                eval_type = eval_item.get("type")
+                if eval_type not in grouped_evals:
+                    grouped_evals[eval_type] = []
+                grouped_evals[eval_type].append(eval_item)
+            
+            # Process each group
+            for eval_type, items in grouped_evals.items():
+                if eval_type == EvalType.BUSINESS_RULE:
+                    # Process business rules in batch
+                    for item in items:
+                        result = await self.evaluate_business_rules(
+                            item["data"].get("dataset_id"),
+                            item["data"].get("df")
+                        )
+                        results.append(result)
+                
+                elif eval_type == EvalType.CONSISTENCY:
+                    # Process consistency checks in batch
+                    for item in items:
+                        result = await self.evaluate_agent_response(
+                            item["data"].get("query"),
+                            item["data"].get("response"),
+                            item["data"].get("facts")
+                        )
+                        results.append(result)
+                
+                else:
+                    # Handle other evaluation types
+                    for item in items:
+                        result = await self._evaluate_generic(
+                            eval_type,
+                            item["data"],
+                            item.get("metadata", {})
+                        )
+                        results.append(result)
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in batch evaluation: {e}")
+            raise
+    
+    async def _evaluate_generic(self, eval_type: str, data: Dict[str, Any], metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generic evaluation method for unsupported evaluation types
+        
+        Args:
+            eval_type: Type of evaluation
+            data: Data to evaluate
+            metadata: Additional metadata
+            
+        Returns:
+            Evaluation result
+        """
+        eval_id = str(uuid.uuid4())
+        
+        try:
+            # Create basic evaluation result
+            evaluation = {
+                "id": eval_id,
+                "type": eval_type,
+                "timestamp": datetime.now().isoformat(),
+                "status": EvalStatus.WARNING,
+                "message": f"Generic evaluation for {eval_type}",
+                "data": data,
+                "metadata": metadata
+            }
+            
+            # Store evaluation history
+            self.evaluation_history[eval_id] = evaluation
+            
+            # Save evaluation log
+            self._save_evaluation_log(evaluation)
+            
+            return evaluation
+            
+        except Exception as e:
+            logger.error(f"Error in generic evaluation: {e}")
+            return {
+                "id": eval_id,
+                "type": eval_type,
+                "timestamp": datetime.now().isoformat(),
+                "status": EvalStatus.ERROR,
                 "error": str(e)
             }
 
