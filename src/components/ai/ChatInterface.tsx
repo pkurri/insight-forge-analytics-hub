@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { SendHorizontal, Search, RefreshCw, AlertCircle, Sparkles, Brain } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -11,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { api } from '@/api/api';
+import { Message, ChatProps } from '@/types/chat';
 
 /**
  * Message interface defining the structure of chat messages
@@ -33,11 +33,9 @@ interface Message {
 /**
  * ChatInterface Component: Provides an AI-powered chat interface for data exploration
  */
-export interface ChatInterfaceProps {
-  datasetId?: string;
-}
+export interface ChatInterfaceProps extends ChatProps {}
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId, modelId, agentId }) => {
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
     {

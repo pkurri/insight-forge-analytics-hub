@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { Message } from '@/components/ai/ChatInterface';
+import { Message } from '@/types/chat';
 
 export const useChatHistory = (chatId: string) => {
   const [history, setHistory] = useState<Message[]>([]);

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Message } from './ChatInterface';
+import { Message } from '@/types/chat';
 import { Avatar } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
