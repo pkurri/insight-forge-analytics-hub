@@ -2,7 +2,7 @@ import numpy as np
 from typing import Dict, Any, List, Optional
 from sqlalchemy import Column, Integer, String, DateTime, select
 from sqlalchemy.orm import declarative_base
-from pgvector.sqlalchemy import Vector, l2_distance
+from pgvector.sqlalchemy import Vector
 from datetime import datetime
 import os
 import json
@@ -71,14 +71,15 @@ class VectorStoreService:
                 stmt = select(VectorEmbedding)
                 if dataset_id:
                     stmt = stmt.where(VectorEmbedding.dataset_id == dataset_id)
+                stmt = stmt.order_by(VectorEmbedding.embedding.cosine_distance(query_np))
                 stmt = stmt.limit(limit)
                 result = await session.execute(stmt)
                 search_results = []
                 for entry in result.scalars():
-                    similarity = float(1.0 / (1.0 + l2_distance(entry.embedding, query_np)))
+                    similarity = 1 - entry.embedding.cosine_distance(query_np)
                     if similarity >= threshold:
                         search_results.append({
-                            "similarity": similarity,
+                            "similarity": float(similarity),
                             "record_id": entry.record_id,
                             "vector_metadata": entry.vector_metadata
                         })
