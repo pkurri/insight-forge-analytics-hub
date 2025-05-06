@@ -1,70 +1,42 @@
 
-import { callApi, ApiCallOptions } from '@/utils/apiUtils';
-import { ApiResponse } from '@/api/types';
-
-export interface BusinessRule {
-  id: string;
-  name: string;
-  description?: string;
-  condition: string;
-  severity: 'low' | 'medium' | 'high';
-  datasetId?: string; // For attaching to datasets
-  column?: string;
-  active: boolean;
-  created_at?: string;
-  updated_at?: string;
-  message?: string;
-  confidence?: number;
-  model_generated?: boolean;
-}
+import { callApi } from '../../utils/apiUtils';
+import { ApiResponse, BusinessRule } from '../../types';
 
 export const businessRulesService = {
   /**
    * Get all business rules
    */
-  getAllBusinessRules: async (): Promise<ApiResponse<BusinessRule[]>> => {
+  getBusinessRules: async (datasetId?: string): Promise<ApiResponse<BusinessRule[]>> => {
+    const endpoint = datasetId 
+      ? `datasets/${datasetId}/rules` 
+      : 'business-rules';
+    
     try {
-      const options: ApiCallOptions = {
-        method: 'GET'
-      };
-      return await callApi('business-rules', options);
+      const response = await callApi(endpoint);
+      return response;
     } catch (error) {
-      console.error("Error getting business rules:", error);
+      console.error("Error fetching business rules:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to get business rules"
-      };
-    }
-  },
-
-  /**
-   * Get business rules for a specific dataset
-   */
-  getBusinessRules: async (datasetId: string): Promise<ApiResponse<BusinessRule[]>> => {
-    try {
-      const options: ApiCallOptions = {
-        method: 'GET'
-      };
-      return await callApi(`business-rules/dataset/${datasetId}`, options);
-    } catch (error) {
-      console.error(`Error getting business rules for dataset ${datasetId}:`, error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to get business rules"
+        error: error instanceof Error ? error.message : "Failed to fetch business rules"
       };
     }
   },
   
   /**
-   * Create a business rule
+   * Create a new business rule
    */
-  createBusinessRule: async (businessRule: Omit<BusinessRule, "id">): Promise<ApiResponse<BusinessRule>> => {
+  createBusinessRule: async (rule: Partial<BusinessRule>, datasetId?: string): Promise<ApiResponse<BusinessRule>> => {
+    const endpoint = datasetId 
+      ? `datasets/${datasetId}/rules` 
+      : 'business-rules';
+    
     try {
-      const options: ApiCallOptions = {
+      const response = await callApi(endpoint, {
         method: 'POST',
-        body: JSON.stringify(businessRule)
-      };
-      return await callApi('business-rules', options);
+        body: JSON.stringify(rule)
+      });
+      return response;
     } catch (error) {
       console.error("Error creating business rule:", error);
       return {
@@ -75,17 +47,19 @@ export const businessRulesService = {
   },
   
   /**
-   * Update a business rule
+   * Update an existing business rule
    */
-  updateBusinessRule: async (id: string, businessRule: Partial<BusinessRule>): Promise<ApiResponse<BusinessRule>> => {
+  updateBusinessRule: async (ruleId: string, rule: Partial<BusinessRule>): Promise<ApiResponse<BusinessRule>> => {
+    const endpoint = `business-rules/${ruleId}`;
+    
     try {
-      const options: ApiCallOptions = {
+      const response = await callApi(endpoint, {
         method: 'PUT',
-        body: JSON.stringify(businessRule)
-      };
-      return await callApi(`business-rules/${id}`, options);
+        body: JSON.stringify(rule)
+      });
+      return response;
     } catch (error) {
-      console.error(`Error updating business rule ${id}:`, error);
+      console.error(`Error updating business rule ${ruleId}:`, error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to update business rule"
@@ -96,14 +70,16 @@ export const businessRulesService = {
   /**
    * Delete a business rule
    */
-  deleteBusinessRule: async (id: string): Promise<ApiResponse<void>> => {
+  deleteBusinessRule: async (ruleId: string): Promise<ApiResponse<void>> => {
+    const endpoint = `business-rules/${ruleId}`;
+    
     try {
-      const options: ApiCallOptions = {
+      const response = await callApi(endpoint, {
         method: 'DELETE'
-      };
-      return await callApi(`business-rules/${id}`, options);
+      });
+      return response;
     } catch (error) {
-      console.error(`Error deleting business rule ${id}:`, error);
+      console.error(`Error deleting business rule ${ruleId}:`, error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to delete business rule"
@@ -112,38 +88,60 @@ export const businessRulesService = {
   },
   
   /**
-   * Save business rules for a dataset (batch save)
+   * Generate business rules for a dataset
    */
-  saveBusinessRules: async (datasetId: string, rules: BusinessRule[]): Promise<ApiResponse<any>> => {
+  generateBusinessRules: async (datasetId: string): Promise<ApiResponse<BusinessRule[]>> => {
+    const endpoint = `datasets/${datasetId}/generate-rules`;
+    
     try {
-      const options: ApiCallOptions = {
-        method: 'POST',
-        body: JSON.stringify({ datasetId, rules })
-      };
-      return await callApi('business-rules/batch', options);
+      const response = await callApi(endpoint, {
+        method: 'POST'
+      });
+      return response;
     } catch (error) {
-      console.error("Error saving business rules:", error);
+      console.error(`Error generating business rules for dataset ${datasetId}:`, error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to save business rules"
+        error: error instanceof Error ? error.message : "Failed to generate business rules"
       };
     }
   },
   
   /**
-   * Get example business rules based on a schema or dataset
+   * Apply business rules to a dataset
    */
-  getExampleRules: async (datasetId: string): Promise<ApiResponse<BusinessRule[]>> => {
+  applyBusinessRules: async (datasetId: string, ruleIds?: string[]): Promise<ApiResponse<any>> => {
+    const endpoint = `datasets/${datasetId}/apply-rules`;
+    
     try {
-      const options: ApiCallOptions = {
-        method: 'GET'
-      };
-      return await callApi(`business-rules/examples/${datasetId}`, options);
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: ruleIds ? JSON.stringify({ rule_ids: ruleIds }) : undefined
+      });
+      return response;
     } catch (error) {
-      console.error("Error getting example business rules:", error);
+      console.error(`Error applying business rules to dataset ${datasetId}:`, error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to get example business rules"
+        error: error instanceof Error ? error.message : "Failed to apply business rules"
+      };
+    }
+  },
+  
+  /**
+   * Get rule validation results for a dataset
+   */
+  getRuleValidationResults: async (datasetId: string): Promise<ApiResponse<any>> => {
+    const endpoint = `datasets/${datasetId}/rule-validations`;
+    
+    try {
+      const response = await callApi(endpoint);
+      return response;
+    } catch (error) {
+      console.error(`Error fetching rule validation results for dataset ${datasetId}:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to fetch rule validation results"
       };
     }
   }

@@ -1,598 +1,297 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Save, RefreshCw, Sparkles, AlertTriangle, Info, Check, X, Upload } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-// import { pythonApi } from '@/api/pythonIntegration'; // Removed: No longer available, see handleGenerateRule for status handling.
+import { 
+  Table, 
+  TableBody, 
+  TableCell, 
+  TableHead, 
+  TableHeader, 
+  TableRow 
+} from '@/components/ui/table';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogFooter, 
+  DialogHeader, 
+  DialogTitle 
+} from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import { api } from '@/api/api';
-import type { BusinessRule } from '@/api/services/businessRules/businessRulesService';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-
-type RuleSeverity = 'low' | 'medium' | 'high';
-
-interface BusinessRulesResponse {
-  success: boolean;
-  data?: BusinessRule[];
-  error?: string;
-}
+import { BusinessRule } from '@/api/types';
+import { Pencil, Trash, Plus, Filter, Database } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { Badge } from '@/components/ui/badge';
 
 const BusinessRules: React.FC = () => {
-  const { toast } = useToast();
   const [rules, setRules] = useState<BusinessRule[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedDataset, setSelectedDataset] = useState<string>("ds001");
-  const [jsonInput, setJsonInput] = useState('');
-  const [showAddRuleDialog, setShowAddRuleDialog] = useState(false);
-  
-  const [newRule, setNewRule] = useState<BusinessRule>({
-    id: '',
-    name: '',
-    description: '',
-    condition: '',
-    severity: 'medium',
-    message: '',
-    active: true
-  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [currentRule, setCurrentRule] = useState<Partial<BusinessRule> | null>(null);
+  const [ruleToDelete, setRuleToDelete] = useState<string | null>(null);
+  const { toast } = useToast();
 
-  const fetchRules = useCallback(async () => {
-    if (!selectedDataset) return;
-    
-    setIsLoading(true);
+  const fetchRules = async () => {
+    setLoading(true);
     try {
-      const response = await api.businessRules.getBusinessRules(selectedDataset);
-      
-      if (response.success) {
-        setRules(response.data as BusinessRule[] || []);
+      const response = await api.businessRules.getBusinessRules();
+      if (response.success && response.data) {
+        setRules(response.data);
       } else {
-        toast({
-          title: 'Failed to load rules',
-          description: response.error || 'Unknown error occurred',
-          variant: 'destructive'
-        });
+        setError(response.error || 'Failed to fetch business rules');
       }
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch business rules',
-        variant: 'destructive'
-      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'An unexpected error occurred');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  }, [selectedDataset, toast]);
+  };
 
   useEffect(() => {
     fetchRules();
-  }, [fetchRules]);
+  }, []);
 
-  const handleSaveRules = async () => {
-    setIsLoading(true);
-    try {
-      const response = await api.businessRules.saveBusinessRules(selectedDataset, rules);
-      
-      if (response.success) {
-        toast({
-          title: 'Success',
-          description: 'Business rules saved successfully'
-        });
-      } else {
-        throw new Error(response.error || 'Failed to save rules');
-      }
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to save rules',
-        variant: 'destructive'
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleImport = () => {
-    try {
-      const parsedRules = JSON.parse(jsonInput);
-      if (!Array.isArray(parsedRules)) {
-        throw new Error('Invalid format: Expected array of rules');
-      }
-      setRules(Array.isArray(parsedRules) ? parsedRules : []);
-      toast({
-        title: 'Success',
-        description: `${parsedRules.length} rules imported`
-      });
-    } catch (error) {
-      toast({
-        title: 'Import failed',
-        description: error instanceof Error ? error.message : 'Invalid JSON',
-        variant: 'destructive'
-      });
-    }
-  };
-
-  const handleExport = () => {
-    const dataStr = JSON.stringify(rules, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `business_rules_${new Date().toISOString()}.json`;
-    link.click();
-    
-    toast({
-      title: 'Exported',
-      description: 'Business rules exported to JSON'
-    });
-  };
-
-  const handleAddRule = async () => {
-    if (!newRule.name || !newRule.condition || !newRule.message) {
-      toast({
-        title: "Missing information",
-        description: "Please fill in all required fields.",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    const ruleToAdd = {
-      ...newRule,
-      id: newRule.id || `manual-${Date.now()}`,
-      dataset_id: selectedDataset,
-      active: newRule.active,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-    
-    // Add locally first for immediate UI feedback
-    setRules(prev => [...prev, ruleToAdd]);
-    setShowAddRuleDialog(false);
-    
-    // Reset the form
-    setNewRule({
-      id: '',
+  const handleAddRule = () => {
+    setCurrentRule({
       name: '',
       description: '',
       condition: '',
       severity: 'medium',
-      message: '',
       active: true
     });
-    
-    // Then save to the server
-    try {
-      // We'll use saveBusinessRules to add a new rule
-      const response = await api.businessRules.saveBusinessRules(selectedDataset, [...rules, ruleToAdd]);
-      
-      if (response.success) {
-        toast({
-          title: "Rule added successfully",
-          description: `"${ruleToAdd.name}" has been added to your rule set.`
-        });
-      } else {
-        // Remove the rule if the server save failed
-        setRules(rules);
-        toast({
-          title: "Failed to add rule",
-          description: response.error || "An unknown error occurred",
-          variant: "destructive"
-        });
-      }
-    } catch (error) {
-      // Remove the rule if there was an error
-      setRules(rules);
-      toast({
-        title: "Error adding rule",
-        description: "An unexpected error occurred while adding the rule.",
-        variant: "destructive"
-      });
-    }
+    setIsDialogOpen(true);
   };
 
-  const handleDeleteRule = async (id: string) => {
-    // Find the rule to delete
-    const ruleToDelete = rules.find(rule => rule.id === id);
-    if (!ruleToDelete) return;
-    
-    try {
-      const updatedRules = rules.filter(rule => rule.id !== id);
-      const response = await api.businessRules.saveBusinessRules(selectedDataset, updatedRules);
-      
-      if (response.success) {
-        setRules(updatedRules);
-        toast({
-          title: "Rule deleted",
-          description: "The rule has been removed from your rule set."
-        });
-      } else {
-        toast({
-          title: "Delete failed",
-          description: response.error || "Failed to delete rule",
-          variant: "destructive"
-        });
-      }
-    } catch (error) {
-      toast({
-        title: "Delete error",
-        description: "An unexpected error occurred while deleting the rule.",
-        variant: "destructive"
-      });
-    }
+  const handleEditRule = (rule: BusinessRule) => {
+    setCurrentRule(rule);
+    setIsDialogOpen(true);
   };
 
-  const handleToggleRule = async (id: string) => {
-    // Find the rule to toggle
-    const ruleToToggle = rules.find(rule => rule.id === id);
-    if (!ruleToToggle) return;
-    
-    // Update locally first for immediate UI feedback
-    const updatedRules = rules.map(rule => 
-      rule.id === id ? {...rule, active: !rule.active} : rule
-    );
-    
-    // Then update on the server
-    try {
-      const response = await api.businessRules.saveBusinessRules(selectedDataset, updatedRules);
-      
-      if (response.success) {
-        setRules(updatedRules);
-      } else {
-        // Revert the change if the server update failed
-        setRules(rules);
-        toast({
-          title: "Update failed",
-          description: response.error || "Failed to update rule status",
-          variant: "destructive"
-        });
-      }
-    } catch (error) {
-      // Revert the change if there was an error
-      setRules(rules);
-      toast({
-        title: "Update error",
-        description: "An unexpected error occurred while updating the rule.",
-        variant: "destructive"
-      });
-    }
+  const handleDeleteRule = (ruleId: string) => {
+    setRuleToDelete(ruleId);
+    setIsDeleteDialogOpen(true);
   };
 
-  // AI Rule Generation is currently disabled. This is a placeholder for future implementation.
-  const handleGenerateRule = async (): Promise<void> => {
-    setIsLoading(true);
-    toast({
-      title: "AI Rule Generation Unavailable",
-      description: "Automatic business rule generation via AI is not currently supported. Please define rules manually.",
-      variant: "destructive"
-    });
-    setIsLoading(false);
-    // If/when AI-based rule generation is restored, implement here.
-    return;
-  }
+  const handleSaveRule = async () => {
+    if (!currentRule?.name || !currentRule?.condition) {
+      toast({
+        title: "Validation error",
+        description: "Name and condition are required",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const handleSaveRulesToAPI = async () => {
-    toast({
-      title: "Saving rules",
-      description: "Saving business rules to the data pipeline..."
-    });
-    
     try {
-      const response = await api.businessRules.saveBusinessRules(selectedDataset, rules);
+      let response;
       
+      if (currentRule.id) {
+        // Update existing rule
+        response = await api.businessRules.updateBusinessRule(
+          currentRule.id,
+          currentRule
+        );
+      } else {
+        // Create new rule
+        response = await api.businessRules.createBusinessRule(currentRule);
+      }
+
       if (response.success) {
         toast({
-          title: "Rules saved successfully",
-          description: response && response.data && response.data.message ? response.data.message : `${rules.length} rules have been saved.`
+          title: currentRule.id ? "Rule updated" : "Rule created",
+          description: `Business rule "${currentRule.name}" was ${currentRule.id ? 'updated' : 'created'} successfully`,
         });
+        setIsDialogOpen(false);
+        fetchRules();
       } else {
         toast({
-          title: "Failed to save rules",
-          description: response && response.error ? response.error : "An unknown error occurred",
-          variant: "destructive"
+          title: "Operation failed",
+          description: response.error || "Failed to save business rule",
+          variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch (e) {
       toast({
         title: "Error",
-        description: "An unexpected error occurred when saving rules.",
-        variant: "destructive"
+        description: e instanceof Error ? e.message : "An unexpected error occurred",
+        variant: "destructive",
       });
     }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!ruleToDelete) return;
+
+    try {
+      const response = await api.businessRules.deleteBusinessRule(ruleToDelete);
+      
+      if (response.success) {
+        toast({
+          title: "Rule deleted",
+          description: "Business rule was deleted successfully",
+        });
+        setIsDeleteDialogOpen(false);
+        fetchRules();
+      } else {
+        toast({
+          title: "Deletion failed",
+          description: response.error || "Failed to delete business rule",
+          variant: "destructive",
+        });
+      }
+    } catch (e) {
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : "An unexpected error occurred",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const renderSeverityBadge = (severity: string) => {
+    const badgeClass = 
+      severity === 'high' ? "bg-red-100 text-red-800 hover:bg-red-200" :
+      severity === 'medium' ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-200" :
+      "bg-blue-100 text-blue-800 hover:bg-blue-200";
+      
+    return (
+      <Badge variant="outline" className={badgeClass}>
+        {severity}
+      </Badge>
+    );
   };
 
   return (
-    <>
-      <Tabs defaultValue="rules">
-        <TabsList className="grid grid-cols-3 mb-4">
-          <TabsTrigger value="rules">Active Rules</TabsTrigger>
-          <TabsTrigger value="import">Import/Export</TabsTrigger>
-          <TabsTrigger value="generate">Auto-Generate</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="rules" className="space-y-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="text-sm text-muted-foreground">
-                Manage your business rules and validation criteria
-              </p>
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Business Rules</CardTitle>
+          <Button onClick={handleAddRule}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Rule
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-center p-4">Loading business rules...</div>
+          ) : error ? (
+            <div className="text-center text-red-500 p-4">{error}</div>
+          ) : rules.length === 0 ? (
+            <div className="text-center p-8 space-y-4">
+              <div className="text-muted-foreground">No business rules defined yet</div>
+              <Button onClick={handleAddRule} variant="outline">Create your first rule</Button>
             </div>
-            <div className="flex gap-2">
-              <Button className="mb-2" onClick={() => setShowAddRuleDialog(true)}>
-                <PlusCircle className="h-4 w-4 mr-2" />
-                Add Rule
-              </Button>
-              <Button
-                variant="outline"
-                className="mb-2"
-                onClick={handleSaveRulesToAPI}
-              >
-                <Save className="h-4 w-4 mr-2" />
-                Save Rules
-              </Button>
-            </div>
-          </div>
-          
-          {rules.map((rule) => (
-            <Card key={rule.id} className={`mb-4 ${rule.model_generated ? 'border-blue-200 dark:border-blue-900' : ''}`}>
-              <CardHeader className="pb-2">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      {rule.name}
-                      {rule.model_generated && (
-                        <Badge variant="outline" className="ml-2 bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-200 border-blue-200 dark:border-blue-800 flex items-center gap-1">
-                          <Sparkles className="h-3 w-3" />
-                          <span className="text-xs">AI Generated</span>
-                        </Badge>
-                      )}
-                    </CardTitle>
-                    {rule.description && (
-                      <CardDescription>{rule.description}</CardDescription>
-                    )}
-                  </div>
-                  <div className="flex items-center space-x-2 text-sm font-normal">
-                    <Badge variant={rule.severity === 'high' ? 'destructive' : rule.severity === 'medium' ? 'default' : 'outline'}>
-                      {rule.severity.charAt(0).toUpperCase() + rule.severity.slice(1)} Severity
-                    </Badge>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => handleToggleRule(rule.id)}
-                      className={rule.active === false ? 'text-muted-foreground' : 'text-primary'}
-                    >
-                      {rule.active === false ? 'Disabled' : 'Active'}
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {typeof rule.confidence === 'number' && (
-                  <div className="mb-3 flex items-center text-xs">
-                    <Info className="h-3 w-3 mr-1 text-blue-500" />
-                    <span>
-                      Confidence: <span className="font-medium">{Math.round(rule.confidence * 100)}%</span>
-                    </span>
-                    {rule.confidence < 0.8 && (
-                      <span className="flex items-center ml-2 text-amber-600">
-                        <AlertTriangle className="h-3 w-3 mr-1" />
-                        Review recommended
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Condition</TableHead>
+                  <TableHead>Severity</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rules.map((rule) => (
+                  <TableRow key={rule.id}>
+                    <TableCell className="font-medium">{rule.name}</TableCell>
+                    <TableCell className="max-w-md truncate">{rule.condition}</TableCell>
+                    <TableCell>{renderSeverityBadge(rule.severity)}</TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-1 rounded-full text-xs ${
+                        rule.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {rule.active ? 'Active' : 'Inactive'}
                       </span>
-                    )}
-                  </div>
-                )}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="mb-1 block text-xs">Condition</Label>
-                    <code className="block p-2 rounded bg-muted text-sm overflow-x-auto">
-                      {rule.condition}
-                    </code>
-                  </div>
-                  <div>
-                    <Label className="mb-1 block text-xs">Message</Label>
-                    <code className="block p-2 rounded bg-muted text-sm overflow-x-auto">
-                      {rule.message}
-                    </code>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </TabsContent>
-        
-        <TabsContent value="import">
-          <Card>
-            <CardHeader>
-              <CardTitle>Import/Export Rules</CardTitle>
-              <CardDescription>
-                Share rule configurations between systems or create backups
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label className="mb-2 block">JSON Configuration</Label>
-                <Textarea 
-                  placeholder="Paste your JSON rules configuration here..."
-                  className="font-mono"
-                  rows={10}
-                  value={jsonInput}
-                  onChange={(e) => setJsonInput(e.target.value)}
-                />
-              </div>
-              <div className="flex space-x-2">
-                <Button onClick={handleImport}>
-                  <Check className="h-4 w-4 mr-2" />
-                  Import Rules
-                </Button>
-                <button
-                  className={buttonVariants({ variant: 'outline' })}
-                  onClick={handleExport}
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  Export Current Rules
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="generate">
-          <Card>
-            <CardHeader>
-              <CardTitle>Auto-Generate Rules with ML</CardTitle>
-              <CardDescription>
-                Use Hugging Face models to analyze your data and automatically generate relevant business rules 
-                based on detected patterns and anomalies.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-4 border rounded-md p-4 bg-muted/30">
-                <div className="space-y-2">
-                  <Label htmlFor="data-source">Data Source</Label>
-                  <Select 
-                    value={selectedDataset} 
-                    onValueChange={setSelectedDataset}
-                  >
-                    <SelectTrigger id="data-source">
-                      <SelectValue placeholder="Select a dataset" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ds001">Customer Orders</SelectItem>
-                      <SelectItem value="ds002">Product Inventory</SelectItem>
-                      <SelectItem value="ds003">Sales Transactions</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="detection-type">Detection Type</Label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      className={buttonVariants({ variant: 'outline', className: 'justify-start' })}
-                      id="detection-type"
-                    >
-                      <Check className="h-4 w-4 mr-2" />
-                      Outliers
-                    </button>
-                    <button
-                      className={buttonVariants({ variant: 'outline', className: 'w-full' })}
-                      id="import-button"
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Import Rules
-                    </button>
-                    <button
-                      className={buttonVariants({ variant: 'outline', className: 'justify-start' })}
-                    >
-                      <Check className="h-4 w-4 mr-2" />
-                      Data Quality
-                    </button>
-                  </div>
-                </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => handleEditRule(rule)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteRule(rule.id)}>
+                        <Trash className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+        <CardFooter className="flex justify-between">
+          <div className="text-xs text-muted-foreground">
+            {rules.length} business rule{rules.length !== 1 ? 's' : ''}
+          </div>
+          <div className="flex space-x-2">
+            <Button variant="outline" size="sm">
+              <Filter className="h-4 w-4 mr-2" />
+              Filter
+            </Button>
+            <Button variant="outline" size="sm">
+              <Database className="h-4 w-4 mr-2" />
+              Import Rules
+            </Button>
+          </div>
+        </CardFooter>
+      </Card>
 
-                <div className="space-y-2">
-                  <Label htmlFor="model-selection">Machine Learning Model</Label>
-                  <Select defaultValue="huggingface">
-                    <SelectTrigger id="model-selection">
-                      <SelectValue placeholder="Select model type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="huggingface">Hugging Face Models</SelectItem>
-                      <SelectItem value="pydantic">Pydantic Schema Inference</SelectItem>
-                      <SelectItem value="ge">Great Expectations</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              
-              <Button 
-                onClick={handleGenerateRule} 
-                className="w-full" 
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                    Generating Rules...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Generate Rules with ML
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-      
-      <Dialog open={showAddRuleDialog} onOpenChange={setShowAddRuleDialog}>
-        <DialogContent className="max-w-md">
+      {/* Add/Edit Rule Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add New Business Rule</DialogTitle>
-            <DialogDescription>
-              Create a custom business rule to validate your data
-            </DialogDescription>
+            <DialogTitle>{currentRule?.id ? 'Edit' : 'Add'} Business Rule</DialogTitle>
           </DialogHeader>
-          
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="rule-name">Rule Name</Label>
-              <Input 
-                id="rule-name" 
-                placeholder="e.g., Valid Customer Age" 
-                value={newRule.name}
-                onChange={(e) => setNewRule({...newRule, name: e.target.value})}
+              <Label htmlFor="name">Rule Name</Label>
+              <Input
+                id="name"
+                value={currentRule?.name || ''}
+                onChange={(e) => setCurrentRule({ ...currentRule, name: e.target.value })}
               />
             </div>
-            
             <div className="space-y-2">
-              <Label htmlFor="rule-description">Description (Optional)</Label>
-              <Input 
-                id="rule-description" 
-                placeholder="Briefly describe the purpose of this rule"
-                value={newRule.description || ''}
-                onChange={(e) => setNewRule({...newRule, description: e.target.value})}
+              <Label htmlFor="description">Description (Optional)</Label>
+              <Textarea
+                id="description"
+                value={currentRule?.description || ''}
+                onChange={(e) => setCurrentRule({ ...currentRule, description: e.target.value })}
               />
             </div>
-            
             <div className="space-y-2">
-              <Label htmlFor="rule-condition">Condition</Label>
-              <Textarea 
-                id="rule-condition" 
-                placeholder="e.g., data['age'] >= 18 && data['age'] <= 120"
-                className="font-mono"
-                value={newRule.condition}
-                onChange={(e) => setNewRule({...newRule, condition: e.target.value})}
+              <Label htmlFor="condition">Condition</Label>
+              <Textarea
+                id="condition"
+                value={currentRule?.condition || ''}
+                onChange={(e) => setCurrentRule({ ...currentRule, condition: e.target.value })}
+                placeholder="e.g., data['age'] >= 18"
               />
               <p className="text-xs text-muted-foreground">
-                Define the validation logic using JavaScript-like syntax
+                Enter a condition using Python-like syntax. Use 'data' to access column values.
               </p>
             </div>
-            
             <div className="space-y-2">
-              <Label htmlFor="rule-message">Error Message</Label>
-              <Input 
-                id="rule-message" 
-                placeholder="e.g., Age must be between 18 and 120"
-                value={newRule.message}
-                onChange={(e) => setNewRule({...newRule, message: e.target.value})}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="rule-severity">Severity</Label>
-              <Select 
-                value={newRule.severity} 
-                onValueChange={(value) => setNewRule({...newRule, severity: value as 'low' | 'medium' | 'high'})}
+              <Label htmlFor="severity">Severity</Label>
+              <Select
+                value={currentRule?.severity || 'medium'}
+                onValueChange={(value) => setCurrentRule({ ...currentRule, severity: value as 'low' | 'medium' | 'high' })}
               >
-                <SelectTrigger id="rule-severity">
-                  <SelectValue placeholder="Select severity level" />
+                <SelectTrigger id="severity">
+                  <SelectValue placeholder="Select severity" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="low">Low</SelectItem>
@@ -601,24 +300,38 @@ const BusinessRules: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="active"
+                checked={currentRule?.active}
+                onCheckedChange={(checked) => setCurrentRule({ ...currentRule, active: checked })}
+              />
+              <Label htmlFor="active">Active</Label>
+            </div>
           </div>
-          
           <DialogFooter>
-            <button
-              className={buttonVariants({ variant: 'outline' })}
-              onClick={() => setShowAddRuleDialog(false)}
-            >
-              <X className="h-4 w-4 mr-2" />
-              Cancel
-            </button>
-            <Button onClick={handleAddRule}>
-              <PlusCircle className="h-4 w-4 mr-2" />
-              Add Rule
-            </Button>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveRule}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Business Rule</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p>Are you sure you want to delete this business rule? This action cannot be undone.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleConfirmDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 };
 
