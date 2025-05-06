@@ -38,12 +38,13 @@ export const pipelineService = {
   /**
    * Upload data to create a new pipeline
    */
-  uploadData: async (formData: FormData, config?: { onUploadProgress?: (progressEvent: any) => void }): Promise<ApiResponse<any>> => {
+  uploadData: async (formData: FormData, options?: { onUploadProgress?: (progressEvent: any) => void }): Promise<ApiResponse<any>> => {
     try {
       return await callApi('pipeline/upload', {
         method: 'POST',
         body: formData,
-        config
+        // Pass options directly without wrapping them in a config object
+        ...options
       });
     } catch (error) {
       console.error('Error uploading data:', error);

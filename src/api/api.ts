@@ -19,6 +19,15 @@ export interface Dataset {
   fileType?: string;
   recordCount?: number;
   columnCount?: number;
+  metadata?: Record<string, any>;
+}
+
+// Define agent interface
+export interface Agent {
+  id: string;
+  name: string;
+  description: string;
+  capabilities: string[];
 }
 
 // API service aggregator
@@ -142,8 +151,24 @@ export const api = {
 
   // AI Agents
   agents: {
-    getAgents: async () => {
-      return { success: true, data: [] };
+    getAgents: async (): Promise<{ success: boolean, data: Agent[] }> => {
+      return { 
+        success: true, 
+        data: [
+          {
+            id: 'data-analyst',
+            name: 'Data Analyst',
+            description: 'Specialized in analyzing datasets and extracting insights',
+            capabilities: ['Data analysis', 'Visualization suggestions', 'Anomaly detection']
+          },
+          {
+            id: 'code-assistant',
+            name: 'Code Assistant',
+            description: 'Helps with coding tasks and pipeline optimization',
+            capabilities: ['Code generation', 'Debugging', 'Performance optimization']
+          }
+        ] 
+      };
     }
   }
 };

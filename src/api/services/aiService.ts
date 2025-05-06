@@ -91,5 +91,31 @@ export const aiService = {
         error: error instanceof Error ? error.message : "Failed to analyze anomalies"
       };
     }
+  },
+  
+  /**
+   * Analyze a dataset using AI
+   */
+  analyzeDataset: async (
+    datasetId: string,
+    options?: any
+  ): Promise<ApiResponse<any>> => {
+    try {
+      const apiOptions: ApiCallOptions = {
+        method: 'POST',
+        body: JSON.stringify({
+          dataset_id: datasetId,
+          options
+        })
+      };
+      
+      return await callApi('ai/analyze-dataset', apiOptions);
+    } catch (error) {
+      console.error("Error analyzing dataset:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to analyze dataset"
+      };
+    }
   }
 };

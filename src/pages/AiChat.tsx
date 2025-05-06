@@ -13,6 +13,30 @@ interface Agent {
   capabilities: string[];
 }
 
+// Define dummy AI models for display purposes
+const aiModels = [
+  {
+    id: 'gpt-4',
+    name: 'GPT-4',
+    description: 'Advanced language model for complex tasks',
+    provider: 'OpenAI',
+    type: 'chat',
+    capabilities: ['Text generation', 'Context understanding', 'Complex reasoning'],
+    contextWindow: 8192,
+    maxTokens: 4096
+  },
+  {
+    id: 'gpt-3.5-turbo',
+    name: 'GPT-3.5 Turbo',
+    description: 'Fast and efficient language model',
+    provider: 'OpenAI',
+    type: 'chat',
+    capabilities: ['Text generation', 'Context understanding'],
+    contextWindow: 4096,
+    maxTokens: 2048
+  }
+];
+
 const AiChat: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string>('gpt-4');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -46,9 +70,21 @@ const AiChat: React.FC = () => {
     setSelectedModel(model);
   };
   
-  const handleAgentChange = (agentId: string) => {
-    setSelectedAgentId(agentId);
+  const handleDatasetChange = (datasetId: string) => {
+    // This function would be passed to DatasetSelector
+    // but we're using the context's activeDataset instead
+    console.log('Dataset selected:', datasetId);
   };
+  
+  // Convert context datasets to format expected by DatasetSelector
+  const formattedDatasets = datasets.map(dataset => ({
+    id: dataset.id,
+    name: dataset.name,
+    rows: dataset.recordCount || 0,
+    columns: dataset.columnCount || 0,
+    lastUpdated: dataset.updatedAt,
+    source: 'Local'
+  }));
   
   return (
     <div className="container mx-auto p-4">
@@ -58,9 +94,16 @@ const AiChat: React.FC = () => {
           <div className="flex items-center gap-4">
             <ModelSelector 
               selectedModel={selectedModel} 
-              onModelChange={handleModelChange} 
+              onModelChange={handleModelChange}
+              models={aiModels}
+              isLoading={loading}
             />
-            <DatasetSelector />
+            <DatasetSelector 
+              datasets={formattedDatasets}
+              selectedDataset={activeDataset}
+              onDatasetChange={handleDatasetChange}
+              isLoading={loading}
+            />
           </div>
         </div>
         
@@ -77,7 +120,7 @@ const AiChat: React.FC = () => {
                   
                   <button 
                     className="bg-primary text-primary-foreground hover:bg-primary/90 w-full py-2 rounded-md text-sm"
-                    onClick={() => api.aiService.analyzeDataset(activeDataset)}
+                    onClick={() => api.aiService.analyzeAnomalies(activeDataset)}
                   >
                     Analyze Dataset
                   </button>
@@ -89,11 +132,7 @@ const AiChat: React.FC = () => {
           </div>
           
           <div className="col-span-12 md:col-span-9">
-            <ChatInterface 
-              modelId={selectedModel} 
-              agentId={selectedAgentId} 
-              datasetId={activeDataset} 
-            />
+            <ChatInterface datasetId={activeDataset} />
           </div>
         </div>
       </div>

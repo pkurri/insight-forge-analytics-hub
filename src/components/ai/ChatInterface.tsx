@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { SendHorizontal, Bot, RefreshCw, Search, AlertCircle, Sparkles, Brain } from 'lucide-react';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { SendHorizontal, Search, RefreshCw, AlertCircle, Sparkles, Brain } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -9,14 +10,12 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { api } from '@/api/api';
 
 /**
  * Message interface defining the structure of chat messages
- * 
- * AI usage: The message type and metadata structure supports
- * AI-generated responses with confidence scores and source attribution
  */
-export interface Message {
+interface Message {
   id: string;
   type: 'user' | 'assistant' | 'system';
   content: string;
@@ -27,41 +26,18 @@ export interface Message {
     processing_time?: number;
     tokens_used?: number;
     embedding_count?: number;
-    insights?: string[];
-    timestamp?: string | Date;
-    modelId?: string;
   };
   timestamp: Date;
 }
 
 /**
  * ChatInterface Component: Provides an AI-powered chat interface for data exploration
- * 
- * AI Implementation:
- * - Connects to a backend AI service through the pythonApi.askQuestion method
- * - Uses vectorized data representations for semantic search capabilities
- * - Presents AI confidence scores and source attributions for transparency
- * - Handles AI errors gracefully with fallbacks
  */
-interface ChatInterfaceProps {
+export interface ChatInterfaceProps {
   datasetId?: string;
-  title?: string;
-  subtitle?: string;
-  showDatasetSelector?: boolean;
-  suggestions?: Array<{id: string; text: string; category: string;}>;
-  defaultDataset?: string;
-  selectedModel?: string;
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
-  datasetId,
-  title = "Vector DB AI Assistant",
-  subtitle,
-  showDatasetSelector = false,
-  suggestions = [],
-  defaultDataset,
-  selectedModel
-}) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -88,12 +64,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   useEffect(() => {
     const fetchDatasets = async () => {
       try {
-        const response = await fetch('/api/datasets');
-        if (response.ok) {
-          const data = await response.json();
-          setAvailableDatasets(data.datasets || []);
-          if (!activeDataset && data.datasets?.length > 0) {
-            setActiveDataset(data.datasets[0].id);
+        const response = await api.datasets.getDatasets();
+        if (response.success && response.data) {
+          setAvailableDatasets(response.data.map(dataset => ({
+            id: dataset.id,
+            name: dataset.name
+          })));
+          if (!activeDataset && response.data.length > 0) {
+            setActiveDataset(response.data[0].id);
           }
         }
       } catch (error) {
@@ -109,15 +87,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     };
     
     fetchDatasets();
-  }, []);
+  }, [datasetId]);
+  
+  // Update active dataset when datasetId prop changes
+  useEffect(() => {
+    if (datasetId) {
+      setActiveDataset(datasetId);
+    }
+  }, [datasetId]);
   
   /**
    * Send a user message to the AI assistant and handle the response
-   *
-   * 1. User question is captured and sent to the backend
-   * 2. Backend vector DB retrieves relevant context from datasets
-   * 3. AI model generates an answer based on retrieved context
-   * 4. Response with confidence scores and metadata is displayed
    */
   const handleSendMessage = async () => {
     if (!input.trim() || isProcessing) return;
@@ -136,18 +116,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setIsProcessing(true);
     
     try {
-      // Send question to Python backend via API
-      // This triggers the AI-powered vector search and response generation
-      toast({
-        title: "AI Chat Unavailable",
-        description: "AI-powered chat is not currently supported due to missing backend integration.",
-        variant: "destructive"
-      });
-      return;
-      // Previous implementation called pythonApi.askQuestion, which is no longer available.
-      // Uncomment and implement the below once backend is available:
-      // const response = await pythonApi.askQuestion(input, activeDataset);
-      // if (response.success && response.data) { ... }
+      // Mock AI response for now
+      setTimeout(() => {
+        const aiResponse: Message = {
+          id: `assistant-${Date.now()}`,
+          type: 'assistant',
+          content: `I'm processing your question about "${input}". This is a simulated response as the AI backend is not currently connected.`,
+          metadata: {
+            confidence: 0.85,
+            processing_time: 1.2,
+            tokens_used: 150,
+            embedding_count: 3
+          },
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, aiResponse]);
+        setIsTyping(false);
+        setIsProcessing(false);
+      }, 1500);
     } catch (error) {
       // Handle exception
       const errorMessage: Message = {
@@ -159,7 +146,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       };
       
       setMessages(prev => [...prev, errorMessage]);
-    } finally {
       setIsTyping(false);
       setIsProcessing(false);
     }
@@ -175,7 +161,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Scroll to bottom when messages change
   useEffect(() => {
     if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+      const scrollArea = scrollAreaRef.current;
+      scrollArea.scrollTo({ top: scrollArea.scrollHeight, behavior: 'smooth' });
     }
   }, [messages]);
   
@@ -187,9 +174,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <Avatar className="h-8 w-8 bg-blue-500">
               <Brain className="h-5 w-5 text-white" />
             </Avatar>
-            <CardTitle className="text-md">{title}</CardTitle>
+            <CardTitle className="text-md">Vector DB AI Assistant</CardTitle>
           </div>
-          {showDatasetSelector && (
+          {availableDatasets.length > 0 && (
             <Select value={activeDataset} onValueChange={setActiveDataset}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Select dataset" />
