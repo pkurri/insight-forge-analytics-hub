@@ -5,6 +5,7 @@ import ModelSelector from '@/components/ai/ModelSelector';
 import { api } from '@/api/api';
 import { useDatasetContext } from '@/hooks/useDatasetContext';
 import DatasetSelector from '@/components/ai/DatasetSelector';
+import { DatasetProvider } from '@/hooks/useDatasetContext';
 
 interface Agent {
   id: string;
@@ -37,7 +38,17 @@ const aiModels = [
   }
 ];
 
-const AiChat: React.FC = () => {
+// Create a wrapper component with DatasetProvider
+const AiChatWithProvider: React.FC = () => {
+  return (
+    <DatasetProvider>
+      <AiChatContent />
+    </DatasetProvider>
+  );
+};
+
+// Actual content of the AiChat page
+const AiChatContent: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string>('gpt-4');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -132,7 +143,11 @@ const AiChat: React.FC = () => {
           </div>
           
           <div className="col-span-12 md:col-span-9">
-            <ChatInterface datasetId={activeDataset} />
+            <ChatInterface 
+              datasetId={activeDataset} 
+              modelId={selectedModel}
+              agentId={selectedAgentId || undefined}
+            />
           </div>
         </div>
       </div>
@@ -140,4 +155,5 @@ const AiChat: React.FC = () => {
   );
 };
 
-export default AiChat;
+// Export the wrapper component as the default export
+export default AiChatWithProvider;
