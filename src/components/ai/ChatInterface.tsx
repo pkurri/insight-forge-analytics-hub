@@ -13,24 +13,6 @@ import { api } from '@/api/api';
 import { Message, ChatProps } from '@/types/chat';
 
 /**
- * Message interface defining the structure of chat messages
- */
-interface Message {
-  id: string;
-  type: 'user' | 'assistant' | 'system';
-  content: string;
-  metadata?: {
-    confidence?: number;
-    sources?: string[];
-    isError?: boolean;
-    processing_time?: number;
-    tokens_used?: number;
-    embedding_count?: number;
-  };
-  timestamp: Date;
-}
-
-/**
  * ChatInterface Component: Provides an AI-powered chat interface for data exploration
  */
 export interface ChatInterfaceProps extends ChatProps {}
