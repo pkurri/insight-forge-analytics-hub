@@ -5,13 +5,14 @@ from contextlib import asynccontextmanager
 from api.config.settings import get_settings
 import logging
 from typing import Optional
+import os
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
 # Global connection pools
 _sqlalchemy_engine = None
-_asyncpg_pool: Optional[asyncpg.Pool] = None
+_pool: Optional[asyncpg.Pool] = None
 
 def get_sqlalchemy_engine():
     """
@@ -41,15 +42,58 @@ AsyncSessionLocal = sessionmaker(
     autocommit=False
 )
 
+async def init_db_pool():
+    """Initialize the database connection pool."""
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=int(os.getenv('DB_PORT', 5432)),
+            user=os.getenv('DB_USER', 'postgres'),
+            password=os.getenv('DB_PASSWORD', 'postgres'),
+            database=os.getenv('DB_NAME', 'insight_forge'),
+            min_size=5,
+            max_size=20
+        )
+
+async def close_db_pool():
+    """Close the database connection pool."""
+    global _pool
+    if _pool:
+        await _pool.close()
+        _pool = None
+
+@asynccontextmanager
+async def get_db_connection():
+    """Get a database connection from the pool."""
+    if _pool is None:
+        await init_db_pool()
+    async with _pool.acquire() as connection:
+        yield connection
+
+async def execute_query(query: str, *args, **kwargs):
+    """Execute a query and return the results."""
+    async with get_db_connection() as conn:
+        return await conn.fetch(query, *args, **kwargs)
+
+async def execute_transaction(queries: list):
+    """Execute multiple queries in a transaction."""
+    async with get_db_connection() as conn:
+        async with conn.transaction():
+            results = []
+            for query, *args in queries:
+                results.append(await conn.fetch(query, *args))
+            return results
+
 async def get_db_pool() -> asyncpg.Pool:
     """
     Get or create a connection pool for the database.
     Returns an asyncpg.Pool instance.
     """
-    global _asyncpg_pool
-    if _asyncpg_pool is None:
+    global _pool
+    if _pool is None:
         try:
-            _asyncpg_pool = await asyncpg.create_pool(
+            _pool = await asyncpg.create_pool(
                 host=settings.DB_HOST,
                 port=settings.DB_PORT,
                 user=settings.DB_USER,
@@ -64,7 +108,7 @@ async def get_db_pool() -> asyncpg.Pool:
         except Exception as e:
             logger.error(f"Failed to create database connection pool: {str(e)}")
             raise
-    return _asyncpg_pool
+    return _pool
 
 @asynccontextmanager
 async def get_db_session():
@@ -110,11 +154,11 @@ async def get_connection_stats():
             "overflow": _sqlalchemy_engine.pool.overflow() if _sqlalchemy_engine else 0
         },
         "asyncpg": {
-            "status": "not_initialized" if _asyncpg_pool is None else "initialized",
-            "min_size": _asyncpg_pool._minsize if _asyncpg_pool else 0,
-            "max_size": _asyncpg_pool._maxsize if _asyncpg_pool else 0,
-            "size": _asyncpg_pool._size if _asyncpg_pool else 0,
-            "free": _asyncpg_pool._free.qsize() if _asyncpg_pool else 0
+            "status": "not_initialized" if _pool is None else "initialized",
+            "min_size": _pool._minsize if _pool else 0,
+            "max_size": _pool._maxsize if _pool else 0,
+            "size": _pool._size if _pool else 0,
+            "free": _pool._free.qsize() if _pool else 0
         }
     }
     
@@ -128,12 +172,12 @@ async def close_db_pools():
     Close all database connection pools.
     Should be called during application shutdown.
     """
-    global _sqlalchemy_engine, _asyncpg_pool
+    global _sqlalchemy_engine, _pool
     
     # Close asyncpg pool
-    if _asyncpg_pool is not None:
-        await _asyncpg_pool.close()
-        _asyncpg_pool = None
+    if _pool is not None:
+        await _pool.close()
+        _pool = None
         logger.info("AsyncPG connection pool closed")
     
     # Close SQLAlchemy engine

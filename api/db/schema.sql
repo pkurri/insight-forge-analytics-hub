@@ -1,4 +1,3 @@
-
 -- Database Schema for DataForge Analytics
 
 -- Enable pgvector extension
@@ -29,20 +28,19 @@ CREATE TABLE IF NOT EXISTS api_keys (
     last_used_at TIMESTAMP WITH TIME ZONE
 );
 
--- Datasets table
+-- Create datasets table
 CREATE TABLE IF NOT EXISTS datasets (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    file_path VARCHAR(255),
-    file_type VARCHAR(50) NOT NULL,  -- csv, json, excel, pdf, etc.
-    record_count INTEGER DEFAULT 0,
-    column_count INTEGER DEFAULT 0,
-    status VARCHAR(50) DEFAULT 'pending',  -- pending, processing, ready, error
+    user_id INTEGER NOT NULL,
+    source_type VARCHAR(50) NOT NULL,
+    source_info JSONB NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    metadata JSONB,
+    error_message TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    metadata JSONB DEFAULT '{}'::jsonb
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Dataset columns table
@@ -71,27 +69,29 @@ CREATE TABLE IF NOT EXISTS business_rules (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Pipeline runs table
+-- Create pipeline_runs table
 CREATE TABLE IF NOT EXISTS pipeline_runs (
     id SERIAL PRIMARY KEY,
-    dataset_id INTEGER REFERENCES datasets(id) ON DELETE CASCADE,
-    status VARCHAR(50) DEFAULT 'pending',  -- pending, running, completed, failed
+    dataset_id INTEGER NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+    status VARCHAR(50) NOT NULL,
     start_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP WITH TIME ZONE,
-    error_message TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb
+    pipeline_metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Pipeline steps table
+-- Create pipeline_steps table
 CREATE TABLE IF NOT EXISTS pipeline_steps (
     id SERIAL PRIMARY KEY,
-    pipeline_run_id INTEGER REFERENCES pipeline_runs(id) ON DELETE CASCADE,
-    step_name VARCHAR(100) NOT NULL,  -- validate, transform, enrich, load
-    status VARCHAR(50) DEFAULT 'pending',  -- pending, running, completed, failed
+    pipeline_run_id INTEGER NOT NULL REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+    step_type VARCHAR(50) NOT NULL,
+    status VARCHAR(50) NOT NULL,
     start_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP WITH TIME ZONE,
-    results JSONB DEFAULT '{}'::jsonb,
-    error_message TEXT
+    pipeline_metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Vector embeddings table
@@ -151,12 +151,40 @@ CREATE TABLE IF NOT EXISTS db_connections (
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_datasets_user_id ON datasets(user_id);
+CREATE INDEX IF NOT EXISTS idx_datasets_status ON datasets(status);
 CREATE INDEX IF NOT EXISTS idx_dataset_columns_dataset_id ON dataset_columns(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_business_rules_dataset_id ON business_rules(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_pipeline_runs_dataset_id ON pipeline_runs(dataset_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);
 CREATE INDEX IF NOT EXISTS idx_pipeline_steps_pipeline_run_id ON pipeline_steps(pipeline_run_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_steps_status ON pipeline_steps(status);
 CREATE INDEX IF NOT EXISTS idx_vector_embeddings_dataset_id ON vector_embeddings(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_anomaly_detection_dataset_id ON anomaly_detection(dataset_id);
 
 -- Create vector index for efficient similarity search
 CREATE INDEX IF NOT EXISTS idx_vector_embeddings_embedding ON vector_embeddings USING ivfflat (embedding vector_cosine_ops);
+
+-- Create function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Create triggers for updated_at
+CREATE TRIGGER update_datasets_updated_at
+    BEFORE UPDATE ON datasets
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_pipeline_runs_updated_at
+    BEFORE UPDATE ON pipeline_runs
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_pipeline_steps_updated_at
+    BEFORE UPDATE ON pipeline_steps
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();

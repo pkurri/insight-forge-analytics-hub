@@ -3,39 +3,41 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
 
-class DatasetStatus(str, Enum):
-    PENDING = "pending"
-    PROCESSING = "processing"
-    READY = "ready"
-    ERROR = "error"
-
 class FileType(str, Enum):
     CSV = "csv"
     JSON = "json"
     EXCEL = "excel"
-    PDF = "pdf"
-    DATABASE = "database"
+    PARQUET = "parquet"
+
+class SourceType(str, Enum):
+    FILE = "file"
     API = "api"
+    DATABASE = "database"
+
+class DatasetStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    ERROR = "error"
 
 class DataType(str, Enum):
     STRING = "string"
-    NUMBER = "number"
     INTEGER = "integer"
+    FLOAT = "float"
     BOOLEAN = "boolean"
     DATE = "date"
     DATETIME = "datetime"
+    JSON = "json"
     ARRAY = "array"
-    OBJECT = "object"
 
 class ColumnStats(BaseModel):
-    min: Optional[Any] = None
-    max: Optional[Any] = None
+    min: Optional[float] = None
+    max: Optional[float] = None
     mean: Optional[float] = None
-    median: Optional[float] = None
-    std_dev: Optional[float] = None
+    std: Optional[float] = None
     unique_count: Optional[int] = None
     null_count: Optional[int] = None
-    sample_values: Optional[List[Any]] = None
+    value_counts: Optional[Dict[str, int]] = None
 
 class DatasetColumn(BaseModel):
     name: str
@@ -49,22 +51,21 @@ class DatasetColumn(BaseModel):
 class DatasetBase(BaseModel):
     name: str
     description: Optional[str] = None
-    file_type: FileType
+    user_id: int
+    source_type: SourceType
+    source_info: Dict[str, Any]
+    status: DatasetStatus = DatasetStatus.PENDING
+    metadata: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
 
 class DatasetCreate(DatasetBase):
     pass
 
 class Dataset(DatasetBase):
     id: int
-    user_id: Optional[int] = None
-    file_path: Optional[str] = None
-    record_count: int = 0
-    column_count: int = 0
-    status: DatasetStatus
     created_at: datetime
     updated_at: datetime
-    metadata: Dict[str, Any] = {}
-    
+
     class Config:
         orm_mode = True
 
@@ -81,33 +82,28 @@ class DatasetSummary(BaseModel):
     status: str
 
 class PipelineStepType(str, Enum):
+    CLEAN = "clean"
     VALIDATE = "validate"
+    PROFILE = "profile"
     TRANSFORM = "transform"
     ENRICH = "enrich"
     LOAD = "load"
 
-class PipelineStepStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
 class PipelineRunStatus(str, Enum):
     PENDING = "pending"
-    RUNNING = "running"
+    PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
 
 class PipelineStep(BaseModel):
     id: int
     pipeline_run_id: int
-    step_name: PipelineStepType
-    status: PipelineStepStatus
+    step_type: PipelineStepType
+    status: PipelineRunStatus
     start_time: datetime
     end_time: Optional[datetime] = None
-    results: Dict[str, Any] = {}
-    error_message: Optional[str] = None
-    
+    pipeline_metadata: Optional[Dict[str, Any]] = None
+
     class Config:
         orm_mode = True
 
@@ -117,10 +113,9 @@ class PipelineRun(BaseModel):
     status: PipelineRunStatus
     start_time: datetime
     end_time: Optional[datetime] = None
-    error_message: Optional[str] = None
-    metadata: Dict[str, Any] = {}
-    steps: List[PipelineStep] = []
-    
+    pipeline_metadata: Optional[Dict[str, Any]] = None
+    steps: Optional[List[PipelineStep]] = None
+
     class Config:
         orm_mode = True
 

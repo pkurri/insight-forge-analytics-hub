@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, JSON, ForeignKey, DateTime, Boolean, Float, Enum as SQLEnum
 from sqlalchemy.orm import relationship, declarative_base
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from datetime import datetime
 from .dataset import DatasetStatus, FileType, PipelineRunStatus, BusinessRuleSeverity
 
@@ -14,6 +14,8 @@ class Dataset(Base):
     name = Column(String, nullable=False)
     description = Column(String)
     file_type = Column(SQLEnum(FileType), nullable=False)
+    source_type = Column(String(50), nullable=False, default='file')  # file, api, or database
+    source_info = Column(JSONB, nullable=True)  # Stores API config or DB config
     file_path = Column(String)
     record_count = Column(Integer, default=0)
     column_count = Column(Integer, default=0)

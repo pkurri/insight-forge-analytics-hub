@@ -4,11 +4,12 @@ from datetime import datetime
 import tempfile
 import os
 import shutil
+import json
 
-from models.dataset import PipelineRun, PipelineStep, PipelineRunStatus, PipelineStepType
+from models.dataset import PipelineRun, PipelineStep, PipelineRunStatus, PipelineStepType, DatasetCreate, DatasetStatus, SourceType, FileType
 from repositories.pipeline_repository import get_pipeline_repository
-from repositories.dataset_repository import get_dataset_repository
-from services.pipeline_service import run_pipeline_step, DataPipeline
+from repositories.dataset_repository import get_dataset_repository, DatasetRepository
+from services.pipeline_service import run_pipeline_step, DataPipeline, pipeline_service
 from routes.auth_router import get_current_user_or_api_key
 from services.file_service import process_uploaded_file
 from services.data_cleaning_service import DataCleaningService
@@ -18,6 +19,8 @@ from services.analytics_service import get_data_profile, detect_anomalies
 from config.settings import get_settings
 from services.ai_models import AIModelService
 from services.vector_service import vector_service
+from services.external_data_service import fetch_from_api, fetch_from_database
+from db.session import get_db
 
 settings = get_settings()
 
@@ -347,328 +350,164 @@ async def list_pipeline_runs(
     
     return result
 
-@router.post("/upload", response_model=Dict[str, Any])
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@router.post("/upload")
 async def upload_data_to_pipeline(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    file_type: str = Form(...),
-    name: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    file_type: Optional[FileType] = Form(None),
+    api_config: Optional[str] = Form(None),
+    db_config: Optional[str] = Form(None),
+    name: str = Form(...),
     description: Optional[str] = Form(None),
-    rules_path: Optional[str] = Form(None),
-    clean_data: bool = Form(True),
-    validate_data: bool = Form(True),
-    current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
-):
-    """Upload a file to process through the pipeline."""
-    # Create upload directory if it doesn't exist
-    upload_dir = os.getenv("UPLOAD_DIR", "/tmp/uploads")
-    os.makedirs(upload_dir, exist_ok=True)
+    user_id: int = Form(...)
+) -> Dict[str, Any]:
+    """Upload data to the pipeline from various sources."""
+    dataset_repo = DatasetRepository()
+    source_type = None
+    source_info = {}
     
-    # Generate a unique filename
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    file_extension = os.path.splitext(file.filename)[1]
-    unique_filename = f"{timestamp}_{current_user.id}{file_extension}"
-    file_path = os.path.join(upload_dir, unique_filename)
-    
-    # Save the uploaded file
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    # Create dataset name if not provided
-    if not name:
-        name = f"{file.filename} - {timestamp}"
-    
-    # Process the file and get DataFrame
-    df = await process_uploaded_file(file_path, file_type)
-    
-    # Clean data if requested
-    if clean_data:
-        df, cleaning_metadata = await data_cleaning_service.clean_data(df)
-    
-    # Validate data if requested
-    validation_results = None
-    if validate_data:
-        validation_results = await validation_service.validate_data(
-            df,
-            rules_path=rules_path
-        )
-    
-    # Generate data profile
-    profile_data = await get_data_profile(df)
-    
-    # Detect anomalies
-    anomalies = await detect_anomalies(df)
-    
-    # Store data in vector database
-    await database_service.store_dataframe(df, f'dataset_{timestamp}')
-    
-    # Create dataset record
-    dataset = await dataset_repo.create_dataset(
-        dataset={
-            "name": name,
-            "description": description or f"Uploaded {file_type} file: {file.filename}",
+    # Handle file upload
+    if file:
+        if not file_type:
+            raise HTTPException(status_code=400, detail="File type is required for file uploads")
+            
+        # Save file
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_{file.filename}"
+        file_path = os.path.join(UPLOAD_DIR, filename)
+        
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+            
+        source_type = SourceType.FILE
+        source_info = {
+            "file_path": file_path,
             "file_type": file_type,
-            "cleaning_metadata": cleaning_metadata if clean_data else None,
-            "validation_results": validation_results,
-            "profile_data": profile_data,
-            "anomalies": anomalies
-        },
-        user_id=current_user.id,
-        file_path=file_path
+            "original_filename": file.filename
+        }
+        
+    # Handle API source
+    elif api_config:
+        try:
+            config = json.loads(api_config)
+            source_type = SourceType.API
+            source_info = config
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid API configuration JSON")
+            
+    # Handle database source
+    elif db_config:
+        try:
+            config = json.loads(db_config)
+            source_type = SourceType.DATABASE
+            source_info = config
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid database configuration JSON")
+            
+    else:
+        raise HTTPException(status_code=400, detail="No data source provided")
+        
+    # Create dataset record
+    dataset = DatasetCreate(
+        name=name,
+        description=description,
+        user_id=user_id,
+        source_type=source_type,
+        source_info=source_info,
+        status=DatasetStatus.PENDING
     )
     
-    # Process the file in background
-    background_tasks.add_task(
-        process_uploaded_file,
-        dataset.id,
-        file_path,
-        file_type
-    )
+    created_dataset = await dataset_repo.create_dataset(dataset)
     
-    return {
-        "dataset_id": str(dataset.id),
-        "filename": file.filename,
-        "file_type": file_type,
-        "size": os.path.getsize(file_path),
-        "upload_time": datetime.utcnow().isoformat()
-    }
-
-@router.post("/fetch-from-api", response_model=Dict[str, Any])
-async def fetch_data_from_api(
-    background_tasks: BackgroundTasks,
-    api_endpoint: str = Body(...),
-    output_format: str = Body(...),
-    auth_config: Optional[Dict[str, Any]] = Body({}),
-    name: Optional[str] = Body(None),
-    description: Optional[str] = Body(None),
-    current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
-):
-    """Fetch data from an external API for pipeline processing."""
-    from services.external_data_service import fetch_from_api
-    
-    # Create dataset name if not provided
-    if not name:
-        name = f"API Data - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    
-    # Create temporary dataset record
-    dataset = await dataset_repo.create_dataset(
-        dataset={
-            "name": name,
-            "description": description or f"Data fetched from API: {api_endpoint}",
-            "file_type": output_format,
-            "source_type": "api"
-        },
-        user_id=current_user.id,
-        file_path=None  # Will be updated once data is fetched
-    )
-    
-    # Fetch the data in background
-    background_tasks.add_task(
-        fetch_from_api,
-        dataset.id,
-        api_endpoint,
-        output_format,
-        auth_config,
-        dataset_repo
-    )
-    
-    return {
-        "dataset_id": str(dataset.id),
-        "source": api_endpoint,
-        "file_type": output_format,
-        "status": "fetching",
-        "fetch_time": datetime.utcnow().isoformat()
-    }
-
-@router.post("/fetch-from-db", response_model=Dict[str, Any])
-async def fetch_data_from_database(
-    background_tasks: BackgroundTasks,
-    connection_id: str = Body(...),
-    query: Optional[str] = Body(None),
-    table_name: Optional[str] = Body(None),
-    output_format: str = Body(...),
-    name: Optional[str] = Body(None),
-    description: Optional[str] = Body(None),
-    current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
-):
-    """Fetch data from a database for pipeline processing."""
-    from services.external_data_service import fetch_from_database
-    
-    if not query and not table_name:
-        raise HTTPException(
-            status_code=400,
-            detail="Either query or table_name must be provided"
+    # Add background task based on source type
+    if source_type == SourceType.FILE:
+        background_tasks.add_task(
+            pipeline_service.process_uploaded_file,
+            created_dataset.id,
+            source_info["file_path"],
+            source_info["file_type"]
         )
-    
-    # Create dataset name if not provided
-    if not name:
-        name = f"DB Data - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    
-    # Create temporary dataset record
-    dataset = await dataset_repo.create_dataset(
-        dataset={
-            "name": name,
-            "description": description or f"Data fetched from database: {connection_id}",
-            "file_type": output_format,
-            "source_type": "database"
-        },
-        user_id=current_user.id,
-        file_path=None  # Will be updated once data is fetched
-    )
-    
-    # Fetch the data in background
-    background_tasks.add_task(
-        fetch_from_database,
-        dataset.id,
-        connection_id,
-        query,
-        table_name,
-        output_format,
-        dataset_repo
-    )
-    
+    elif source_type == SourceType.API:
+        background_tasks.add_task(
+            fetch_from_api,
+            created_dataset.id,
+            source_info
+        )
+    elif source_type == SourceType.DATABASE:
+        background_tasks.add_task(
+            fetch_from_database,
+            created_dataset.id,
+            source_info
+        )
+        
     return {
-        "dataset_id": str(dataset.id),
-        "connection": connection_id,
-        "query": query,
-        "table": table_name,
-        "file_type": output_format,
-        "status": "fetching",
-        "fetch_time": datetime.utcnow().isoformat()
+        "id": created_dataset.id,
+        "source_type": source_type,
+        "file_type": file_type if file else None,
+        "status": created_dataset.status,
+        "upload_time": created_dataset.created_at
     }
 
-@router.post("/{dataset_id}/validate", response_model=Dict[str, Any])
-async def validate_data_in_pipeline(
+@router.post("/{dataset_id}/run-step")
+async def run_pipeline_step(
     dataset_id: int,
-    config: Optional[Dict[str, Any]] = Body({}),
-    current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository),
-    pipeline_repo = Depends(get_pipeline_repository)
-):
-    """Initialize validation step for a dataset. Requires explicit user initiation."""
-    # Check dataset exists and user has access
+    step_type: PipelineStepType
+) -> Dict[str, Any]:
+    """Run a specific pipeline step on a dataset."""
+    try:
+        step = await pipeline_service.run_pipeline_step(dataset_id, step_type)
+        return {
+            "step_id": step.id,
+            "status": step.status,
+            "metadata": step.pipeline_metadata
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{dataset_id}/runs")
+async def get_pipeline_runs(
+    dataset_id: int,
+    skip: int = 0,
+    limit: int = 100
+) -> Dict[str, Any]:
+    """Get pipeline runs for a dataset."""
+    dataset_repo = DatasetRepository()
     dataset = await dataset_repo.get_dataset(dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Create or get pipeline run
-    pipeline_run = await pipeline_repo.get_or_create_pipeline_run(dataset_id)
-    
-    # Create validation step if it doesn't exist
-    validation_step = await pipeline_repo.get_or_create_pipeline_step(
-        pipeline_run_id=pipeline_run.id,
-        step_name=PipelineStepType.VALIDATE,
-        status=PipelineRunStatus.PENDING
+        
+    runs = await pipeline_service.pipeline_repo.get_pipeline_runs(
+        dataset_id=dataset_id,
+        skip=skip,
+        limit=limit
     )
     
     return {
-        "message": "Validation step initialized. Use /steps/{step_id}/run to start validation.",
-        "step_id": validation_step.id,
-        "status": validation_step.status
-    }
-
-@router.post("/{dataset_id}/transform", response_model=Dict[str, Any])
-async def transform_data_in_pipeline(
-    dataset_id: int,
-    config: Optional[Dict[str, Any]] = Body({}),
-    current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository),
-    pipeline_repo = Depends(get_pipeline_repository)
-):
-    """Initialize transform step for a dataset. Requires explicit user initiation."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Create or get pipeline run
-    pipeline_run = await pipeline_repo.get_or_create_pipeline_run(dataset_id)
-    
-    # Create transform step if it doesn't exist
-    transform_step = await pipeline_repo.get_or_create_pipeline_step(
-        pipeline_run_id=pipeline_run.id,
-        step_name=PipelineStepType.TRANSFORM,
-        status=PipelineRunStatus.PENDING
-    )
-    
-    return {
-        "message": "Transform step initialized. Use /steps/{step_id}/run to start transformation.",
-        "step_id": transform_step.id,
-        "status": transform_step.status
-    }
-
-@router.post("/{dataset_id}/enrich", response_model=Dict[str, Any])
-async def enrich_data_in_pipeline(
-    dataset_id: int,
-    config: Optional[Dict[str, Any]] = Body({}),
-    current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository),
-    pipeline_repo = Depends(get_pipeline_repository)
-):
-    """Initialize enrich step for a dataset. Requires explicit user initiation."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Create or get pipeline run
-    pipeline_run = await pipeline_repo.get_or_create_pipeline_run(dataset_id)
-    
-    # Create enrich step if it doesn't exist
-    enrich_step = await pipeline_repo.get_or_create_pipeline_step(
-        pipeline_run_id=pipeline_run.id,
-        step_name=PipelineStepType.ENRICH,
-        status=PipelineRunStatus.PENDING
-    )
-    
-    return {
-        "message": "Enrich step initialized. Use /steps/{step_id}/run to start enrichment.",
-        "step_id": enrich_step.id,
-        "status": enrich_step.status
-    }
-
-@router.post("/{dataset_id}/load", response_model=Dict[str, Any])
-async def load_data_in_pipeline(
-    dataset_id: int,
-    destination: str = Body(...),
-    config: Optional[Dict[str, Any]] = Body({}),
-    current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository),
-    pipeline_repo = Depends(get_pipeline_repository)
-):
-    """Initialize load step for a dataset. Requires explicit user initiation."""
-    # Check dataset exists and user has access
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
-    
-    # Create or get pipeline run
-    pipeline_run = await pipeline_repo.get_or_create_pipeline_run(dataset_id)
-    
-    # Create load step if it doesn't exist
-    load_step = await pipeline_repo.get_or_create_pipeline_step(
-        pipeline_run_id=pipeline_run.id,
-        step_name=PipelineStepType.LOAD,
-        status=PipelineRunStatus.PENDING
-    )
-    
-    return {
-        "message": "Load step initialized. Use /steps/{step_id}/run to start loading.",
-        "step_id": load_step.id,
-        "status": load_step.status
+        "dataset_id": dataset_id,
+        "runs": [
+            {
+                "id": run.id,
+                "status": run.status,
+                "start_time": run.start_time,
+                "end_time": run.end_time,
+                "steps": [
+                    {
+                        "id": step.id,
+                        "step_type": step.step_type,
+                        "status": step.status,
+                        "start_time": step.start_time,
+                        "end_time": step.end_time,
+                        "metadata": step.pipeline_metadata
+                    }
+                    for step in run.steps
+                ]
+            }
+            for run in runs
+        ]
     }

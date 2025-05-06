@@ -1,165 +1,159 @@
-import api from './api';
+import { callApi } from '../utils/apiUtils';
+import { ApiResponse } from '../api';
 
-export interface ApiResponse<T = any> {
-  success: boolean;
-  data?: T;
-  error?: string;
+export type FileType = 'csv' | 'json' | 'excel' | 'parquet';
+export type SourceType = 'file' | 'api' | 'database';
+export type DatasetStatus = 'pending' | 'processing' | 'completed' | 'error';
+
+export interface ApiConfig {
+    url: string;
+    method: string;
+    headers?: Record<string, string>;
+    body?: any;
+}
+
+export interface DatabaseConfig {
+    type: string;
+    host: string;
+    port: number;
+    database: string;
+    username: string;
+    password: string;
+    query: string;
+}
+
+export interface UploadData {
+    file?: File;
+    fileType?: FileType;
+    apiConfig?: ApiConfig;
+    dbConfig?: DatabaseConfig;
+    name?: string;
+    description?: string;
+}
+
+export interface Dataset {
+    id: number;
+    name: string;
+    description?: string;
+    fileType: FileType;
+    sourceType: SourceType;
+    sourceInfo?: Record<string, any>;
+    status: DatasetStatus;
+    error?: string;
+    rowCount?: number;
+    columnCount?: number;
+    columns?: Array<{
+        name: string;
+        dataType: string;
+        nullable: boolean;
+    }>;
+    filePath?: string;
+    cleaningMetadata?: Record<string, any>;
+    validationResults?: Record<string, any>;
+    profileData?: Record<string, any>;
+    anomalies?: Record<string, any>;
+    createdAt: string;
+    updatedAt: string;
 }
 
 export interface PipelineStep {
-  id: number;
-  name: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+    id: number;
+    type: string;
+    status: string;
+    config?: Record<string, any>;
+    result?: Record<string, any>;
+    error?: string;
+    startedAt?: string;
+    completedAt?: string;
 }
 
-export interface PipelineStatus {
-  id: number;
-  dataset_id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  steps: PipelineStep[];
-  created_at: string;
-  updated_at: string;
+export interface PipelineRun {
+    id: number;
+    datasetId: number;
+    status: string;
+    steps: PipelineStep[];
+    startedAt: string;
+    completedAt?: string;
+    error?: string;
 }
 
-export interface BusinessRule {
-  id: number;
-  name: string;
-  description: string;
-  condition: string;
-  severity: 'warning' | 'error';
-}
-
-export interface ValidationResult {
-  valid: boolean;
-  errors: string[];
-  rule_results: {
-    rule_id: number;
-    passed: boolean;
-    message: string;
-  }[];
-}
-
-export interface PipelineService {
-  runDynamicPipeline: (datasetId: string, steps: PipelineStep[]) => Promise<ApiResponse<any>>;
-  getPipelineStepEvaluations: (datasetId: string, stepName: string) => Promise<ApiResponse<any>>;
-  getPipelineEvaluations: (datasetId: string) => Promise<ApiResponse<any>>;
-  getPipelineStatus: (runId: string) => Promise<ApiResponse<any>>;
-  retryFailedSteps: (runId: string) => Promise<ApiResponse<any>>;
-  resumePipeline: (runId: string) => Promise<ApiResponse<any>>;
-  getPipelineRun: (runId: string) => Promise<ApiResponse<any>>;
-  listPipelineRuns: (datasetId?: string) => Promise<ApiResponse<any>>;
-  uploadData: (file: File, fileType: string, name: string, description: string) => Promise<ApiResponse<{ dataset_id: string }>>;
-  fetchFromApi: (apiEndpoint: string, outputFormat: string, authConfig?: any) => Promise<ApiResponse<any>>;
-  fetchFromDatabase: (connectionId: string, query?: string, tableName?: string, outputFormat?: string) => Promise<ApiResponse<any>>;
-  validateData: (datasetId: string) => Promise<ApiResponse<ValidationResult>>;
-  applyBusinessRules: (datasetId: string, rules: BusinessRule[]) => Promise<ApiResponse<ValidationResult>>;
-  transformData: (datasetId: string) => Promise<ApiResponse<any>>;
-  enrichData: (datasetId: string) => Promise<ApiResponse<any>>;
-  loadData: (datasetId: string) => Promise<ApiResponse<any>>;
-  getPipelineRuns: (datasetId: string) => Promise<ApiResponse<PipelineStatus[]>>;
-  runPipelineStep: (stepId: number) => Promise<ApiResponse<any>>;
-}
-
-export const pipelineService = {
-  getPipelineRuns: async (datasetId: string): Promise<ApiResponse<PipelineStatus[]>> => {
-    try {
-      const response = await api.get(`/api/pipeline/${datasetId}/runs`);
-      return { success: true, data: response.data };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to get pipeline runs' };
+class PipelineService {
+    async uploadData(data: UploadData): Promise<ApiResponse<Dataset>> {
+        const formData = new FormData();
+        
+        if (data.file) {
+            formData.append('file', data.file);
+        }
+        if (data.fileType) {
+            formData.append('file_type', data.fileType);
+        }
+        if (data.apiConfig) {
+            formData.append('api_config', JSON.stringify(data.apiConfig));
+        }
+        if (data.dbConfig) {
+            formData.append('db_config', JSON.stringify(data.dbConfig));
+        }
+        if (data.name) {
+            formData.append('name', data.name);
+        }
+        if (data.description) {
+            formData.append('description', data.description);
+        }
+        
+        return callApi('pipeline/upload', {
+            method: 'POST',
+            body: formData
+        });
     }
-  },
-
-  runPipelineStep: async (stepId: number): Promise<ApiResponse<any>> => {
-    try {
-      const response = await api.post(`/pipeline/steps/${stepId}/run`);
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to run pipeline step'
-      };
-    }
-  },
-
-  uploadData: async (file: File, fileType: string, name: string, description: string): Promise<ApiResponse<{ dataset_id: string }>> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('file_type', fileType);
-    formData.append('name', name);
-    formData.append('description', description);
     
-    try {
-      const response = await api.post('/api/pipeline/upload', formData);
-      return { success: true, data: response.data };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to upload file' };
+    async getDataset(datasetId: number): Promise<ApiResponse<Dataset>> {
+        return callApi(`pipeline/datasets/${datasetId}`, {
+            method: 'GET'
+        });
     }
-  },
+    
+    async listDatasets(
+        sourceType?: SourceType,
+        skip: number = 0,
+        limit: number = 100
+    ): Promise<ApiResponse<Dataset[]>> {
+        const params = new URLSearchParams();
+        if (sourceType) {
+            params.append('source_type', sourceType);
+        }
+        params.append('skip', skip.toString());
+        params.append('limit', limit.toString());
+        
+        return callApi(`pipeline/datasets?${params.toString()}`, {
+            method: 'GET'
+        });
+    }
+    
+    async runPipelineStep(
+        datasetId: number,
+        stepType: string,
+        config?: Record<string, any>
+    ): Promise<ApiResponse<PipelineStep>> {
+        return callApi(`pipeline/datasets/${datasetId}/steps`, {
+            method: 'POST',
+            body: JSON.stringify({
+                type: stepType,
+                config
+            })
+        });
+    }
+    
+    async getPipelineRun(runId: number): Promise<ApiResponse<PipelineRun>> {
+        return callApi(`pipeline/runs/${runId}`, {
+            method: 'GET'
+        });
+    }
+    
+    async deleteDataset(datasetId: number): Promise<ApiResponse<void>> {
+        return callApi(`pipeline/datasets/${datasetId}`, {
+            method: 'DELETE'
+        });
+    }
+}
 
-  validateData: async (datasetId: string): Promise<ApiResponse<ValidationResult>> => {
-    try {
-      const response = await api.post(`/api/pipeline/${datasetId}/validate`);
-      return { success: true, data: response.data };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to validate data' };
-    }
-  },
-
-  applyBusinessRules: async (datasetId: string, rules: BusinessRule[]): Promise<ApiResponse<ValidationResult>> => {
-    try {
-      const response = await api.post(`/api/pipeline/${datasetId}/business-rules`, { rules });
-      return { success: true, data: response.data };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to apply business rules' };
-    }
-  },
-
-  transformData: async (datasetId: string): Promise<ApiResponse<any>> => {
-    try {
-      const response = await api.post(`/api/pipeline/${datasetId}/transform`);
-      return { success: true, data: response.data };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to transform data' };
-    }
-  },
-
-  enrichData: async (datasetId: string): Promise<ApiResponse<any>> => {
-    try {
-      const response = await api.post(`/api/pipeline/${datasetId}/enrich`);
-      return { success: true, data: response.data };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to enrich data' };
-    }
-  },
-
-  loadData: async (datasetId: string): Promise<ApiResponse<any>> => {
-    try {
-      const response = await api.post(`/api/pipeline/${datasetId}/load`);
-      return { success: true, data: response.data };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to load data' };
-    }
-  },
-
-  getPipelineStatus: async (datasetId: string): Promise<ApiResponse<PipelineStatus>> => {
-    try {
-      const response = await api.get(`/api/pipeline/${datasetId}/status`);
-      return { success: true, data: response.data };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to get pipeline status' };
-    }
-  },
-
-  getPipelineStepEvaluations: async (datasetId: string): Promise<ApiResponse<any>> => {
-    try {
-      const response = await api.get(`/api/pipeline/${datasetId}/evaluations`);
-      return { success: true, data: response.data };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to get pipeline evaluations' };
-    }
-  }
-}; 
+export const pipelineService = new PipelineService(); 

@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, UploadCloud, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, UploadCloud, CheckCircle2, XCircle, FileUp, Globe, Upload } from 'lucide-react';
 import { pipelineService, BusinessRule, ValidationResult } from '@/api/services/pipeline';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface StepProps {
   children: React.ReactNode;
@@ -29,9 +31,33 @@ const Step: React.FC<StepProps> = ({ children, isActive, isCompleted, descriptio
   );
 };
 
-const PipelineUploadForm: React.FC = () => {
+type DataSource = 'local' | 'api' | 'database';
+type FileType = 'csv' | 'json' | 'excel' | 'parquet';
+
+interface ApiConfig {
+  url: string;
+  method: 'GET' | 'POST';
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+interface DatabaseConfig {
+  type: 'postgresql' | 'mysql' | 'sqlserver' | 'oracle';
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  query: string;
+}
+
+interface PipelineUploadFormProps {
+  onUploadComplete: (datasetId: string) => void;
+}
+
+const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplete }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [fileType, setFileType] = useState<string>('');
+  const [fileType, setFileType] = useState<FileType>('csv');
   const [name, setName] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -56,12 +82,55 @@ const PipelineUploadForm: React.FC = () => {
     { name: 'Enrich', status: 'pending' },
     { name: 'Load', status: 'pending' }
   ]);
+  const [dataSource, setDataSource] = useState<DataSource>('local');
+  const [apiConfig, setApiConfig] = useState<ApiConfig>({
+    url: '',
+    method: 'GET',
+    headers: {},
+    body: ''
+  });
+  const [dbConfig, setDbConfig] = useState<DatabaseConfig>({
+    type: 'postgresql',
+    host: '',
+    port: 5432,
+    database: '',
+    username: '',
+    password: '',
+    query: ''
+  });
 
   const { toast } = useToast();
 
-  const handleFileUpload = async (): Promise<void> => {
-    if (!selectedFile || !fileType) {
-      setError("Please select a file and specify its type");
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      // Auto-detect file type from extension
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      if (extension === 'csv') setFileType('csv');
+      else if (extension === 'json') setFileType('json');
+      else if (extension === 'xlsx' || extension === 'xls') setFileType('excel');
+      else if (extension === 'parquet') setFileType('parquet');
+    }
+  };
+
+  const handleApiConfigChange = (field: keyof ApiConfig, value: string) => {
+    setApiConfig(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleDbConfigChange = (field: keyof DatabaseConfig, value: string | number) => {
+    setDbConfig(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleUpload = async () => {
+    if (!name) {
+      setError('Please provide a name for the dataset');
       return;
     }
 
@@ -69,23 +138,52 @@ const PipelineUploadForm: React.FC = () => {
     setError(null);
 
     try {
-      const response = await pipelineService.uploadData(selectedFile, fileType, name, description);
-      if (response.success && response.data) {
-        setDatasetId(response.data.dataset_id);
-        setCurrentStep(1);
-        toast({
-          title: "File uploaded successfully",
-          description: "Your file has been uploaded and is ready for validation.",
-        });
-      } else {
-        throw new Error(response.error || "Failed to upload file");
+      let uploadData: any = {
+        name,
+        description,
+        fileType
+      };
+
+      switch (dataSource) {
+        case 'local':
+          if (!selectedFile) {
+            throw new Error('Please select a file');
+          }
+          uploadData.file = selectedFile;
+          break;
+
+        case 'api':
+          if (!apiConfig.url) {
+            throw new Error('Please provide an API URL');
+          }
+          uploadData.apiConfig = apiConfig;
+          break;
+
+        case 'database':
+          if (!dbConfig.host || !dbConfig.database || !dbConfig.query) {
+            throw new Error('Please provide all required database configuration');
+          }
+          uploadData.dbConfig = dbConfig;
+          break;
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to upload file");
+
+      const response = await pipelineService.uploadData(uploadData);
+      
+      if (response.success && response.data?.dataset_id) {
+        toast({
+          title: 'Success',
+          description: 'Data uploaded successfully'
+        });
+        onUploadComplete(response.data.dataset_id);
+      } else {
+        throw new Error(response.error || 'Failed to upload data');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
       toast({
-        title: "Upload failed",
-        description: error instanceof Error ? error.message : "Failed to upload file",
-        variant: "destructive",
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to upload data',
+        variant: 'destructive'
       });
     } finally {
       setLoading(false);
@@ -209,31 +307,11 @@ const PipelineUploadForm: React.FC = () => {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <label htmlFor="file" className="text-sm font-medium">
-              Select File
-            </label>
-            <Input
-              id="file"
-              type="file"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  setSelectedFile(file);
-                  const extension = file.name.split('.').pop()?.toLowerCase();
-                  if (extension) {
-                    setFileType(extension);
-                  }
-                }
-              }}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="dataset-name" className="text-sm font-medium">
+            <label htmlFor="name" className="text-sm font-medium">
               Dataset Name
             </label>
             <Input
-              id="dataset-name"
+              id="name"
               placeholder="Enter a name for this dataset"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -241,16 +319,196 @@ const PipelineUploadForm: React.FC = () => {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="dataset-description" className="text-sm font-medium">
+            <label htmlFor="description" className="text-sm font-medium">
               Description
             </label>
             <Textarea
-              id="dataset-description"
+              id="description"
               placeholder="Enter a description for this dataset"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
             />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Data Source</label>
+            <Tabs value={dataSource} onValueChange={(value) => setDataSource(value as DataSource)}>
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="local">
+                  <FileUp className="w-4 h-4 mr-2" />
+                  Local File
+                </TabsTrigger>
+                <TabsTrigger value="api">
+                  <Globe className="w-4 h-4 mr-2" />
+                  API
+                </TabsTrigger>
+                <TabsTrigger value="database">
+                  <Database className="w-4 h-4 mr-2" />
+                  Database
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="local" className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">File Type</label>
+                  <Select value={fileType} onValueChange={(value) => setFileType(value as FileType)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select file type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="csv">CSV</SelectItem>
+                      <SelectItem value="json">JSON</SelectItem>
+                      <SelectItem value="excel">Excel</SelectItem>
+                      <SelectItem value="parquet">Parquet</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Select File</label>
+                  <Input
+                    type="file"
+                    onChange={handleFileChange}
+                    accept=".csv,.json,.xlsx,.xls,.parquet"
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="api" className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">API URL</label>
+                  <Input
+                    value={apiConfig.url}
+                    onChange={(e) => handleApiConfigChange('url', e.target.value)}
+                    placeholder="https://api.example.com/data"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Method</label>
+                  <Select
+                    value={apiConfig.method}
+                    onValueChange={(value) => handleApiConfigChange('method', value as 'GET' | 'POST')}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="GET">GET</SelectItem>
+                      <SelectItem value="POST">POST</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Headers (JSON)</label>
+                  <Textarea
+                    value={JSON.stringify(apiConfig.headers, null, 2)}
+                    onChange={(e) => {
+                      try {
+                        const headers = JSON.parse(e.target.value);
+                        handleApiConfigChange('headers', headers);
+                      } catch (err) {
+                        // Invalid JSON, ignore
+                      }
+                    }}
+                    placeholder='{"Authorization": "Bearer token"}'
+                  />
+                </div>
+
+                {apiConfig.method === 'POST' && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Request Body (JSON)</label>
+                    <Textarea
+                      value={apiConfig.body}
+                      onChange={(e) => handleApiConfigChange('body', e.target.value)}
+                      placeholder='{"key": "value"}'
+                    />
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="database" className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Database Type</label>
+                  <Select
+                    value={dbConfig.type}
+                    onValueChange={(value) => handleDbConfigChange('type', value as DatabaseConfig['type'])}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select database type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="postgresql">PostgreSQL</SelectItem>
+                      <SelectItem value="mysql">MySQL</SelectItem>
+                      <SelectItem value="sqlserver">SQL Server</SelectItem>
+                      <SelectItem value="oracle">Oracle</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Host</label>
+                    <Input
+                      value={dbConfig.host}
+                      onChange={(e) => handleDbConfigChange('host', e.target.value)}
+                      placeholder="localhost"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Port</label>
+                    <Input
+                      type="number"
+                      value={dbConfig.port}
+                      onChange={(e) => handleDbConfigChange('port', parseInt(e.target.value))}
+                      placeholder="5432"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Database Name</label>
+                  <Input
+                    value={dbConfig.database}
+                    onChange={(e) => handleDbConfigChange('database', e.target.value)}
+                    placeholder="mydatabase"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Username</label>
+                    <Input
+                      value={dbConfig.username}
+                      onChange={(e) => handleDbConfigChange('username', e.target.value)}
+                      placeholder="user"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Password</label>
+                    <Input
+                      type="password"
+                      value={dbConfig.password}
+                      onChange={(e) => handleDbConfigChange('password', e.target.value)}
+                      placeholder="password"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">SQL Query</label>
+                  <Textarea
+                    value={dbConfig.query}
+                    onChange={(e) => handleDbConfigChange('query', e.target.value)}
+                    placeholder="SELECT * FROM table"
+                  />
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
 
           {error && (
@@ -263,7 +521,7 @@ const PipelineUploadForm: React.FC = () => {
             <Button
               onClick={() => {
                 if (currentStep === 0) {
-                  handleFileUpload();
+                  handleUpload();
                 } else if (currentStep === 1) {
                   handleStartValidation();
                 } else if (currentStep === 2) {

@@ -16,7 +16,11 @@ from sklearn.ensemble import IsolationForest
 
 from config.settings import get_settings
 from repositories.dataset_repository import DatasetRepository
-from models.dataset import DatasetStatus
+from models.dataset import DatasetStatus, FileType, SourceType
+from models.pipeline import PipelineStepType, PipelineRunStatus
+from services.validation_service import validation_service
+from services.cleaning_service import cleaning_service
+from services.profiling_service import profiling_service
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -453,3 +457,183 @@ class DataPipeline:
         duplicate_score = 1 - (df.duplicated().sum() / len(df))
         
         return (missing_score + duplicate_score) / 2
+
+class PipelineService:
+    """Service for managing data pipelines."""
+    
+    def __init__(self):
+        self.dataset_repo = DatasetRepository()
+        self.pipeline_repo = PipelineRepository()
+        self.processing_service = DataProcessingService()
+        self.validation_service = DataValidationService()
+        self.profiling_service = DataProfilingService()
+    
+    async def process_uploaded_file(
+        self,
+        dataset_id: int,
+        file_path: str,
+        file_type: FileType
+    ) -> Dataset:
+        """Process an uploaded file through the pipeline."""
+        # Update dataset status
+        dataset = await self.dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise ValueError(f"Dataset {dataset_id} not found")
+            
+        await self.dataset_repo.update_dataset(
+            dataset_id,
+            {"status": DatasetStatus.PROCESSING}
+        )
+        
+        try:
+            # Read file based on type
+            if file_type == FileType.CSV:
+                df = pd.read_csv(file_path)
+            elif file_type == FileType.JSON:
+                df = pd.read_json(file_path)
+            elif file_type == FileType.EXCEL:
+                df = pd.read_excel(file_path)
+            elif file_type == FileType.PARQUET:
+                df = pd.read_parquet(file_path)
+            else:
+                raise ValueError(f"Unsupported file type: {file_type}")
+            
+            # Update dataset metadata
+            metadata = {
+                "row_count": len(df),
+                "column_count": len(df.columns),
+                "columns": df.columns.tolist(),
+                "file_path": file_path,
+                "file_type": file_type
+            }
+            
+            await self.dataset_repo.update_dataset(
+                dataset_id,
+                {
+                    "status": DatasetStatus.COMPLETED,
+                    "metadata": metadata
+                }
+            )
+            
+            # Create pipeline run
+            pipeline_run = await self.pipeline_repo.create_pipeline_run(dataset_id)
+            
+            # Run cleaning step
+            cleaning_step = await self.pipeline_repo.create_pipeline_step(
+                pipeline_run.id,
+                PipelineStepType.CLEAN,
+                PipelineRunStatus.PROCESSING
+            )
+            
+            cleaned_df = await self.processing_service.clean_data(df)
+            await self.pipeline_repo.update_pipeline_step_status(
+                cleaning_step.id,
+                PipelineRunStatus.COMPLETED,
+                {"rows_cleaned": len(df) - len(cleaned_df)}
+            )
+            
+            # Run validation step
+            validation_step = await self.pipeline_repo.create_pipeline_step(
+                pipeline_run.id,
+                PipelineStepType.VALIDATE,
+                PipelineRunStatus.PROCESSING
+            )
+            
+            validation_results = await self.validation_service.validate_data(cleaned_df)
+            await self.pipeline_repo.update_pipeline_step_status(
+                validation_step.id,
+                PipelineRunStatus.COMPLETED,
+                validation_results
+            )
+            
+            # Run profiling step
+            profiling_step = await self.pipeline_repo.create_pipeline_step(
+                pipeline_run.id,
+                PipelineStepType.PROFILE,
+                PipelineRunStatus.PROCESSING
+            )
+            
+            profiling_results = await self.profiling_service.profile_data(cleaned_df)
+            await self.pipeline_repo.update_pipeline_step_status(
+                profiling_step.id,
+                PipelineRunStatus.COMPLETED,
+                profiling_results
+            )
+            
+            return await self.dataset_repo.get_dataset(dataset_id)
+            
+        except Exception as e:
+            await self.dataset_repo.update_dataset(
+                dataset_id,
+                {
+                    "status": DatasetStatus.ERROR,
+                    "error_message": str(e)
+                }
+            )
+            raise
+    
+    async def run_pipeline_step(
+        self,
+        dataset_id: int,
+        step_type: PipelineStepType
+    ) -> PipelineStep:
+        """Run a specific pipeline step on a dataset."""
+        # Get dataset
+        dataset = await self.dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            raise ValueError(f"Dataset {dataset_id} not found")
+            
+        if dataset.status != DatasetStatus.COMPLETED:
+            raise ValueError(f"Dataset {dataset_id} is not in completed state")
+            
+        # Create pipeline run if needed
+        latest_run = await self.pipeline_repo.get_pipeline_runs(
+            dataset_id=dataset_id,
+            limit=1
+        )
+        
+        if not latest_run:
+            pipeline_run = await self.pipeline_repo.create_pipeline_run(dataset_id)
+        else:
+            pipeline_run = latest_run[0]
+            
+        # Create and run step
+        step = await self.pipeline_repo.create_pipeline_step(
+            pipeline_run.id,
+            step_type,
+            PipelineRunStatus.PROCESSING
+        )
+        
+        try:
+            # Read data
+            df = pd.read_csv(dataset.metadata["file_path"])
+            
+            # Run step
+            if step_type == PipelineStepType.CLEAN:
+                result_df = await self.processing_service.clean_data(df)
+                metadata = {"rows_cleaned": len(df) - len(result_df)}
+            elif step_type == PipelineStepType.VALIDATE:
+                metadata = await self.validation_service.validate_data(df)
+            elif step_type == PipelineStepType.PROFILE:
+                metadata = await self.profiling_service.profile_data(df)
+            else:
+                raise ValueError(f"Unsupported step type: {step_type}")
+                
+            # Update step status
+            await self.pipeline_repo.update_pipeline_step_status(
+                step.id,
+                PipelineRunStatus.COMPLETED,
+                metadata
+            )
+            
+            return step
+            
+        except Exception as e:
+            await self.pipeline_repo.update_pipeline_step_status(
+                step.id,
+                PipelineRunStatus.FAILED,
+                {"error": str(e)}
+            )
+            raise
+
+pipeline_service = PipelineService()  # Will be initialized with dataset repo
