@@ -16,12 +16,11 @@ type DataSource = 'local' | 'api' | 'database';
 type PipelineStage = 'validate' | 'transform' | 'enrich' | 'load';
 type PipelineStatus = 'running' | 'completed' | 'failed';
 
-
-
 interface PipelineStepUI {
   label: string;
   description: string;
   icon?: React.ReactNode;
+  status: 'pending' | 'running' | 'completed' | 'failed';
 }
 
 interface PipelineStatusData {
@@ -85,12 +84,42 @@ const PipelineUploadForm: React.FC = () => {
   const [pipelineSteps, setPipelineSteps] = useState<PipelineStepUI[]>([]);
 
   const defaultPipelineSteps: PipelineStepUI[] = [
-    { label: "Upload", description: "Upload data file", icon: <UploadCloud className="h-4 w-4" /> },
-    { label: "Validate", description: "Validate data integrity", icon: <AlertCircle className="h-4 w-4" /> },
-    { label: "Business Rules", description: "Apply business rules", icon: <Check className="h-4 w-4" /> },
-    { label: "Transform", description: "Apply transformations", icon: <File className="h-4 w-4" /> },
-    { label: "Enrich", description: "Add derived fields", icon: <Table className="h-4 w-4" /> },
-    { label: "Load", description: "Save processed data", icon: <Check className="h-4 w-4" /> }
+    { 
+      label: "Upload", 
+      description: "Upload and validate data file", 
+      icon: <UploadCloud className="h-4 w-4" />,
+      status: "pending"
+    },
+    { 
+      label: "Data Validation", 
+      description: "Validate data structure and integrity", 
+      icon: <AlertCircle className="h-4 w-4" />,
+      status: "pending"
+    },
+    { 
+      label: "Business Rules", 
+      description: "Apply business rules and constraints", 
+      icon: <Check className="h-4 w-4" />,
+      status: "pending"
+    },
+    { 
+      label: "Transform", 
+      description: "Apply data transformations", 
+      icon: <File className="h-4 w-4" />,
+      status: "pending"
+    },
+    { 
+      label: "Enrich", 
+      description: "Add derived fields and enrichments", 
+      icon: <Table className="h-4 w-4" />,
+      status: "pending"
+    },
+    { 
+      label: "Load", 
+      description: "Save processed data to destination", 
+      icon: <Check className="h-4 w-4" />,
+      status: "pending"
+    }
   ];
 
   useEffect(() => {
@@ -170,57 +199,69 @@ const PipelineUploadForm: React.FC = () => {
         setCurrentStep(1);
         setUploadProgress(100);
 
+        // Update step status
+        setPipelineSteps(steps => steps.map((step, index) => ({
+          ...step,
+          status: index === 0 ? "completed" : step.status
+        })));
+
         toast({
           title: "Upload successful",
-          description: "Data uploaded successfully. Fetching business rules...",
+          description: "Data uploaded successfully. Starting validation...",
         });
 
-        // Fetch business rules for this dataset
-        setRulesLoading(true);
-        setRulesError(null);
+        // Start data validation
         try {
-          const rulesResp = await api.businessRules.getBusinessRules(response.data.id);
-          if (rulesResp.success && rulesResp.data) {
-            setBusinessRules(rulesResp.data);
-            const validationResp = await pipelineService.applyBusinessRules(response.data.id);
-            if (validationResp.success && validationResp.data) {
-              setRulesValidation(validationResp.data);
-              toast({
-                title: "Business rules applied",
-                description: `Validation complete: ${validationResp.data.failed_rules || 0} failed, ${validationResp.data.passed_rules || 0} passed.`
-              });
-            } else {
-              setRulesError(validationResp.error || "Failed to apply business rules");
+          const validationResponse = await pipelineService.validateData(response.data.id);
+          if (validationResponse.success) {
+            setPipelineSteps(steps => steps.map((step, index) => ({
+              ...step,
+              status: index === 1 ? "completed" : step.status
+            })));
+            
+            // Fetch and apply business rules
+            setRulesLoading(true);
+            setRulesError(null);
+            try {
+              const rulesResponse = await api.businessRules.getBusinessRules(response.data.id);
+              if (rulesResponse.success && rulesResponse.data) {
+                setBusinessRules(rulesResponse.data);
+                const businessRulesResponse = await pipelineService.applyBusinessRules(response.data.id);
+                if (businessRulesResponse.success && businessRulesResponse.data) {
+                  setRulesValidation(businessRulesResponse.data);
+                  setPipelineSteps(steps => steps.map((step, index) => ({
+                    ...step,
+                    status: index === 2 ? "completed" : step.status
+                  })));
+                  toast({
+                    title: "Business rules applied",
+                    description: `Validation complete: ${businessRulesResponse.data.failed_rules || 0} failed, ${businessRulesResponse.data.passed_rules || 0} passed.`
+                  });
+                } else {
+                  setRulesError(businessRulesResponse.error || "Failed to apply business rules");
+                }
+              } else {
+                setRulesError(rulesResponse.error || "Could not fetch business rules.");
+              }
+            } catch (err: any) {
+              setRulesError(err?.message || "Could not fetch/apply business rules.");
+              toast({ title: "Error", description: err?.message || "Could not fetch/apply business rules.", variant: "destructive" });
+            } finally {
+              setRulesLoading(false);
             }
           } else {
-            setRulesError(rulesResp.error || "Could not fetch business rules.");
+            setError(validationResponse.error || "Data validation failed");
           }
         } catch (err: any) {
-          setRulesError(err?.message || "Could not fetch/apply business rules.");
-          toast({ title: "Error", description: err?.message || "Could not fetch/apply business rules.", variant: "destructive" });
-        } finally {
-          setRulesLoading(false);
+          setError(err?.message || "Error during data validation");
         }
 
         // Start monitoring the pipeline progress
         await monitorPipelineProgress(response.data.id);
-      } else {
-        setIsUploading(false);
-        setError(response.error || "Upload failed");
-        toast({
-          title: "Upload failed",
-          description: response.error || "An error occurred during upload",
-          variant: "destructive",
-        });
       }
     } catch (err: any) {
+      setError(err?.message || "Upload failed");
       setIsUploading(false);
-      setError(err.message || "An unexpected error occurred");
-      toast({
-        title: "Upload error",
-        description: err.message || "An unexpected error occurred",
-        variant: "destructive",
-      });
     }
   };
 
@@ -324,8 +365,6 @@ const PipelineUploadForm: React.FC = () => {
 
     return cleanup;
   };
-
-
 
   return (
     <Card className="w-full">

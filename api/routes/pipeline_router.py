@@ -52,9 +52,9 @@ class ErrorResponseModel(BaseModel):
     "/openevals/step-evaluation/{run_id}/{step_name}",
     response_model=OpenEvalsEvaluationModel,
     responses={
-        200: {"description": "OpenEvals evaluation result for the pipeline step."},
-        403: {"model": ErrorResponseModel, "description": "Not authorized."},
-        404: {"model": ErrorResponseModel, "description": "Pipeline run, step, or evaluation not found."}
+        200: {"description": "OpenEvals evaluation result for the pipeline step"},
+        403: {"model": ErrorResponseModel, "description": "Not authorized"},
+        404: {"model": ErrorResponseModel, "description": "Pipeline run, step, or evaluation not found"}
     },
     summary="Get OpenEvals evaluation for a pipeline step",
     description="Fetch the OpenEvals evaluation result (data quality, business rules, etc.) for a specific step in a pipeline run. Results are structured for UI consumption."

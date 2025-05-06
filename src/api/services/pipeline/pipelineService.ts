@@ -299,5 +299,24 @@ export const pipelineService = {
         error: error instanceof Error ? error.message : "Failed to get business rules results"
       };
     }
+  },
+
+  /**
+   * Validate data structure and integrity
+   */
+  validateData: async (datasetId: string): Promise<ApiResponse<any>> => {
+    const endpoint = `pipeline/${datasetId}/validate`;
+    try {
+      const response = await callApi(endpoint, {
+        method: 'POST'
+      });
+      return response;
+    } catch (error) {
+      console.error("Error validating data:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to validate data"
+      };
+    }
   }
 };
