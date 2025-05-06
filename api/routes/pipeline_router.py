@@ -17,7 +17,7 @@ from services.database_service import DatabaseService
 from services.analytics_service import get_data_profile, detect_anomalies
 from config.settings import get_settings
 from services.ai_models import AIModelService
-from services.vector_store import VectorStoreService
+from services.vector_service import vector_service
 
 settings = get_settings()
 
@@ -32,7 +32,6 @@ database_service = DatabaseService({
     'port': settings.DB_PORT
 })
 ai_model_service = AIModelService()
-vector_store = VectorStoreService()
 
 router = APIRouter()
 

@@ -1,4 +1,3 @@
-
 """
 AI Service for providing AI capabilities through various models
 """
@@ -264,19 +263,6 @@ async def generate_embeddings(text: str, model: str = "sentence-transformers/all
         
     Returns:
         Dict with embeddings and metadata
-        
-    AI Implementation Details:
-        Vector embeddings are the backbone of modern AI-powered search and
-        recommendation systems. This function converts text into numeric 
-        vector representations that capture semantic meaning.
-        
-        The default model 'all-MiniLM-L6-v2' is a lightweight model that:
-        - Maps sentences to a 384-dimensional vector space
-        - Is trained to cluster similar meanings together in vector space
-        - Enables semantic similarity search via vector distance calculations
-        
-        In production, these embeddings would be stored in a vector database
-        like Pinecone, Weaviate, or FAISS for fast similarity searches.
     """
     try:
         # In production, this would use the actual model
@@ -288,18 +274,74 @@ async def generate_embeddings(text: str, model: str = "sentence-transformers/all
         # Generate random embeddings of the right size
         # In reality, this would call the embedding model
         if model == "sentence-transformers/all-MiniLM-L6-v2":
-            dim = 384
+            dim = 384  # Match our vector service dimension
         else:
             dim = 768
             
         embedding = np.random.normal(0, 1, dim).tolist()
         
+        # Normalize the vector
+        magnitude = np.sqrt(np.sum(np.square(embedding)))
+        normalized_embedding = [x/magnitude for x in embedding]
+        
         return {
             "success": True,
             "text": text,
-            "embedding": embedding,
-            "model": model
+            "embedding": normalized_embedding,
+            "model": model,
+            "dimension": dim
         }
     except Exception as e:
-        print(f"Error generating embeddings: {e}")
+        logger.error(f"Error generating embeddings: {e}")
         raise
+
+async def analyze_dataset_with_rag(dataset_id: int, query: str) -> Dict[str, Any]:
+    """
+    Analyze a dataset using RAG (Retrieval Augmented Generation).
+    
+    Args:
+        dataset_id: ID of the dataset to analyze
+        query: Natural language query
+        
+    Returns:
+        Dict with analysis results and context
+    """
+    try:
+        # Generate embeddings for the query
+        embedding_result = await generate_embeddings(query)
+        if not embedding_result["success"]:
+            raise ValueError("Failed to generate embeddings")
+            
+        query_embedding = embedding_result["embedding"]
+        
+        # Search for relevant context using vector service
+        vector_service = VectorService()
+        search_results = await vector_service.search_vectors(
+            query_vector=query_embedding,
+            dataset_id=dataset_id,
+            limit=5,
+            include_chunks=True
+        )
+        
+        # Prepare context from search results
+        context = []
+        for result in search_results:
+            if result.get("chunk_text"):
+                context.append({
+                    "text": result["chunk_text"],
+                    "similarity": result["similarity"],
+                    "metadata": result.get("vector_metadata", {})
+                })
+        
+        return {
+            "success": True,
+            "query": query,
+            "context": context,
+            "context_count": len(context)
+        }
+    except Exception as e:
+        logger.error(f"Error in dataset analysis: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }

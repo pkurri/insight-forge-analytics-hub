@@ -18,12 +18,11 @@ import os
 from api.config.settings import get_settings
 from api.repositories.chat_repository import ChatRepository
 from api.repositories.dataset_repository import DatasetRepository
-from api.services.vector_store import VectorStoreService
+from api.services.vector_service import vector_service
 
 # Initialize repositories and services
 chat_repo = ChatRepository()
 dataset_repo = DatasetRepository()
-vector_store = VectorStoreService()
 
 from api.services.internal_ai_service import generate_text_internal
 
@@ -153,7 +152,7 @@ async def send_message(session_id: str, message: str, context: Optional[Dict[str
         }
         
         # Get relevant context from vector store
-        context_results = await vector_store.search_similar_data(
+        context_results = await vector_service.search_similar_data(
             query=message,
             limit=5  # Get top 5 relevant items
         )

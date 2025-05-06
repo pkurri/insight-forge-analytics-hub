@@ -1,4 +1,3 @@
-
 """
 Analytics Service Module
 
@@ -513,9 +512,6 @@ async def create_vector_embeddings(dataset_id: int) -> Dict[str, Any]:
         if not settings.VECTOR_DB_ENABLED:
             return {"success": False, "error": "Vector database is not enabled"}
         
-        if not settings.OPENAI_API_KEY:
-            return {"success": False, "error": "OpenAI API key is not configured"}
-        
         # Get dataset
         dataset = await dataset_repo.get_dataset_detail(dataset_id)
         if not dataset:
@@ -524,63 +520,64 @@ async def create_vector_embeddings(dataset_id: int) -> Dict[str, Any]:
         # Load dataset to DataFrame
         df = await load_dataset_to_dataframe(dataset)
         
-        # Get embedding configuration
-        system_config = await analytics_repo.get_system_config("vector_embeddings.model")
-        embedding_config = system_config["value"] if system_config else {
-            "name": "text-embedding-3-small", 
-            "dimension": 1536
-        }
+        # Initialize vector service
+        vector_service = VectorService()
+        await vector_service.initialize()
         
-        # Generate sample embeddings for demonstration
-        # In production, you would use openai.embeddings.create() with actual data
+        # Process records in chunks
+        chunk_size = 100
         total_records = len(df)
-        processed_records = min(total_records, 100)  # Process up to 100 records for demo
-        
-        # Track successfully vectorized records
+        processed_records = 0
         successful_records = 0
         
-        # Sample 10 records for demo
-        sample_records = df.sample(min(10, len(df))).to_dict('records')
-        for i, record in enumerate(sample_records):
-            try:
-                # Convert record to string representation
-                record_str = " ".join([f"{k}: {v}" for k, v in record.items()])
+        for i in range(0, total_records, chunk_size):
+            chunk = df.iloc[i:i+chunk_size]
+            vectors = []
+            
+            for _, row in chunk.iterrows():
+                # Convert row to text representation
+                text_content = " ".join(str(val) for val in row.values)
                 
-                # Generate a mock embedding (in production, use actual API)
-                # embedding = await openai.Embedding.create(input=record_str, model=embedding_config["name"])
-                # vector = embedding.vector_dataset_metadata[0].embedding
+                # Generate embedding
+                embedding_result = await ai_service.generate_embeddings(text_content)
+                if not embedding_result["success"]:
+                    continue
                 
-                # For demo, generate a random vector
-                vector = [0.0] * embedding_config["dimension"]  # Placeholder
-                
-                # Store in database
-                record_id = f"record_{i}"
-                await analytics_repo.save_vector_embeddings(
-                    dataset_id=dataset_id,
-                    record_id=record_id,
-                    embedding=vector,
-                    ds_dataset_metadata=record
-                )
-                
+                vectors.append({
+                    "record_id": str(row.name),
+                    "content": text_content,
+                    "chunk_index": 0,  # Single chunk per record
+                    "chunk_text": text_content,
+                    "embedding": embedding_result["embedding"],
+                    "vector_metadata": {
+                        "source": dataset["name"],
+                        "type": "record",
+                        "columns": list(df.columns)
+                    }
+                })
                 successful_records += 1
             
-            except Exception as e:
-                logger.error(f"Error vectorizing record {i}: {str(e)}")
-                continue
+            if vectors:
+                # Add vectors to database
+                result = await vector_service.add_vectors(dataset_id, vectors)
+                if not result["success"]:
+                    logger.error(f"Error adding vectors: {result.get('error')}")
+            
+            processed_records += len(chunk)
         
         return {
             "success": True,
-            "dataset_id": dataset_id,
             "total_records": total_records,
             "processed_records": processed_records,
             "successful_records": successful_records,
-            "embedding_model": embedding_config["name"],
-            "embedding_dimension": embedding_config["dimension"],
+            "message": f"Successfully vectorized {successful_records} records"
         }
-        
     except Exception as e:
-        logger.error(f"Error in create_vector_embeddings: {str(e)}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"Error creating vector embeddings: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 async def process_dataset(dataset_id: int, config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -820,34 +817,31 @@ async def query_vector_database(dataset_id: int, query: str) -> Dict[str, Any]:
     try:
         if not settings.VECTOR_DB_ENABLED:
             return {"success": False, "error": "Vector database is not enabled"}
-            
-        if not settings.OPENAI_API_KEY:
-            return {"success": False, "error": "OpenAI API key is not configured"}
         
-        # Get embedding configuration
-        system_config = await analytics_repo.get_system_config("vector_embeddings.model")
-        embedding_config = system_config["value"] if system_config else {
-            "name": "text-embedding-3-small", 
-            "dimension": 1536
-        }
+        # Generate query embedding
+        embedding_result = await ai_service.generate_embeddings(query)
+        if not embedding_result["success"]:
+            raise ValueError("Failed to generate embeddings")
         
-        # In production, generate query embedding
-        # query_embedding = await openai.Embedding.create(input=query, model=embedding_config["name"])
-        # query_vector = query_embedding.vector_dataset_metadata[0].embedding
+        query_embedding = embedding_result["embedding"]
         
-        # For demo, use a mock vector
-        query_vector = [0.0] * embedding_config["dimension"]  # Placeholder
-        
-        # Search for similar records
-        results = await analytics_repo.vector_search(dataset_id, query_vector, limit=10)
+        # Search for similar records using vector service
+        vector_service = VectorService()
+        search_results = await vector_service.search_vectors(
+            query_vector=query_embedding,
+            dataset_id=dataset_id,
+            limit=10,
+            include_chunks=True
+        )
         
         # Format results
         formatted_results = []
-        for item in results:
+        for item in search_results:
             formatted_results.append({
                 "record_id": item["record_id"],
-                "similarity": float(item["similarity"]),
-                "data": item['ds_dataset_metadata']
+                "similarity": item["similarity"],
+                "content": item.get("chunk_text", ""),
+                "metadata": item.get("vector_metadata", {})
             })
         
         return {
@@ -856,11 +850,12 @@ async def query_vector_database(dataset_id: int, query: str) -> Dict[str, Any]:
             "results": formatted_results,
             "result_count": len(formatted_results)
         }
-        
     except Exception as e:
-        logger.error(f"Error in query_vector_database: {str(e)}")
-        # Return mock data for development
-        return _get_mock_vector_query_results(query, dataset_id)
+        logger.error(f"Error querying vector database: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 def _get_mock_profile_data() -> Dict[str, Any]:
     """Return mock profile data for development."""

@@ -1,4 +1,3 @@
-
 """
 Repository for analytics data operations.
 """
@@ -9,6 +8,7 @@ import numpy as np
 from datetime import datetime
 
 from api.utils.db import execute_query, execute_transaction
+from api.services.vector_service import VectorService
 
 logger = logging.getLogger(__name__)
 
@@ -108,21 +108,25 @@ class AnalyticsRepository:
     async def save_vector_embeddings(self, dataset_id: int, record_id: str, 
                                   embedding: List[float], metadata: Dict[str, Any]) -> int:
         """Save vector embeddings for a dataset record."""
-        query = """
-        INSERT INTO dataset_embeddings (dataset_id, record_id, embedding, metadata)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id
-        """
-        
         try:
-            results = await execute_query(
-                query, 
-                dataset_id, 
-                record_id, 
-                embedding, 
-                json.dumps(metadata)
-            )
-            return results[0]['id']
+            # Initialize vector service
+            vector_service = VectorService()
+            await vector_service.initialize()
+            
+            # Add vector to database
+            result = await vector_service.add_vectors(dataset_id, [{
+                "record_id": record_id,
+                "content": metadata.get("content", ""),
+                "chunk_index": metadata.get("chunk_index", 0),
+                "chunk_text": metadata.get("chunk_text", ""),
+                "embedding": embedding,
+                "vector_metadata": metadata
+            }])
+            
+            if not result["success"]:
+                raise ValueError(f"Failed to save vector embedding: {result.get('error')}")
+                
+            return result["count"]
         except Exception as e:
             logger.error(f"Error saving vector embedding for record {record_id} in dataset {dataset_id}: {str(e)}")
             raise
@@ -130,18 +134,19 @@ class AnalyticsRepository:
     async def vector_search(self, dataset_id: int, query_vector: List[float], 
                          limit: int = 10) -> List[Dict[str, Any]]:
         """Search for similar records using vector similarity."""
-        query = """
-        SELECT record_id, metadata, 
-               1 - (embedding <=> $1) AS similarity
-        FROM dataset_embeddings
-        WHERE dataset_id = $2
-        ORDER BY similarity DESC
-        LIMIT $3
-        """
-        
         try:
-            results = await execute_query(query, query_vector, dataset_id, limit)
-            return [dict(row) for row in results]
+            # Initialize vector service
+            vector_service = VectorService()
+            
+            # Search for similar vectors
+            results = await vector_service.search_vectors(
+                query_vector=query_vector,
+                dataset_id=dataset_id,
+                limit=limit,
+                include_chunks=True
+            )
+            
+            return results
         except Exception as e:
             logger.error(f"Error performing vector search for dataset {dataset_id}: {str(e)}")
             raise

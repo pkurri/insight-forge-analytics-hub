@@ -40,8 +40,8 @@ CREATE TABLE IF NOT EXISTS dataset_columns (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create vector_store table
-CREATE TABLE IF NOT EXISTS vector_store (
+-- Create vector_embeddings table
+CREATE TABLE IF NOT EXISTS vector_embeddings (
     id SERIAL PRIMARY KEY,
     dataset_id UUID REFERENCES datasets(id) ON DELETE CASCADE,
     text_content TEXT NOT NULL,
@@ -98,14 +98,14 @@ CREATE TABLE IF NOT EXISTS database_connections (
 -- Create indexes
 CREATE INDEX idx_datasets_user_id ON datasets(user_id);
 CREATE INDEX idx_datasets_status ON datasets(status);
-CREATE INDEX idx_vector_store_dataset_id ON vector_store(dataset_id);
+CREATE INDEX idx_vector_embeddings_dataset_id ON vector_embeddings(dataset_id);
 CREATE INDEX idx_chat_sessions_user_id ON chat_sessions(user_id);
 CREATE INDEX idx_pipeline_runs_dataset_id ON pipeline_runs(dataset_id);
 CREATE INDEX idx_api_connections_user_id ON api_connections(user_id);
 CREATE INDEX idx_database_connections_user_id ON database_connections(user_id);
 
 -- Create vector similarity index
-CREATE INDEX vector_store_embedding_idx ON vector_store USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX vector_embeddings_embedding_idx ON vector_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- Create business_rules table
 CREATE TABLE IF NOT EXISTS business_rules (

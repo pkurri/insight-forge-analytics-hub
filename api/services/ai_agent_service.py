@@ -471,132 +471,97 @@ async def get_chat_suggestions(
 
 async def get_streaming_response(request_data: Dict[str, Any]):
     """
-    Get a streaming response from an AI agent
-    This is a generator function that yields chunks of the response
+    Get streaming response from AI agent with RAG support.
+    
+    Args:
+        request_data: Dictionary containing request parameters
+        
+    Yields:
+        JSON strings containing streaming response data
     """
-    query = request_data.get("query", "")
-    agent_type = request_data.get("agent_type", DEFAULT_AGENT)
-    model_id = request_data.get("model_id", DEFAULT_MODEL)
-    dataset_id = request_data.get("dataset_id")
-    chat_history = request_data.get("chat_history", [])
-    context = request_data.get("context", {})
-    
-    # Validate model and agent type
-    if model_id not in AVAILABLE_MODELS:
-        yield json.dumps({"error": f"Invalid model ID: {model_id}"})
-        return
-    
-    if agent_type not in AGENT_TYPES:
-        yield json.dumps({"error": f"Invalid agent type: {agent_type}"})
-        return
-    
-    model_config = AVAILABLE_MODELS[model_id]
-    agent_config = AGENT_TYPES[agent_type]
-    
-    # Check if model supports streaming
-    if not model_config.get("supports_streaming", False):
-        # For non-streaming models, get the full response and yield it
-        try:
-            response = await get_agent_response(
-                query=query,
-                agent_type=agent_type,
-                model_id=model_id,
-                dataset_id=dataset_id,
-                chat_history=chat_history,
-                context=context
-            )
-            yield json.dumps(response)
-        except Exception as e:
-            yield json.dumps({"error": str(e)})
-        return
-    
-    # For streaming models, implement streaming response
-    # This is a simplified implementation - in production, you would use
-    # the streaming APIs provided by OpenAI, Hugging Face, etc.
-    
-    # Prepare context from vector search if dataset is specified
-    vector_context = []
-    if dataset_id:
-        try:
-            # Generate embeddings for the query
-            embedding_result = await generate_embeddings(query, model_id)
-            query_embedding = embedding_result["embeddings"]
-            
-            # Search for similar vectors
-            search_results = await search_similar_vectors(
-                query_embedding,
-                dataset_id,
-                limit=5
-            )
-            
-            if search_results and search_results["results"]:
-                vector_context = search_results["results"]
-                
-                # Yield context information first
-                yield json.dumps({
-                    "type": "context",
-                    "content": {
-                        "sources": [item.get("metadata", {}).get("source", "") for item in vector_context]
-                    }
-                })
-        except Exception as e:
-            logger.error(f"Error searching vectors: {str(e)}")
-            # Continue without vector context if there's an error
-    
-    # Prepare the prompt with context
-    system_prompt = agent_config["system_prompt"]
-    
-    # Add dataset context if available
-    if vector_context:
-        context_text = "\n\nRelevant context from the dataset:\n"
-        for i, item in enumerate(vector_context):
-            context_text += f"[{i+1}] {item['content']}\n"
-        system_prompt += context_text
-    
-    # Add custom context if provided
-    if context and isinstance(context, dict):
-        if "system_prompt_addition" in context:
-            system_prompt += f"\n\n{context['system_prompt_addition']}"
-    
     try:
-        # Simulate streaming response
-        # In production, you would use the streaming APIs
-        full_response = await get_agent_response(
+        # Extract request parameters
+        query = request_data.get("query", "")
+        dataset_id = request_data.get("dataset_id")
+        model_id = request_data.get("model_id", "default")
+        context = request_data.get("context", {})
+        
+        # Initialize vector context
+        vector_context = []
+        
+        # Get context from vector search if dataset is specified
+        if dataset_id:
+            try:
+                # Generate embeddings for the query
+                embedding_result = await generate_embeddings(query, model_id)
+                if not embedding_result["success"]:
+                    raise ValueError("Failed to generate embeddings")
+                
+                query_embedding = embedding_result["embeddings"]
+                
+                # Search for similar vectors
+                vector_service = VectorService()
+                search_results = await vector_service.search_vectors(
+                    query_vector=query_embedding,
+                    dataset_id=dataset_id,
+                    limit=5,
+                    include_chunks=True
+                )
+                
+                if search_results:
+                    vector_context = search_results
+                    
+                    # Yield context information first
+                    yield json.dumps({
+                        "type": "context",
+                        "content": {
+                            "sources": [item.get("vector_metadata", {}).get("source", "") for item in vector_context],
+                            "chunks": [item.get("chunk_text", "") for item in vector_context]
+                        }
+                    })
+            except Exception as e:
+                logger.error(f"Error searching vectors: {str(e)}")
+                # Continue without vector context if there's an error
+        
+        # Prepare the prompt with context
+        system_prompt = agent_config["system_prompt"]
+        
+        # Add dataset context if available
+        if vector_context:
+            context_text = "\n\nRelevant context from the dataset:\n"
+            for i, item in enumerate(vector_context):
+                if item.get("chunk_text"):
+                    context_text += f"[{i+1}] {item['chunk_text']}\n"
+            system_prompt += context_text
+        
+        # Add custom context if provided
+        if context and isinstance(context, dict):
+            if "system_prompt_addition" in context:
+                system_prompt += f"\n\n{context['system_prompt_addition']}"
+        
+        # Generate response
+        response = await generate_agent_response(
             query=query,
-            agent_type=agent_type,
+            system_prompt=system_prompt,
             model_id=model_id,
-            dataset_id=dataset_id,
-            chat_history=chat_history,
             context=context
         )
         
-        # Split response into chunks and yield them
-        answer = full_response.get("answer", "")
-        chunks = [answer[i:i+20] for i in range(0, len(answer), 20)]  # Split into chunks of 20 chars
-        
-        for i, chunk in enumerate(chunks):
-            # Simulate network delay
-            await asyncio.sleep(0.1)
-            
+        # Stream the response
+        if response.get("success"):
             yield json.dumps({
-                "type": "chunk",
-                "content": chunk,
-                "done": i == len(chunks) - 1
+                "type": "response",
+                "content": response["response"]
             })
-        
-        # Yield final message with complete metadata
-        yield json.dumps({
-            "type": "complete",
-            "content": {
-                "model": model_id,
-                "agent": agent_type,
-                "timestamp": datetime.now().isoformat(),
-                "confidence": full_response.get("confidence", 0.9),
-                "insights": full_response.get("insights", []),
-                "sources": full_response.get("sources", [])
-            }
-        })
-    
+        else:
+            yield json.dumps({
+                "type": "error",
+                "content": response.get("error", "Failed to generate response")
+            })
+            
     except Exception as e:
         logger.error(f"Error in streaming response: {str(e)}")
-        yield json.dumps({"error": str(e)})
+        yield json.dumps({
+            "type": "error",
+            "content": str(e)
+        })
