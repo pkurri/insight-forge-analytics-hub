@@ -1,8 +1,14 @@
+"""
+Settings Configuration Module
 
+This module provides centralized configuration management for the application.
+"""
+
+import os
+from typing import Any, Dict
 from pydantic_settings import BaseSettings
 from functools import lru_cache
-from typing import List, Optional, Dict, Any
-import os
+from typing import List, Optional
 from dotenv import load_dotenv
 import logging.config
 import json
@@ -17,21 +23,46 @@ class LoggingSettings(BaseSettings):
     LOG_TO_CONSOLE: bool = os.getenv("LOG_TO_CONSOLE", "True").lower() == "true"
 
 class Settings(BaseSettings):
+    """Application settings class."""
+    
     # API Settings
-    API_VERSION: str = "v1"
-    PROJECT_NAME: str = "DataForge Analytics API"
-    DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
+    API_VERSION: str = "1.0.0"
+    API_PREFIX: str = "/api/v1"
+    DEBUG: bool = False
+    
+    # Database Settings
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/db")
+    DATABASE_POOL_SIZE: int = 5
+    DATABASE_MAX_OVERFLOW: int = 10
+    
+    # Vector Store Settings
+    VECTOR_DIMENSION: int = 384
+    MILVUS_HOST: str = os.getenv("MILVUS_HOST", "localhost")
+    MILVUS_PORT: int = int(os.getenv("MILVUS_PORT", "19530"))
+    
+    # OpenAI Settings
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_API_BASE_URL: str = os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1")
+    OPENAI_API_TIMEOUT: int = int(os.getenv("OPENAI_API_TIMEOUT", "30"))
+    OPENAI_API_MAX_RETRIES: int = int(os.getenv("OPENAI_API_MAX_RETRIES", "3"))
+    
+    # Allowed Models
+    ALLOWED_TEXT_GEN_MODELS: list = [
+        "gpt-3.5-turbo",
+        "gpt-4",
+        "Mistral-3.2-instruct"
+    ]
+    
+    # Business Rules Settings
+    RULE_EXECUTION_TIMEOUT: int = int(os.getenv("RULE_EXECUTION_TIMEOUT", "30"))
+    MAX_RULES_PER_DATASET: int = int(os.getenv("MAX_RULES_PER_DATASET", "100"))
+    
+    # Logging Settings
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
     # CORS Settings
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "https://dataforge-analytics.com"]
-    
-    # Database Settings
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/dataforge")
-    
-    # JWT Settings
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "supersecretkey")
-    JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     # Vector Database Settings
     VECTOR_DB_ENABLED: bool = os.getenv("VECTOR_DB_ENABLED", "True").lower() == "true"
@@ -72,11 +103,18 @@ class Settings(BaseSettings):
     MONITORING_METRICS_RETENTION_DAYS: int = int(os.getenv("MONITORING_METRICS_RETENTION_DAYS", "30"))
     
     class Config:
+        """Pydantic config."""
         env_file = ".env"
         case_sensitive = True
 
 @lru_cache()
 def get_settings() -> Settings:
+    """
+    Get cached settings instance.
+    
+    Returns:
+        Settings: Application settings instance
+    """
     settings = Settings()
     
     # Configure logging
@@ -126,3 +164,29 @@ def configure_logging(logging_settings: LoggingSettings) -> None:
     }
     
     logging.config.dictConfig(logging_config)
+
+def get_setting(key: str, default: Any = None) -> Any:
+    """
+    Get a specific setting value.
+    
+    Args:
+        key: Setting key to retrieve
+        default: Default value if setting not found
+        
+    Returns:
+        Any: Setting value or default
+    """
+    settings = get_settings()
+    return getattr(settings, key, default)
+
+def update_settings(settings_dict: Dict[str, Any]) -> None:
+    """
+    Update settings with new values.
+    
+    Args:
+        settings_dict: Dictionary of settings to update
+    """
+    settings = get_settings()
+    for key, value in settings_dict.items():
+        if hasattr(settings, key):
+            setattr(settings, key, value)
