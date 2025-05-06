@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Depends, HTTPException, status, Security
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, APIKeyHeader
 from datetime import timedelta
@@ -9,6 +8,7 @@ from api.models.user import Token, TokenData, UserCreate, UserResponse, UserUpda
 from api.services.auth import authenticate_user, create_access_token, create_api_key
 from api.repositories.user_repository import get_user_repository
 from api.config.settings import get_settings
+from api.dependencies.auth import check_user_access
 
 settings = get_settings()
 router = APIRouter()
@@ -60,12 +60,21 @@ async def get_current_user(
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     
-    return user
+    # Add is_admin to user data
+    user_dict = user.dict()
+    user_dict["is_admin"] = user.is_admin
+    return user_dict
 
 async def get_current_active_user(current_user = Depends(get_current_user)):
     """Get the current active user."""
-    if not current_user.is_active:
+    if not current_user.get("is_active", True):
         raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
+
+async def get_admin_user(current_user = Depends(get_current_user)):
+    """Get the current user if they are an admin."""
+    if not current_user.get("is_admin", False):
+        raise HTTPException(status_code=403, detail="Not authorized. Admin access required.")
     return current_user
 
 async def get_user_from_api_key(

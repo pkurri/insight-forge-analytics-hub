@@ -1,41 +1,44 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import Cookies from 'js-cookie';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { authService } from '@/api/services/auth/authService';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const navigate = useNavigate();
+  const [error, setError] = useState('');
+  const router = useRouter();
   const { toast } = useToast();
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
+  useEffect(() => {
+    // Check if already authenticated
+    const isAuthenticated = Cookies.get('isAuthenticated');
+    if (isAuthenticated === 'true') {
+      router.push('/dashboard');
+    }
+  }, [router]);
 
-    try {
-      const response = await authService.login(username, password);
-      if (response.success) {
-        toast({
-          title: "Login successful",
-          description: "Welcome to Data Forge Analytics",
-        });
-        navigate('/dashboard');
-      } else {
-        throw new Error(response.error || 'Login failed');
-      }
-    } catch (error) {
-      toast({
-        title: "Login failed",
-        description: error instanceof Error ? error.message : "Invalid credentials",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    // Check for admin/admin credentials
+    if (username === 'admin' && password === 'admin') {
+      // Store authentication state in cookies
+      Cookies.set('isAuthenticated', 'true', { expires: 7 }); // Expires in 7 days
+      Cookies.set('user', JSON.stringify({
+        username: 'admin',
+        role: 'admin',
+        is_admin: true
+      }), { expires: 7 });
+      
+      // Redirect to dashboard
+      router.push('/dashboard');
+    } else {
+      setError('Invalid username or password');
     }
   };
 
@@ -79,12 +82,17 @@ const Login: React.FC = () => {
             />
           </div>
 
+          {error && (
+            <div className="text-red-500 text-sm text-center">
+              {error}
+            </div>
+          )}
+
           <Button
             type="submit"
             className="w-full"
-            disabled={isLoading}
           >
-            {isLoading ? "Signing in..." : "Sign in"}
+            Sign in
           </Button>
         </form>
       </Card>

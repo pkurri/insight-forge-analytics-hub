@@ -69,3 +69,9 @@ async def get_connection_stats():
         "overflow": engine.pool.overflow(),
         "status": "healthy" if await check_db_connection() else "unhealthy"
     }
+
+async def get_db_pool():
+    """
+    Get a connection pool for the database.
+    """
+    return engine.pool

@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import JSONResponse
 from typing import List, Optional
@@ -14,6 +13,7 @@ from api.repositories.dataset_repository import get_dataset_repository
 from api.services.file_service import process_uploaded_file
 from api.config.settings import get_settings
 from api.routes.auth_router import get_current_active_user, get_user_from_api_key
+from api.dependencies.auth import get_current_user_or_api_key, check_user_access
 
 settings = get_settings()
 router = APIRouter()
@@ -68,8 +68,8 @@ async def get_dataset(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
-    # Check ownership
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+    # Check access using the new function
+    if not await check_user_access(current_user, dataset.user_id):
         raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
     
     # Get columns
@@ -142,7 +142,7 @@ async def get_business_rules(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+    if not await check_user_access(current_user, dataset.user_id):
         raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
     
     # Get rules
@@ -162,7 +162,7 @@ async def create_business_rule(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+    if not await check_user_access(current_user, dataset.user_id):
         raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
     
     # Create rule

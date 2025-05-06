@@ -10,6 +10,7 @@ import jwt
 from datetime import datetime, timedelta
 
 from api.config.settings import get_settings
+from api.models.user import UserDB
 
 settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
@@ -29,7 +30,7 @@ async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Dic
     """
     # For development, allow unauthenticated access if AUTH_REQUIRED is False
     if not getattr(settings, "AUTH_REQUIRED", True):
-        return {"id": "dev-user", "username": "developer", "role": "admin"}
+        return {"id": "dev-user", "username": "developer", "role": "admin", "is_admin": True}
     
     if not token:
         raise HTTPException(
@@ -60,6 +61,7 @@ async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Dic
             "id": payload.get("sub"),
             "username": payload.get("username"),
             "role": payload.get("role", "user"),
+            "is_admin": payload.get("is_admin", False),
             "exp": exp
         }
         
@@ -84,9 +86,25 @@ async def get_admin_user(current_user: Dict[str, Any] = Depends(get_current_user
     Raises:
         HTTPException: If user is not an admin
     """
-    if current_user.get("role") != "admin":
+    if not current_user.get("is_admin", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions",
         )
     return current_user
+
+async def check_user_access(current_user: Dict[str, Any], resource_user_id: Optional[int] = None) -> bool:
+    """
+    Check if user has access to a resource.
+    Admin users always have access.
+    
+    Args:
+        current_user: Current authenticated user
+        resource_user_id: ID of the user who owns the resource
+        
+    Returns:
+        bool: True if user has access, False otherwise
+    """
+    if current_user.get("is_admin", False):
+        return True
+    return resource_user_id is None or str(resource_user_id) == str(current_user.get("id"))

@@ -1,4 +1,3 @@
-
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import text
@@ -7,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from api.models.user import UserCreate, UserDB, UserUpdate, APIKeyResponse
 from api.services.auth import get_password_hash
 from api.config.settings import get_settings
-from api.db.connection import get_db_session
+from api.db.connection import get_db_session, get_db_pool
 
 settings = get_settings()
 
