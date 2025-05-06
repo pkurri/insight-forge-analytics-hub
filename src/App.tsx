@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom';
 import { DatasetProvider } from '@/hooks/useDatasetContext';
 import AiChat from '@/pages/AiChat';
 import Dashboard from '@/pages/Dashboard';
@@ -25,7 +25,7 @@ function App() {
         <Router>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/" element={<Layout />}>
+            <Route path="/" element={<Layout children={<Outlet />} />}>
               <Route index element={<Index />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="analytics" element={<Analytics />} />
