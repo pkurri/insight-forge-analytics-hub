@@ -5,6 +5,7 @@ import { pipelineService } from '@/api/services/pipeline/pipelineService';
 import { businessRulesService } from '@/api/services/businessRules/businessRulesService';
 import { datasourceService } from '@/api/services/datasource/datasourceService';
 import { aiService } from '@/api/services/aiService';
+import { conversationAnalyticsService } from '@/api/services/analytics/conversationAnalyticsService';
 
 export interface Dataset {
   id: string;
@@ -33,7 +34,16 @@ export const api = {
     },
     
     getDatasets: async () => {
-      return pipelineService.getDatasets();
+      // Ensure pipelineService has getDatasets method
+      if (typeof pipelineService.getDatasets === 'function') {
+        return pipelineService.getDatasets();
+      }
+      console.error('pipelineService.getDatasets is not a function');
+      return { 
+        success: false, 
+        error: 'Method not implemented', 
+        data: [] 
+      };
     }
   },
   
@@ -49,9 +59,12 @@ export const api = {
   
   getGlobalAnalytics: async () => {
     try {
-      const datasets = await pipelineService.getDatasets();
-      if (datasets.success && datasets.data && datasets.data.length > 0) {
-        return await analyticsService.profileDataset(datasets.data[0].id);
+      // Ensure pipelineService has getDatasets method
+      if (typeof pipelineService.getDatasets === 'function') {
+        const datasets = await pipelineService.getDatasets();
+        if (datasets.success && datasets.data && datasets.data.length > 0) {
+          return await analyticsService.profileDataset(datasets.data[0].id);
+        }
       }
       return { success: false, error: 'No datasets available for analytics' };
     } catch (error) {

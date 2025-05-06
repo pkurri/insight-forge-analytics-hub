@@ -1,45 +1,74 @@
-import React from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
-export interface CohortDataPoint {
-  cohort: string;
-  retention: number[]; // Retention percent for each time period (e.g., day/week)
-}
+import React from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface CohortAnalysisProps {
-  cohortData: CohortDataPoint[];
+  cohortData: Array<{
+    cohort: string;
+    retention: number[];
+  }>;
   periods: string[];
 }
 
 export default function CohortAnalysis({ cohortData, periods }: CohortAnalysisProps) {
-  // Transform cohortData into chart-friendly format
-  const chartData = periods.map((period, i) => {
-    const row: any = { period };
-    cohortData.forEach(cohort => {
-      row[cohort.cohort] = cohort.retention[i] ?? 0;
-    });
-    return row;
-  });
+  // Ensure cohortData is an array
+  const safeData = Array.isArray(cohortData) ? cohortData : [];
+  const safePeriods = Array.isArray(periods) ? periods : [];
+  
+  if (safeData.length === 0 || safePeriods.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Cohort Analysis</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-40">
+            <p className="text-muted-foreground">No cohort data available</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <div className="card" style={{ width: 700, height: 320, marginBottom: 24 }}>
-      <h3>Cohort Retention Analysis</h3>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData}>
-          <XAxis dataKey="period" />
-          <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} />
-          <Tooltip />
-          <CartesianGrid stroke="#eee" />
-          {cohortData.map((cohort, idx) => (
-            <Line
-              key={cohort.cohort}
-              type="monotone"
-              dataKey={cohort.cohort}
-              stroke={`hsl(${(idx * 55) % 360},70%,50%)`}
-              strokeWidth={2}
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Cohort Analysis</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr>
+                <th className="p-2 text-left border">Cohort</th>
+                {safePeriods.map((period, i) => (
+                  <th key={i} className="p-2 text-center border">
+                    {period}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {safeData.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  <td className="p-2 font-medium border">{row.cohort}</td>
+                  {row.retention.map((value, colIndex) => (
+                    <td 
+                      key={colIndex} 
+                      className="p-2 text-center border"
+                      style={{
+                        backgroundColor: `rgba(99, 102, 241, ${value / 100})`,
+                      }}
+                    >
+                      {value}%
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

@@ -6,6 +6,7 @@ export * from './api';
 export * from './services/ai/aiChatService';
 export { datasetService } from './services/datasets/datasetService';
 export { analyticsService } from './services/analytics/analyticsService';
+export { conversationAnalyticsService } from './services/analytics/conversationAnalyticsService';
 export { businessRulesService } from './services/businessRules/businessRulesService';
 export { pipelineService } from './services/pipeline/pipelineService';
 export { datasourceService } from './services/datasource/datasourceService';

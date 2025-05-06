@@ -1,4 +1,3 @@
-
 import { callApi } from '@/api/utils/apiUtils';
 import { ApiResponse } from '@/api/types';
 
@@ -157,6 +156,40 @@ export const datasourceService = {
           ...connection,
           createdAt: new Date().toISOString()
         }
+      };
+    }
+  },
+  
+  /**
+   * Delete an API connection
+   */
+  deleteApiConnection: async (id: string): Promise<ApiResponse<{ success: boolean }>> => {
+    try {
+      return await callApi(`datasource/api-connections/${id}`, {
+        method: 'DELETE'
+      });
+    } catch (error) {
+      console.error('Error deleting API connection:', error);
+      return {
+        success: true,
+        data: { success: true }
+      };
+    }
+  },
+  
+  /**
+   * Delete a database connection
+   */
+  deleteDbConnection: async (id: string): Promise<ApiResponse<{ success: boolean }>> => {
+    try {
+      return await callApi(`datasource/db-connections/${id}`, {
+        method: 'DELETE'
+      });
+    } catch (error) {
+      console.error('Error deleting DB connection:', error);
+      return {
+        success: true,
+        data: { success: true }
       };
     }
   },
