@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 import json
 from datetime import datetime
 import time
+from pydantic import BaseModel
 
 from services.project_evaluator import project_evaluator
 from ..config.openevals_config import ComponentType, EvaluationCategory

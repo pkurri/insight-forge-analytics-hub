@@ -382,3 +382,54 @@ async def delete_dataset(dataset_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error deleting dataset: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete dataset: {str(e)}")
+
+async def get_dataset_metadataset(dataset_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get dataset metadataset information.
+    
+    Args:
+        dataset_id: ID of the dataset
+        
+    Returns:
+        Dict containing dataset information or None if not found
+    """
+    try:
+        from api.repositories import dataset_repository
+        repo = dataset_repository.DatasetRepository()
+        return await repo.get_dataset(dataset_id)
+    except Exception as e:
+        logger.error(f"Error getting dataset metadataset: {str(e)}")
+        return None
+
+async def process_dataset_metadataset(dataset_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Process dataset metadataset metadata.
+    
+    Args:
+        dataset_id: ID of the dataset
+        metadata: Dataset metadata to process
+        
+    Returns:
+        Dict containing processed metadata
+    """
+    try:
+        from api.repositories import dataset_repository
+        repo = dataset_repository.DatasetRepository()
+        
+        # Process metadata
+        processed_metadata = {
+            "dataset_id": dataset_id,
+            "metadata": metadata,
+            "processed_at": pd.Timestamp.now().isoformat()
+        }
+        
+        # Store processed metadata
+        await repo.update_dataset_status(dataset_id, "PROCESSED", processed_metadata)
+        
+        return processed_metadata
+    except Exception as e:
+        logger.error(f"Error processing dataset metadataset: {str(e)}")
+        return {
+            "dataset_id": dataset_id,
+            "error": str(e)
+        }
