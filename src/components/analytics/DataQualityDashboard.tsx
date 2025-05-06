@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -70,7 +71,7 @@ const DataQualityDashboard: React.FC = () => {
   const loadQualityData = async () => {
     setLoading(true);
     try {
-      const response = await api.analyticsService.getDataQuality(selectedDataset);
+      const response = await api.analytics.getDataQuality(selectedDataset);
       if (response.success) {
         setValidationData(response.data.validation);
         setCleaningData(response.data.cleaning);
@@ -100,7 +101,7 @@ const DataQualityDashboard: React.FC = () => {
   const handleCleanData = async () => {
     setLoading(true);
     try {
-      const response = await api.analyticsService.cleanData(selectedDataset, {
+      const response = await api.analytics.cleanData(selectedDataset, {
         operations: selectedOperations
       });
       if (response.success) {

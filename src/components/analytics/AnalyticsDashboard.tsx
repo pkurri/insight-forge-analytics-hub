@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -23,7 +24,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ datasetId, clas
   useEffect(() => {
     loadAnalyticsData();
     
-    // Check component code quality using OpenEvals
+    // Check component code quality
     const checkComponentQuality = async () => {
       try {
         const result = await api.evaluateRuntimeComponent('AnalyticsDashboard');

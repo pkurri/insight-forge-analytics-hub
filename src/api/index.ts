@@ -7,3 +7,6 @@ export * from './services/ai/aiChatService';
 export { datasetService } from './services/datasets/datasetService';
 export { analyticsService } from './services/analytics/analyticsService';
 export { businessRulesService } from './services/businessRules/businessRulesService';
+export { pipelineService } from './services/pipeline/pipelineService';
+export { datasourceService } from './services/datasource/datasourceService';
+export { aiService } from './services/aiService';

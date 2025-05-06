@@ -30,7 +30,7 @@ const Dashboard: React.FC<DashboardProps> = ({ className }) => {
           setMetrics(metricsResponse.data);
         }
         
-        // Fetch project quality scores from OpenEvals
+        // Fetch project quality scores
         const qualityResponse = await api.getProjectQualityScores();
         if (qualityResponse.success) {
           setQualityScores(qualityResponse.data);

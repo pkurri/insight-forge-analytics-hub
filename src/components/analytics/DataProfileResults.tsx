@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -41,7 +42,7 @@ const DataProfileResults: React.FC<any> = (props) => {
     const fetchProfileData = async () => {
       try {
         // Use sample dataset ID for demo
-        const response = await api.analyticsService.profileDataset(datasetId, options);
+        const response = await api.analytics.profileDataset(datasetId, options);
         if (response.success && response.data) {
           setProfileData(response.data);
         } else {
