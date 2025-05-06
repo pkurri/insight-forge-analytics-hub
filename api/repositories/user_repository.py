@@ -2,17 +2,19 @@ from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+import asyncpg
 
 from api.models.user import UserCreate, UserDB, UserUpdate, APIKeyResponse
 from api.services.auth import get_password_hash
 from api.config.settings import get_settings
-from api.db.connection import get_db_session, get_db_pool
+from api.db.connection import get_db_pool
 
 settings = get_settings()
 
 class UserRepository:
-    def __init__(self, session):
-        self.session = session
+    def __init__(self, pool: asyncpg.Pool):
+        """Initialize repository with a database connection pool."""
+        self.pool = pool
 
     async def create_user(self, user: UserCreate) -> UserDB:
         """Create a new user."""
@@ -184,6 +186,7 @@ class UserRepository:
             )
 
 # Factory function to get a UserRepository instance
-async def get_user_repository():
+async def get_user_repository() -> UserRepository:
+    """Get a UserRepository instance with a database connection pool."""
     pool = await get_db_pool()
     return UserRepository(pool)
