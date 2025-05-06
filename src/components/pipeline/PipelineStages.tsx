@@ -1,7 +1,10 @@
-
 import React from 'react';
-import { FileUp, FilterX, CheckCircle2, Activity, BarChart3, Zap } from 'lucide-react';
+import { FileUp, FilterX, CheckCircle2, Activity, BarChart3, Zap, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
+import { api } from '@/api/api';
+import { PipelineStep } from '@/api/services/pipeline';
 
 interface StageProps {
   icon: React.ReactNode;
@@ -9,9 +12,21 @@ interface StageProps {
   description: string;
   status: 'completed' | 'in-progress' | 'pending' | 'error';
   isLast?: boolean;
+  stepId?: number;
+  onRunStep?: (stepId: number) => Promise<void>;
+  isRunning?: boolean;
 }
 
-const Stage: React.FC<StageProps> = ({ icon, title, description, status, isLast = false }) => {
+const Stage: React.FC<StageProps> = ({ 
+  icon, 
+  title, 
+  description, 
+  status, 
+  isLast = false,
+  stepId,
+  onRunStep,
+  isRunning = false
+}) => {
   const getStatusColor = () => {
     switch (status) {
       case 'completed': return 'bg-green-500 text-white border-green-500';
@@ -29,9 +44,34 @@ const Stage: React.FC<StageProps> = ({ icon, title, description, status, isLast 
         </div>
         {!isLast && <div className="w-0.5 h-16 bg-gray-300 mt-2"></div>}
       </div>
-      <div className="ml-4 mt-1">
-        <h3 className="font-medium">{title}</h3>
-        <p className="text-sm text-gray-500">{description}</p>
+      <div className="ml-4 mt-1 flex-1">
+        <div className="flex justify-between items-start">
+          <div>
+            <h3 className="font-medium">{title}</h3>
+            <p className="text-sm text-gray-500">{description}</p>
+          </div>
+          {stepId && onRunStep && status !== 'completed' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onRunStep(stepId)}
+              disabled={isRunning || status === 'in-progress'}
+              className="ml-4"
+            >
+              {isRunning ? (
+                <div className="flex items-center">
+                  <div className="animate-spin mr-2">⟳</div>
+                  Running...
+                </div>
+              ) : (
+                <div className="flex items-center">
+                  <Play size={14} className="mr-2" />
+                  Run
+                </div>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -44,10 +84,51 @@ interface PipelineStagesProps {
     description: string;
     status: 'completed' | 'in-progress' | 'pending' | 'error';
     icon?: React.ReactNode;
+    stepId?: number;
   }>;
+  datasetId?: number;
+  onStageUpdate?: () => void;
 }
 
-const PipelineStages: React.FC<PipelineStagesProps> = ({ currentStage = 0, stages: customStages }) => {
+const PipelineStages: React.FC<PipelineStagesProps> = ({ 
+  currentStage = 0, 
+  stages: customStages,
+  datasetId,
+  onStageUpdate 
+}) => {
+  const { toast } = useToast();
+  const [runningSteps, setRunningSteps] = React.useState<Set<number>>(new Set());
+
+  const handleRunStep = async (stepId: number) => {
+    try {
+      setRunningSteps(prev => new Set(prev).add(stepId));
+      
+      const response = await api.pipelineService.runPipelineStep(stepId);
+      
+      if (response.success) {
+        toast({
+          title: "Step started",
+          description: "The pipeline step has been initiated successfully.",
+        });
+        onStageUpdate?.();
+      } else {
+        throw new Error(response.error || "Failed to start pipeline step");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to start pipeline step",
+        variant: "destructive",
+      });
+    } finally {
+      setRunningSteps(prev => {
+        const next = new Set(prev);
+        next.delete(stepId);
+        return next;
+      });
+    }
+  };
+
   const defaultStages = [
     {
       icon: <FileUp size={18} />,
@@ -107,6 +188,9 @@ const PipelineStages: React.FC<PipelineStagesProps> = ({ currentStage = 0, stage
           description={stage.description} 
           status={stage.status} 
           isLast={idx === stagesWithStatus.length - 1}
+          stepId={stage.stepId}
+          onRunStep={stage.stepId ? handleRunStep : undefined}
+          isRunning={stage.stepId ? runningSteps.has(stage.stepId) : false}
         />
       ))}
     </div>

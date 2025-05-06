@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { api } from '@/api/api';
 // import { api.pipelineService } from '@/api/services/pipeline/api.pipelineService';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Play, RefreshCw } from 'lucide-react';
+import { PipelineStep, PipelineStatus } from '@/api/services/pipeline';
 
 interface PipelineJob {
   id: string;
   name: string;
-  status: 'running' | 'completed' | 'failed' | 'queued';
+  status: 'running' | 'completed' | 'failed' | 'queued' | 'pending';
   type: string;
   progress: number;
   startTime: string;
@@ -18,15 +20,18 @@ interface PipelineJob {
     passed: number;
     failed: number;
   };
+  steps?: PipelineStep[];
 }
 
 interface PipelineStatusTableProps {
   datasetId?: string;
+  onUpdate?: () => void;
 }
 
-const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) => {
+const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId, onUpdate }) => {
   const [pipelineJobs, setPipelineJobs] = useState<PipelineJob[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [runningSteps, setRunningSteps] = useState<Set<number>>(new Set());
   const { toast } = useToast();
   
   useEffect(() => {
@@ -42,21 +47,22 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) 
       
       if (response.success && response.data) {
         // Transform pipeline data to match our component's format
-        const jobs: PipelineJob[] = response.data.map(run => {
+        const jobs: PipelineJob[] = response.data.map((run: PipelineStatus) => {
           // Find business rules stage if it exists
-          const businessRulesStage = run.stages.find(stage => 
-            stage.name.toLowerCase().includes('business') || 
-            stage.name.toLowerCase().includes('rule')
+          const businessRulesStage = run.steps.find(step => 
+            step.name.toLowerCase().includes('business') || 
+            step.name.toLowerCase().includes('rule')
           );
           
           return {
             id: run.id,
             name: `Pipeline Run ${run.id.substring(0, 8)}`,
-            status: run.status === 'pending' ? 'queued' : run.status,
+            status: run.status,
             type: run.current_stage,
             progress: run.progress,
             startTime: run.created_at,
             endTime: run.updated_at,
+            steps: run.steps,
             businessRulesStatus: businessRulesStage ? {
               total: 0, // These would come from the actual API response
               passed: 0,
@@ -109,6 +115,39 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) 
       setIsLoading(false);
     }
   };
+
+  const handleRunStep = async (stepId: number) => {
+    try {
+      setRunningSteps(prev => new Set(prev).add(stepId));
+      
+      const response = await api.pipelineService.runPipelineStep(stepId);
+      
+      if (response.success) {
+        toast({
+          title: "Step started",
+          description: "The pipeline step has been initiated successfully.",
+        });
+        onUpdate?.();
+        if (datasetId) {
+          fetchPipelineRuns(datasetId);
+        }
+      } else {
+        throw new Error(response.error || "Failed to start pipeline step");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to start pipeline step",
+        variant: "destructive",
+      });
+    } finally {
+      setRunningSteps(prev => {
+        const next = new Set(prev);
+        next.delete(stepId);
+        return next;
+      });
+    }
+  };
   
   const getStatusBadge = (status: PipelineJob['status']) => {
     switch (status) {
@@ -120,6 +159,8 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) 
         return <Badge className="bg-red-500">Failed</Badge>;
       case 'queued':
         return <Badge className="bg-yellow-500">Queued</Badge>;
+      case 'pending':
+        return <Badge className="bg-gray-500">Pending</Badge>;
       default:
         return <Badge>Unknown</Badge>;
     }
@@ -159,6 +200,7 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) 
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Steps</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business Rules</th>
           </tr>
         </thead>
@@ -190,6 +232,34 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) 
                 {job.endTime ? 
                   new Date(new Date(job.endTime).getTime() - new Date(job.startTime).getTime()).toISOString().substr(11, 8) : 
                   'In progress'}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="space-y-2">
+                  {job.steps?.map((step) => (
+                    <div key={step.id} className="flex items-center justify-between">
+                      <span className="text-sm">{step.name}</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRunStep(step.id)}
+                        disabled={runningSteps.has(step.id) || step.status === 'completed' || step.status === 'in-progress'}
+                        className="ml-2"
+                      >
+                        {runningSteps.has(step.id) ? (
+                          <div className="flex items-center">
+                            <RefreshCw size={14} className="animate-spin mr-2" />
+                            Running...
+                          </div>
+                        ) : (
+                          <div className="flex items-center">
+                            <Play size={14} className="mr-2" />
+                            Run
+                          </div>
+                        )}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
                 {job.businessRulesStatus ? (

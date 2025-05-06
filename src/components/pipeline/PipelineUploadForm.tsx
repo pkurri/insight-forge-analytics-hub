@@ -11,6 +11,9 @@ import { Stepper, Step } from '@/components/ui/stepper';
 import { Card } from '@/components/ui/card';
 import { pipelineService } from '@/api/services/pipeline/pipelineService';
 import type { BusinessRule } from '@/api/services/businessRules/businessRulesService';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 
 type DataSource = 'local' | 'api' | 'database';
 type PipelineStage = 'validate' | 'transform' | 'enrich' | 'load';
@@ -82,6 +85,10 @@ const PipelineUploadForm: React.FC = () => {
   const { toast } = useToast();
   const [isOverrideActive, setIsOverrideActive] = useState(false);
   const [pipelineSteps, setPipelineSteps] = useState<PipelineStepUI[]>([]);
+  const [datasetName, setDatasetName] = useState<string>('');
+  const [datasetDescription, setDatasetDescription] = useState<string>('');
+  const [cleanData, setCleanData] = useState<boolean>(true);
+  const [validateData, setValidateData] = useState<boolean>(true);
 
   const defaultPipelineSteps: PipelineStepUI[] = [
     { 
@@ -175,11 +182,25 @@ const PipelineUploadForm: React.FC = () => {
 
       if (dataSource === 'local' && selectedFile) {
         formData.append('file', selectedFile);
-        formData.append('fileType', fileType);
+        formData.append('file_type', fileType);
+        formData.append('name', datasetName || selectedFile.name);
+        formData.append('description', datasetDescription || `Uploaded ${selectedFile.name} (${fileType.toUpperCase()})`);
+        formData.append('clean_data', cleanData.toString());
+        formData.append('validate_data', validateData.toString());
       } else if (dataSource === 'api') {
-        formData.append('apiEndpoint', apiEndpoint);
+        formData.append('api_endpoint', apiEndpoint);
+        formData.append('output_format', fileType);
+        formData.append('name', datasetName || `API Import - ${apiEndpoint}`);
+        formData.append('description', datasetDescription || `Data imported from API endpoint: ${apiEndpoint}`);
+        formData.append('clean_data', cleanData.toString());
+        formData.append('validate_data', validateData.toString());
       } else if (dataSource === 'database') {
-        formData.append('dbConnection', dbConnection);
+        formData.append('connection_id', dbConnection);
+        formData.append('output_format', fileType);
+        formData.append('name', datasetName || `DB Import - ${dbConnection.split('@')[1] || 'Database'}`);
+        formData.append('description', datasetDescription || `Data imported from database connection: ${dbConnection}`);
+        formData.append('clean_data', cleanData.toString());
+        formData.append('validate_data', validateData.toString());
       }
 
       formData.append('dataSource', dataSource);
@@ -207,61 +228,98 @@ const PipelineUploadForm: React.FC = () => {
 
         toast({
           title: "Upload successful",
-          description: "Data uploaded successfully. Starting validation...",
+          description: "Data uploaded successfully. You can now start the validation step.",
         });
-
-        // Start data validation
-        try {
-          const validationResponse = await pipelineService.validateData(response.data.id);
-          if (validationResponse.success) {
-            setPipelineSteps(steps => steps.map((step, index) => ({
-              ...step,
-              status: index === 1 ? "completed" : step.status
-            })));
-            
-            // Fetch and apply business rules
-            setRulesLoading(true);
-            setRulesError(null);
-            try {
-              const rulesResponse = await api.businessRules.getBusinessRules(response.data.id);
-              if (rulesResponse.success && rulesResponse.data) {
-                setBusinessRules(rulesResponse.data);
-                const businessRulesResponse = await pipelineService.applyBusinessRules(response.data.id);
-                if (businessRulesResponse.success && businessRulesResponse.data) {
-                  setRulesValidation(businessRulesResponse.data);
-                  setPipelineSteps(steps => steps.map((step, index) => ({
-                    ...step,
-                    status: index === 2 ? "completed" : step.status
-                  })));
-                  toast({
-                    title: "Business rules applied",
-                    description: `Validation complete: ${businessRulesResponse.data.failed_rules || 0} failed, ${businessRulesResponse.data.passed_rules || 0} passed.`
-                  });
-                } else {
-                  setRulesError(businessRulesResponse.error || "Failed to apply business rules");
-                }
-              } else {
-                setRulesError(rulesResponse.error || "Could not fetch business rules.");
-              }
-            } catch (err: any) {
-              setRulesError(err?.message || "Could not fetch/apply business rules.");
-              toast({ title: "Error", description: err?.message || "Could not fetch/apply business rules.", variant: "destructive" });
-            } finally {
-              setRulesLoading(false);
-            }
-          } else {
-            setError(validationResponse.error || "Data validation failed");
-          }
-        } catch (err: any) {
-          setError(err?.message || "Error during data validation");
-        }
-
-        // Start monitoring the pipeline progress
-        await monitorPipelineProgress(response.data.id);
+      } else {
+        throw new Error(response.error || "Failed to upload data");
       }
-    } catch (err: any) {
-      setError(err?.message || "Upload failed");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to upload data");
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "Failed to upload data",
+        variant: "destructive",
+      });
+    } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleStartValidation = async (): Promise<void> => {
+    if (!datasetId) {
+      setError("No dataset ID available");
+      return;
+    }
+
+    setStageLoading(prev => ({ ...prev, validate: true }));
+    setError(null);
+
+    try {
+      const validationResponse = await pipelineService.validateData(datasetId);
+      if (validationResponse.success) {
+        setPipelineSteps(steps => steps.map((step, index) => ({
+          ...step,
+          status: index === 1 ? "completed" : step.status
+        })));
+        
+        toast({
+          title: "Validation started",
+          description: "Data validation has been initiated. You can now start the business rules step.",
+        });
+      } else {
+        throw new Error(validationResponse.error || "Failed to start validation");
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to start validation");
+      toast({
+        title: "Validation failed",
+        description: error instanceof Error ? error.message : "Failed to start validation",
+        variant: "destructive",
+      });
+    } finally {
+      setStageLoading(prev => ({ ...prev, validate: false }));
+    }
+  };
+
+  const handleStartBusinessRules = async (): Promise<void> => {
+    if (!datasetId) {
+      setError("No dataset ID available");
+      return;
+    }
+
+    setRulesLoading(true);
+    setRulesError(null);
+
+    try {
+      const rulesResponse = await api.businessRules.getBusinessRules(datasetId);
+      if (rulesResponse.success && rulesResponse.data) {
+        setBusinessRules(rulesResponse.data);
+        const businessRulesResponse = await pipelineService.applyBusinessRules(datasetId);
+        if (businessRulesResponse.success && businessRulesResponse.data) {
+          setRulesValidation(businessRulesResponse.data);
+          setPipelineSteps(steps => steps.map((step, index) => ({
+            ...step,
+            status: index === 2 ? "completed" : step.status
+          })));
+          toast({
+            title: "Business rules started",
+            description: "Business rules have been initiated. You can now start the transform step.",
+          });
+        } else {
+          throw new Error(businessRulesResponse.error || "Failed to apply business rules");
+        }
+      } else {
+        throw new Error(rulesResponse.error || "Could not fetch business rules");
+      }
+    } catch (error) {
+      setRulesError(error instanceof Error ? error.message : "Failed to start business rules");
+      toast({
+        title: "Business rules failed",
+        description: error instanceof Error ? error.message : "Failed to start business rules",
+        variant: "destructive",
+      });
+    } finally {
+      setRulesLoading(false);
     }
   };
 
@@ -474,6 +532,49 @@ const PipelineUploadForm: React.FC = () => {
                 />
               </div>
             )}
+          </div>
+
+          {/* Dataset Details Section */}
+          <div className="grid grid-cols-2 gap-4 mt-4">
+            <div className="space-y-2">
+              <Label htmlFor="dataset-name">Dataset Name</Label>
+              <Input
+                id="dataset-name"
+                placeholder="Enter a name for this dataset"
+                value={datasetName}
+                onChange={(e) => setDatasetName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="dataset-description">Description</Label>
+              <Textarea
+                id="dataset-description"
+                placeholder="Enter a description for this dataset"
+                value={datasetDescription}
+                onChange={(e) => setDatasetDescription(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+
+          {/* Processing Options */}
+          <div className="grid grid-cols-2 gap-4 mt-2">
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="clean-data"
+                checked={cleanData}
+                onCheckedChange={setCleanData}
+              />
+              <Label htmlFor="clean-data">Clean Data</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="validate-data"
+                checked={validateData}
+                onCheckedChange={setValidateData}
+              />
+              <Label htmlFor="validate-data">Validate Data</Label>
+            </div>
           </div>
           
           {error && (

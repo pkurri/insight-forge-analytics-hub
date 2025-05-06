@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, UploadFile, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, UploadFile, Form, Query, Body
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import tempfile
@@ -8,7 +8,7 @@ import shutil
 from models.dataset import PipelineRun, PipelineStep, PipelineRunStatus, PipelineStepType
 from repositories.pipeline_repository import get_pipeline_repository
 from repositories.dataset_repository import get_dataset_repository
-from services.pipeline_service import run_pipeline_step
+from services.pipeline_service import run_pipeline_step, DataPipeline
 from routes.auth_router import get_current_user_or_api_key
 from services.file_service import process_uploaded_file
 from services.data_cleaning_service import DataCleaningService
@@ -209,12 +209,11 @@ async def resume_pipeline(run_id: int, pipeline_repo = Depends(get_pipeline_repo
 @router.post("/{dataset_id}/run", response_model=PipelineRun)
 async def start_pipeline_run(
     dataset_id: int,
-    background_tasks: BackgroundTasks,
     current_user = Depends(get_current_user_or_api_key),
     pipeline_repo = Depends(get_pipeline_repository),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Start a new pipeline run for a dataset."""
+    """Initialize a new pipeline run for a dataset. No steps are automatically started."""
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)
     if not dataset:
@@ -226,7 +225,7 @@ async def start_pipeline_run(
     # Create pipeline run
     pipeline_run = await pipeline_repo.create_pipeline_run(dataset_id)
     
-    # Add pipeline steps
+    # Add pipeline steps (all in 'pending' state)
     steps = []
     for step_type in [
         PipelineStepType.VALIDATE,
@@ -236,27 +235,12 @@ async def start_pipeline_run(
     ]:
         step = await pipeline_repo.create_pipeline_step(
             pipeline_run_id=pipeline_run.id,
-            step_name=step_type
+            step_name=step_type,
+            status=PipelineRunStatus.PENDING
         )
         steps.append(step)
     
-    # Run the first step in the background
-    background_tasks.add_task(
-        run_pipeline_step,
-        pipeline_repo,
-        dataset_repo,
-        pipeline_run.id,
-        steps[0].id
-    )
-    
-    # Update pipeline run status to running
-    await pipeline_repo.update_pipeline_run_status(
-        pipeline_run.id, 
-        PipelineRunStatus.RUNNING
-    )
-    
-    # Get the updated pipeline run with steps
-    return await pipeline_repo.get_pipeline_run_with_steps(pipeline_run.id)
+    return pipeline_run
 
 @router.get("/runs/{run_id}", response_model=PipelineRun)
 async def get_pipeline_run(
@@ -285,29 +269,37 @@ async def run_pipeline_step_endpoint(
     pipeline_repo = Depends(get_pipeline_repository),
     dataset_repo = Depends(get_dataset_repository)
 ):
-    """Manually run a specific pipeline step."""
+    """Run a specific pipeline step. Requires explicit user initiation."""
     # Get the step
     step = await pipeline_repo.get_pipeline_step(step_id)
     if not step:
         raise HTTPException(status_code=404, detail="Pipeline step not found")
     
-    # Check user has access to the dataset
-    pipeline_run = await pipeline_repo.get_pipeline_run(step.pipeline_run_id)
-    dataset = await dataset_repo.get_dataset(pipeline_run.dataset_id)
-    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized to run this pipeline step")
+    # Get the pipeline run
+    pipeline_run = await pipeline_repo.get_pipeline_run_with_steps(step.pipeline_run_id)
+    if not pipeline_run:
+        raise HTTPException(status_code=404, detail="Pipeline run not found")
     
-    # Reset step status
+    # Check authorization
+    dataset = await pipeline_repo.get_dataset_from_pipeline_run(pipeline_run.id)
+    if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized to access this pipeline run")
+    
+    # Check if step is in a valid state to run
+    if step.status not in [PipelineRunStatus.PENDING, PipelineRunStatus.FAILED]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot run step in {step.status} state. Step must be in PENDING or FAILED state."
+        )
+    
+    # Update step status to running
     await pipeline_repo.update_pipeline_step_status(
-        step_id, 
-        status="running",
-        start_time=datetime.utcnow(),
-        end_time=None,
-        results={},
-        error_message=None
+        step_id,
+        PipelineRunStatus.RUNNING,
+        {"params": params}
     )
     
-    # Run step in background
+    # Run the step in the background
     background_tasks.add_task(
         run_pipeline_step,
         pipeline_repo,
@@ -553,11 +545,10 @@ async def validate_data_in_pipeline(
     dataset_id: int,
     config: Optional[Dict[str, Any]] = Body({}),
     current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
+    dataset_repo = Depends(get_dataset_repository),
+    pipeline_repo = Depends(get_pipeline_repository)
 ):
-    """Validate data in the pipeline."""
-    from services.validation_service import validate_dataset
-    
+    """Initialize validation step for a dataset. Requires explicit user initiation."""
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)
     if not dataset:
@@ -566,12 +557,20 @@ async def validate_data_in_pipeline(
     if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
     
-    # Run validation
-    validation_results = await validate_dataset(dataset_id, config)
+    # Create or get pipeline run
+    pipeline_run = await pipeline_repo.get_or_create_pipeline_run(dataset_id)
+    
+    # Create validation step if it doesn't exist
+    validation_step = await pipeline_repo.get_or_create_pipeline_step(
+        pipeline_run_id=pipeline_run.id,
+        step_name=PipelineStepType.VALIDATE,
+        status=PipelineRunStatus.PENDING
+    )
     
     return {
-        "dataset_id": str(dataset_id),
-        "validation_results": validation_results
+        "message": "Validation step initialized. Use /steps/{step_id}/run to start validation.",
+        "step_id": validation_step.id,
+        "status": validation_step.status
     }
 
 @router.post("/{dataset_id}/transform", response_model=Dict[str, Any])
@@ -579,11 +578,10 @@ async def transform_data_in_pipeline(
     dataset_id: int,
     config: Optional[Dict[str, Any]] = Body({}),
     current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
+    dataset_repo = Depends(get_dataset_repository),
+    pipeline_repo = Depends(get_pipeline_repository)
 ):
-    """Transform data in the pipeline."""
-    from services.transformation_service import transform_dataset
-    
+    """Initialize transform step for a dataset. Requires explicit user initiation."""
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)
     if not dataset:
@@ -592,12 +590,20 @@ async def transform_data_in_pipeline(
     if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
     
-    # Run transformation
-    transformation_results = await transform_dataset(dataset_id, config)
+    # Create or get pipeline run
+    pipeline_run = await pipeline_repo.get_or_create_pipeline_run(dataset_id)
+    
+    # Create transform step if it doesn't exist
+    transform_step = await pipeline_repo.get_or_create_pipeline_step(
+        pipeline_run_id=pipeline_run.id,
+        step_name=PipelineStepType.TRANSFORM,
+        status=PipelineRunStatus.PENDING
+    )
     
     return {
-        "dataset_id": str(dataset_id),
-        "transformation_results": transformation_results
+        "message": "Transform step initialized. Use /steps/{step_id}/run to start transformation.",
+        "step_id": transform_step.id,
+        "status": transform_step.status
     }
 
 @router.post("/{dataset_id}/enrich", response_model=Dict[str, Any])
@@ -605,11 +611,10 @@ async def enrich_data_in_pipeline(
     dataset_id: int,
     config: Optional[Dict[str, Any]] = Body({}),
     current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
+    dataset_repo = Depends(get_dataset_repository),
+    pipeline_repo = Depends(get_pipeline_repository)
 ):
-    """Enrich data in the pipeline."""
-    from services.enrichment_service import enrich_dataset
-    
+    """Initialize enrich step for a dataset. Requires explicit user initiation."""
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)
     if not dataset:
@@ -618,12 +623,20 @@ async def enrich_data_in_pipeline(
     if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
     
-    # Run enrichment
-    enrichment_results = await enrich_dataset(dataset_id, config)
+    # Create or get pipeline run
+    pipeline_run = await pipeline_repo.get_or_create_pipeline_run(dataset_id)
+    
+    # Create enrich step if it doesn't exist
+    enrich_step = await pipeline_repo.get_or_create_pipeline_step(
+        pipeline_run_id=pipeline_run.id,
+        step_name=PipelineStepType.ENRICH,
+        status=PipelineRunStatus.PENDING
+    )
     
     return {
-        "dataset_id": str(dataset_id),
-        "enrichment_results": enrichment_results
+        "message": "Enrich step initialized. Use /steps/{step_id}/run to start enrichment.",
+        "step_id": enrich_step.id,
+        "status": enrich_step.status
     }
 
 @router.post("/{dataset_id}/load", response_model=Dict[str, Any])
@@ -632,11 +645,10 @@ async def load_data_in_pipeline(
     destination: str = Body(...),
     config: Optional[Dict[str, Any]] = Body({}),
     current_user = Depends(get_current_user_or_api_key),
-    dataset_repo = Depends(get_dataset_repository)
+    dataset_repo = Depends(get_dataset_repository),
+    pipeline_repo = Depends(get_pipeline_repository)
 ):
-    """Load processed data to destination."""
-    from services.loading_service import load_dataset
-    
+    """Initialize load step for a dataset. Requires explicit user initiation."""
     # Check dataset exists and user has access
     dataset = await dataset_repo.get_dataset(dataset_id)
     if not dataset:
@@ -645,11 +657,18 @@ async def load_data_in_pipeline(
     if dataset.user_id and dataset.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized to access this dataset")
     
-    # Run data loading
-    loading_results = await load_dataset(dataset_id, destination, config)
+    # Create or get pipeline run
+    pipeline_run = await pipeline_repo.get_or_create_pipeline_run(dataset_id)
+    
+    # Create load step if it doesn't exist
+    load_step = await pipeline_repo.get_or_create_pipeline_step(
+        pipeline_run_id=pipeline_run.id,
+        step_name=PipelineStepType.LOAD,
+        status=PipelineRunStatus.PENDING
+    )
     
     return {
-        "dataset_id": str(dataset_id),
-        "destination": destination,
-        "loading_results": loading_results
+        "message": "Load step initialized. Use /steps/{step_id}/run to start loading.",
+        "step_id": load_step.id,
+        "status": load_step.status
     }
