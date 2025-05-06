@@ -16,6 +16,9 @@ export interface Dataset {
   size?: number;
   format?: string;
   status?: string;
+  fileType?: string;
+  recordCount?: number;
+  columnCount?: number;
 }
 
 // API service aggregator
@@ -34,16 +37,8 @@ export const api = {
     },
     
     getDatasets: async () => {
-      // Ensure pipelineService has getDatasets method
-      if (typeof pipelineService.getDatasets === 'function') {
-        return pipelineService.getDatasets();
-      }
-      console.error('pipelineService.getDatasets is not a function');
-      return { 
-        success: false, 
-        error: 'Method not implemented', 
-        data: [] 
-      };
+      // Use the pipelineService.getDatasets method
+      return pipelineService.getDatasets();
     }
   },
   
@@ -59,12 +54,10 @@ export const api = {
   
   getGlobalAnalytics: async () => {
     try {
-      // Ensure pipelineService has getDatasets method
-      if (typeof pipelineService.getDatasets === 'function') {
-        const datasets = await pipelineService.getDatasets();
-        if (datasets.success && datasets.data && datasets.data.length > 0) {
-          return await analyticsService.profileDataset(datasets.data[0].id);
-        }
+      // Get first dataset and return its analytics
+      const datasets = await pipelineService.getDatasets();
+      if (datasets.success && datasets.data && datasets.data.length > 0) {
+        return await analyticsService.profileDataset(datasets.data[0].id);
       }
       return { success: false, error: 'No datasets available for analytics' };
     } catch (error) {
@@ -145,6 +138,13 @@ export const api = {
   showComponentSuggestions: async (componentName: string) => {
     console.log(`Showing suggestions for component: ${componentName}`);
     return { success: true };
+  },
+
+  // AI Agents
+  agents: {
+    getAgents: async () => {
+      return { success: true, data: [] };
+    }
   }
 };
 

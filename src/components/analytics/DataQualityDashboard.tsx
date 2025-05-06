@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -76,12 +75,8 @@ export default function DataQualityDashboard() {
     
     setCleaning(true);
     try {
-      // Check if the analyticService has cleanData method or use a fallback
-      if (api.analytics && typeof api.analytics.cleanData === 'function') {
-        await api.analytics.cleanData(datasetId);
-      } else {
-        console.log('Cleaning data is not implemented yet');
-      }
+      // Call the cleanData method from the analytics service
+      await api.analytics.cleanData(datasetId);
       
       // Refetch data quality after cleaning
       await fetchDataQuality(datasetId);

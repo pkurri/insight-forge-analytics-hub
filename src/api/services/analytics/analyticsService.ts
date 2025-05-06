@@ -23,6 +23,9 @@ export interface DataQualityMetrics {
   accuracy: number;
   consistency: number;
   uniqueness: number;
+  score: number;
+  timeliness: number;
+  schemaCompliance: number;
   details: Array<{
     check: string;
     status: 'passed' | 'warning' | 'failed';
@@ -128,7 +131,7 @@ export const analyticsService = {
   /**
    * Profile a dataset to get its statistics and characteristics
    */
-  profileDataset: async (datasetId: string): Promise<ApiResponse<DatasetStatistics>> => {
+  profileDataset: async (datasetId: string, options: any = {}): Promise<ApiResponse<DatasetStatistics>> => {
     try {
       return await callApi(`analytics/profile/${datasetId}`);
     } catch (error) {
@@ -183,6 +186,31 @@ export const analyticsService = {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to store in vector database'
+      };
+    }
+  },
+
+  /**
+   * Fetch data profile for a dataset - alias for profileDataset
+   */
+  fetchDataProfile: async (datasetId: string): Promise<ApiResponse<any>> => {
+    return await analyticsService.profileDataset(datasetId);
+  },
+
+  /**
+   * Clean data with specified configuration
+   */
+  cleanData: async (datasetId: string, config: any = {}): Promise<ApiResponse<any>> => {
+    try {
+      return await callApi(`quality/clean/${datasetId}`, {
+        method: 'POST',
+        body: JSON.stringify(config)
+      });
+    } catch (error) {
+      console.error('Error cleaning data:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to clean data'
       };
     }
   },

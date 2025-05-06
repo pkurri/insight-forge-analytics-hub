@@ -1,280 +1,103 @@
 
 import React, { useState, useEffect } from 'react';
 import ChatInterface from '@/components/ai/ChatInterface';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { DatasetProvider } from '@/hooks/useDatasetContext';
+import ModelSelector from '@/components/ai/ModelSelector';
 import { api } from '@/api/api';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
+import { useDatasetContext } from '@/hooks/useDatasetContext';
+import DatasetSelector from '@/components/ai/DatasetSelector';
 
-// Interface for AI Model selection
-interface AIModel {
+interface Agent {
   id: string;
   name: string;
-  provider?: string;
-  type?: string;
-  dimensions?: number;
-  is_default?: boolean;
-}
-
-// Define the ChatSuggestion interface
-interface ChatSuggestion {
-  id: string;
-  text: string;
-  category: string;
+  description: string;
+  capabilities: string[];
 }
 
 const AiChat: React.FC = () => {
-  const [suggestions, setSuggestions] = useState<ChatSuggestion[]>([]);
-  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
-  const [selectedDataset, setSelectedDataset] = useState<string>("all"); // 'all' or specific dataset ID
-  const [availableModels, setAvailableModels] = useState<AIModel[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>(""); // Model ID
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>('gpt-4');
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const { activeDataset, datasets } = useDatasetContext();
   
-  // Load available models
   useEffect(() => {
-    const loadModels = async () => {
-      setIsLoadingModels(true);
-      
+    const loadAgents = async () => {
+      setLoading(true);
       try {
-        // Using a generic AI service request to get available models
-        const response = await api.agents.getAvailableAgents();
+        // Fetch available AI agents
+        const response = await api.agents.getAgents();
         if (response.success && response.data) {
-          setAvailableModels(response.data);
-          
-          // Set default model
-          const defaultModel = response.data.find((model: AIModel) => model.is_default);
-          if (defaultModel) {
-            setSelectedModel(defaultModel.id);
-          } else if (response.data.length > 0) {
-            setSelectedModel(response.data[0].id);
+          setAgents(response.data);
+          if (response.data.length > 0) {
+            setSelectedAgentId(response.data[0].id);
           }
         }
       } catch (error) {
-        console.error("Failed to load AI models:", error);
+        console.error('Error loading AI agents:', error);
       } finally {
-        setIsLoadingModels(false);
+        setLoading(false);
       }
     };
     
-    loadModels();
+    loadAgents();
   }, []);
   
-  // Load initial chat suggestions
-  useEffect(() => {
-    const loadSuggestions = async () => {
-      setIsLoadingSuggestions(true);
-      
-      try {
-        // Call AI service to get suggested questions for the selected dataset
-        const datasetParam = selectedDataset !== "all" ? selectedDataset : undefined;
-        const response = await api.aiService.getAiAssistantResponse("Generate chat suggestions", {
-          dataset_id: datasetParam,
-          model_id: selectedModel,
-          agent_type: "suggestion_generation",
-          context: {}
-        });
-        
-        if (response.success && response.data) {
-          // Parse suggestions from response
-          setSuggestions([
-            { id: "1", text: "What's the distribution of values in column X?", category: "exploration" },
-            { id: "2", text: "Show me the relationship between column A and B", category: "correlation" },
-            { id: "3", text: "What are the top outliers in this dataset?", category: "anomalies" },
-            { id: "4", text: "Summarize the key statistics of this dataset", category: "statistics" },
-            { id: "5", text: "What trends do you notice over time?", category: "trends" }
-          ]);
-        }
-      } catch (error) {
-        console.error("Failed to load suggestions:", error);
-      } finally {
-        setIsLoadingSuggestions(false);
-      }
-    };
-    
-    loadSuggestions();
-  }, [selectedDataset, selectedModel]);
+  const handleModelChange = (model: string) => {
+    setSelectedModel(model);
+  };
+  
+  const handleAgentChange = (agentId: string) => {
+    setSelectedAgentId(agentId);
+  };
   
   return (
-    <DatasetProvider>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">AI Data Assistant</h1>
-          <p className="text-muted-foreground">
-            Explore your data with natural language using vector DB and Hugging Face models
-          </p>
+    <div className="container mx-auto p-4">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold">AI Assistant</h1>
+          <div className="flex items-center gap-4">
+            <ModelSelector 
+              selectedModel={selectedModel} 
+              onModelChange={handleModelChange} 
+            />
+            <DatasetSelector />
+          </div>
         </div>
-
-        <div className="grid gap-6 md:grid-cols-4">
-          {/* Left sidebar with info and settings */}
-          <Card className="md:col-span-1">
-            <CardHeader>
-              <CardTitle>Settings & Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <h3 className="font-medium mb-2">Dataset Selection</h3>
-                <Select
-                  value={selectedDataset}
-                  onValueChange={setSelectedDataset}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select dataset" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Datasets</SelectItem>
-                    {/* Dataset items will be loaded dynamically */}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div>
-                <h3 className="font-medium mb-2">Model Selection</h3>
-                {isLoadingModels ? (
-                  <Skeleton className="h-10 w-full" />
-                ) : (
-                  <Select
-                    value={selectedModel}
-                    onValueChange={setSelectedModel}
+        
+        <div className="grid grid-cols-12 gap-4">
+          <div className="col-span-3 hidden md:block">
+            <div className="bg-card rounded-lg p-4">
+              <h2 className="text-xl font-semibold mb-4">Dataset Info</h2>
+              {activeDataset ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-sm font-medium text-muted-foreground">Selected Dataset</h3>
+                    <p className="text-base">{datasets.find(d => d.id === activeDataset)?.name || activeDataset}</p>
+                  </div>
+                  
+                  <button 
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 w-full py-2 rounded-md text-sm"
+                    onClick={() => api.aiService.analyzeDataset(activeDataset)}
                   >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select AI model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableModels
-                        .filter(model => model.provider === "huggingface" || model.provider === "openai")
-                        .map(model => (
-                          <SelectItem key={model.id} value={model.id}>
-                            {model.name || model.id}
-                          </SelectItem>
-                        ))
-                      }
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-              
-              <div>
-                <h3 className="font-medium">Technologies</h3>
-                <p className="text-sm text-muted-foreground">Ask questions about your data using semantic search</p>
-              </div>
-              
-              <div>
-                <h3 className="font-medium">Chat Categories</h3>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  <Badge variant="outline">Exploration</Badge>
-                  <Badge variant="outline">Analysis</Badge>
-                  <Badge variant="outline">Statistics</Badge>
-                  <Badge variant="outline">Predictions</Badge>
+                    Analyze Dataset
+                  </button>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              ) : (
+                <p className="text-muted-foreground">No dataset selected</p>
+              )}
+            </div>
+          </div>
           
-          {/* Main chat interface */}
-          <div className="md:col-span-3">
-            <Tabs defaultValue="chat" className="w-full">
-              <TabsList className="grid grid-cols-3 mb-4">
-                <TabsTrigger value="chat">Chat Assistant</TabsTrigger>
-                <TabsTrigger value="history">Chat History</TabsTrigger>
-                <TabsTrigger value="settings">Advanced Settings</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="chat" className="mt-0">
-                <ChatInterface 
-                  title="Data Exploration Assistant"
-                  subtitle="Ask questions about your datasets"
-                  showDatasetSelector={true}
-                  suggestions={suggestions}
-                  defaultDataset={selectedDataset !== "all" ? selectedDataset : undefined}
-                  selectedModel={selectedModel}
-                />
-              </TabsContent>
-              
-              <TabsContent value="history" className="mt-0">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Chat History</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-muted-foreground">
-                      View and manage your past conversations across datasets.
-                      This feature uses local storage to save your chat history.
-                    </p>
-                    {/* Chat history management UI can be added here */}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              
-              <TabsContent value="settings" className="mt-0">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>AI Assistant Advanced Settings</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-muted-foreground mb-4">
-                      Configure your AI assistant preferences and model settings.
-                    </p>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <h3 className="text-sm font-medium mb-2">Response Length</h3>
-                        <Select defaultValue="medium">
-                          <SelectTrigger>
-                            <SelectValue placeholder="Response length" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="short">Short</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="long">Long</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
-                      <div>
-                        <h3 className="text-sm font-medium mb-2">Temperature</h3>
-                        <Select defaultValue="balanced">
-                          <SelectTrigger>
-                            <SelectValue placeholder="Creativity level" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="precise">Precise (0.2)</SelectItem>
-                            <SelectItem value="balanced">Balanced (0.7)</SelectItem>
-                            <SelectItem value="creative">Creative (1.0)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
-                      <div>
-                        <h3 className="text-sm font-medium mb-2">Embedding Model</h3>
-                        <Select defaultValue={availableModels.find(model => model.provider === "huggingface")?.id || ""}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Embedding model" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableModels
-                              .filter(model => model.provider === "huggingface")
-                              .map(model => (
-                                <SelectItem key={model.id} value={model.id}>
-                                  {model.name || model.id}
-                                </SelectItem>
-                              ))
-                            }
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+          <div className="col-span-12 md:col-span-9">
+            <ChatInterface 
+              modelId={selectedModel} 
+              agentId={selectedAgentId} 
+              datasetId={activeDataset} 
+            />
           </div>
         </div>
       </div>
-    </DatasetProvider>
+    </div>
   );
 };
 

@@ -1,188 +1,153 @@
+
 import { callApi } from '../../utils/apiUtils';
 import { ApiResponse } from '../../api';
 
-export interface PipelineStatus {
+interface PipelineRunStage {
+  name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  start_time?: string;
+  end_time?: string;
+  details?: Record<string, any>;
+}
+
+interface PipelineRun {
   id: string;
   dataset_id: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
   current_stage: string;
   progress: number;
-  error?: string;
   created_at: string;
   updated_at: string;
-  stages: {
-    name: string;
-    status: 'pending' | 'running' | 'completed' | 'failed';
-    start_time?: string;
-    end_time?: string;
-    error?: string;
-  }[];
+  stages: PipelineRunStage[];
+}
+
+export interface Dataset {
+  id: string;
+  name: string;
+  description?: string;
+  fileType: string;
+  status: string;
+  recordCount: number;
+  columnCount: number;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, any>;
 }
 
 export const pipelineService = {
   /**
-   * Upload data to the pipeline
+   * Upload data to create a new pipeline
    */
   uploadData: async (formData: FormData, config?: { onUploadProgress?: (progressEvent: any) => void }): Promise<ApiResponse<any>> => {
-    const endpoint = 'pipeline/upload';
-    
     try {
-      const response = await callApi(endpoint, {
+      return await callApi('pipeline/upload', {
         method: 'POST',
         body: formData,
-        onUploadProgress: config?.onUploadProgress
+        config
       });
-      return response;
     } catch (error) {
-      console.error("Error uploading data:", error);
+      console.error('Error uploading data:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to upload data"
+        error: error instanceof Error ? error.message : 'Failed to upload data'
       };
     }
   },
-  
+
+  /**
+   * Get available datasets
+   */
+  getDatasets: async (): Promise<ApiResponse<Dataset[]>> => {
+    try {
+      return await callApi('datasets');
+    } catch (error) {
+      console.error('Error fetching datasets:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch datasets',
+        data: []
+      };
+    }
+  },
+
   /**
    * Apply business rules to a dataset
    */
-  applyBusinessRules: async (datasetId: string, options: any = {}): Promise<ApiResponse<any>> => {
-    const endpoint = `pipeline/${datasetId}/business-rules`;
-    
+  applyBusinessRules: async (datasetId: string, options?: any): Promise<ApiResponse<any>> => {
     try {
-      const response = await callApi(endpoint, {
+      return await callApi(`pipeline/${datasetId}/apply-rules`, {
         method: 'POST',
-        body: JSON.stringify(options)
+        body: JSON.stringify(options || {})
       });
-      return response;
     } catch (error) {
-      console.error("Error applying business rules:", error);
+      console.error('Error applying business rules:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to apply business rules"
+        error: error instanceof Error ? error.message : 'Failed to apply business rules'
       };
     }
   },
 
   /**
-   * Get pipeline status
+   * Get pipeline runs for a specific dataset
    */
-  getPipelineStatus: async (pipelineId: string): Promise<ApiResponse<PipelineStatus>> => {
-    const endpoint = `pipeline/status/${pipelineId}`;
-    
+  getPipelineRuns: async (datasetId: string): Promise<ApiResponse<PipelineRun[]>> => {
     try {
-      const response = await callApi(endpoint);
-      return response;
+      return await callApi(`pipeline/runs/${datasetId}`);
     } catch (error) {
-      console.error("Error getting pipeline status:", error);
+      console.error('Error fetching pipeline runs:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to get pipeline status"
+        error: error instanceof Error ? error.message : 'Failed to fetch pipeline runs',
+        data: []
       };
     }
   },
 
   /**
-   * Get pipeline runs for a dataset
+   * Get business rules for a dataset
    */
-  getPipelineRuns: async (datasetId: string): Promise<ApiResponse<PipelineStatus[]>> => {
-    const endpoint = `pipeline/runs/${datasetId}`;
-    
+  getBusinessRules: async (datasetId: string): Promise<ApiResponse<any>> => {
     try {
-      const response = await callApi(endpoint);
-      return response;
+      return await callApi(`datasets/${datasetId}/rules`);
     } catch (error) {
-      console.error("Error getting pipeline runs:", error);
+      console.error('Error fetching business rules:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to get pipeline runs"
+        error: error instanceof Error ? error.message : 'Failed to fetch business rules'
       };
     }
   },
 
   /**
-   * Configure pipeline stages
+   * Create a business rule for a dataset
    */
-  configurePipeline: async (datasetId: string, config: any): Promise<ApiResponse<any>> => {
-    const endpoint = `pipeline/configure/${datasetId}`;
-    
+  createBusinessRule: async (datasetId: string, rule: any): Promise<ApiResponse<any>> => {
     try {
-      const response = await callApi(endpoint, {
+      return await callApi(`datasets/${datasetId}/rules`, {
         method: 'POST',
-        body: JSON.stringify(config)
+        body: JSON.stringify(rule)
       });
-      return response;
     } catch (error) {
-      console.error("Error configuring pipeline:", error);
+      console.error('Error creating business rule:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to configure pipeline"
+        error: error instanceof Error ? error.message : 'Failed to create business rule'
       };
     }
   },
 
   /**
-   * Run a specific pipeline stage
-   */
-  runPipelineStage: async (
-    datasetId: string,
-    stage: string,
-    params?: any
-  ): Promise<ApiResponse<any>> => {
-    const endpoint = `pipeline/steps/${stage}/run`;
-    
-    try {
-      const response = await callApi(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({
-          dataset_id: datasetId,
-          params
-        })
-      });
-      return response;
-    } catch (error) {
-      console.error("Error running pipeline stage:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to run pipeline stage"
-      };
-    }
-  },
-
-  /**
-   * Get pipeline stage results
-   */
-  getPipelineStageResults: async (
-    datasetId: string,
-    stage: string
-  ): Promise<ApiResponse<any>> => {
-    const endpoint = `pipeline/results/${datasetId}/${stage}`;
-    
-    try {
-      const response = await callApi(endpoint);
-      return response;
-    } catch (error) {
-      console.error(`Error getting ${stage} results:`, error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : `Failed to get ${stage} results`
-      };
-    }
-  },
-  
-  /**
-   * Get business rules validation results
+   * Get business rules validation results for a dataset
    */
   getBusinessRulesResults: async (datasetId: string): Promise<ApiResponse<any>> => {
-    const endpoint = `pipeline/results/${datasetId}/business-rules`;
-    
     try {
-      const response = await callApi(endpoint);
-      return response;
+      return await callApi(`datasets/${datasetId}/rules/results`);
     } catch (error) {
-      console.error("Error getting business rules results:", error);
+      console.error('Error fetching business rules results:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to get business rules results"
+        error: error instanceof Error ? error.message : 'Failed to fetch business rules results'
       };
     }
   }
