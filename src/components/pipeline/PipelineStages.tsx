@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileUp, CheckCircle2, Activity, Play, Info, Sparkles, HardDrive, Filter, ArrowRight, Loader2 } from 'lucide-react';
+import { FileUp, CheckCircle2, Activity, Play, Info, Sparkles, HardDrive, Filter, ArrowRight, Loader2, Circle, XCircle, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-type StageStatus = 'completed' | 'in-progress' | 'pending' | 'error';
+type StageStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 interface StageProps {
   icon: React.ReactNode;
@@ -15,7 +15,7 @@ interface StageProps {
   description: string;
   status: StageStatus;
   stepId?: number;
-  onRunStep?: (stepId: number) => Promise<void>;
+  onRunStep?: (stepId: number) => void;
   isRunning?: boolean;
   onClick?: () => void;
   isActive?: boolean;
@@ -34,21 +34,80 @@ const Stage: React.FC<StageProps> = ({
   isActive = false,
   details
 }) => {
-  const getStatusColor = () => {
+  const getStatusColor = (status: StageStatus) => {
     switch (status) {
-      case 'completed': return 'bg-green-100 text-green-600 border-green-500';
-      case 'in-progress': return 'bg-blue-100 text-blue-600 border-blue-500';
-      case 'error': return 'bg-red-100 text-red-600 border-red-500';
-      default: return 'bg-gray-100 text-gray-500 border-gray-300';
+      case 'completed':
+        return 'bg-green-500';
+      case 'processing':
+        return 'bg-blue-500';
+      case 'failed':
+        return 'bg-red-500';
+      default:
+        return 'bg-gray-300';
     }
   };
 
-  const getStatusIcon = () => {
+  const getStatusIcon = (status: StageStatus) => {
     switch (status) {
-      case 'completed': return <CheckCircle2 className="h-5 w-5 text-green-500" />;
-      case 'in-progress': return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />;
-      case 'error': return <Activity className="h-5 w-5 text-red-500" />;
-      default: return icon;
+      case 'completed':
+        return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+      case 'processing':
+        return <Activity className="h-5 w-5 text-blue-500" />;
+      case 'failed':
+        return <XCircle className="h-5 w-5 text-red-500" />;
+      default:
+        return <Circle className="h-5 w-5 text-gray-300" />;
+    }
+  };
+
+  const getStepButton = () => {
+    if (status === 'completed') {
+      return (
+        <Button size="sm" variant="outline" className="pointer-events-none opacity-50">
+          <CheckCircle2 className="h-4 w-4 mr-1 text-green-500" />
+          Completed
+        </Button>
+      );
+    } else if (status === 'failed') {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          className="border-red-200 text-red-700 hover:bg-red-50"
+          onClick={() => onRunStep && stepId && onRunStep(stepId)}
+          disabled={isRunning}
+        >
+          {isRunning ? (
+            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-1" />
+          )}
+          {isRunning ? 'Running...' : 'Retry'}
+        </Button>
+      );
+    } else if (status === 'processing') {
+      return (
+        <Button size="sm" variant="outline" className="pointer-events-none">
+          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+          Processing...
+        </Button>
+      );
+    } else {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onRunStep && stepId && onRunStep(stepId)}
+          disabled={isRunning}
+        >
+          {isRunning ? (
+            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+          ) : (
+            <Play className="h-4 w-4 mr-1" />
+          )}
+          {isRunning ? 'Running...' : 'Run'}
+        </Button>
+      );
     }
   };
 
@@ -60,12 +119,12 @@ const Stage: React.FC<StageProps> = ({
         onClick && "cursor-pointer hover:shadow-md",
         isActive ? "bg-accent shadow-sm border-primary" : 
         status === 'completed' ? "bg-muted/30" : 
-        status === 'error' ? "bg-red-50" : 
+        status === 'failed' ? "bg-red-50" : 
         "bg-background"
       )}
     >
-      <div className={cn("flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full", getStatusColor())}>
-        {getStatusIcon()}
+      <div className={cn("flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full", getStatusColor(status))}>
+        {getStatusIcon(status)}
       </div>
       <div className="ml-4 flex-1">
         <div className="flex justify-between items-start">
@@ -74,44 +133,16 @@ const Stage: React.FC<StageProps> = ({
               <h3 className="font-medium">{title}</h3>
               {isActive && <Badge variant="outline" className="ml-1">Current</Badge>}
               {status === 'completed' && <Badge className="ml-1 bg-green-500">Completed</Badge>}
-              {status === 'in-progress' && <Badge variant="outline" className="ml-1 animate-pulse">Processing</Badge>}
-              {status === 'error' && <Badge variant="destructive" className="ml-1">Failed</Badge>}
+              {status === 'processing' && <Badge variant="outline" className="ml-1 animate-pulse">Processing</Badge>}
+              {status === 'failed' && <Badge variant="destructive" className="ml-1">Failed</Badge>}
             </div>
             <p className="text-sm text-muted-foreground mt-1">{description}</p>
             {details && isActive && <p className="text-xs text-muted-foreground mt-2 bg-muted/50 p-2 rounded">{details}</p>}
           </div>
-          {stepId && onRunStep && status !== 'completed' && (
-            <Button
-              variant={status === 'error' ? "destructive" : "outline"}
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRunStep(stepId);
-              }}
-              disabled={isRunning || status === 'in-progress'}
-              className="ml-4"
-            >
-              {isRunning ? (
-                <div className="flex items-center">
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Running...
-                </div>
-              ) : (
-                <div className="flex items-center">
-                  {status === 'error' ? (
-                    <>
-                      <ArrowRight size={14} className="mr-2" />
-                      Retry
-                    </>
-                  ) : (
-                    <>
-                      <Play size={14} className="mr-2" />
-                      Run
-                    </>
-                  )}
-                </div>
-              )}
-            </Button>
+          {stepId && onRunStep && (
+            <div className="ml-4">
+              {getStepButton()}
+            </div>
           )}
         </div>
       </div>

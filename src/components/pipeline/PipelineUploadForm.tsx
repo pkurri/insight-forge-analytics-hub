@@ -420,7 +420,7 @@ const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([
       <div className="mb-6">
         <div className="flex justify-between items-center mb-2">
           <h2 className="text-xl font-semibold">Pipeline Progress</h2>
-          <Badge className={calculateProgress() === 100 ? "bg-green-500 text-white" : ""} variant="outline">
+          <Badge className={`${calculateProgress() === 100 ? "bg-green-500 text-white" : ""}`} variant="outline">
             {Math.round(calculateProgress())}% Complete
           </Badge>
         </div>
