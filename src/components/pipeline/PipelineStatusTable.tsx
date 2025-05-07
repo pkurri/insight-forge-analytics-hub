@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { api } from '@/api/api';
-// import { api.pipelineService } from '@/api/services/pipeline/api.pipelineService';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Play, RefreshCw } from 'lucide-react';
-import { PipelineStep, PipelineStatus } from '@/api/services/pipeline';
+import { Loader2, Play, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, ArrowRight, Info } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 interface PipelineJob {
   id: string;
@@ -15,20 +17,23 @@ interface PipelineJob {
   progress: number;
   startTime: string;
   endTime?: string;
+  steps?: {
+    id: number;
+    name: string;
+    status: string;
+  }[];
   businessRulesStatus?: {
     total: number;
     passed: number;
     failed: number;
   };
-  steps?: PipelineStep[];
 }
 
 interface PipelineStatusTableProps {
   datasetId?: string;
-  onUpdate?: () => void;
 }
 
-const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId, onUpdate }) => {
+const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId }) => {
   const [pipelineJobs, setPipelineJobs] = useState<PipelineJob[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [runningSteps, setRunningSteps] = useState<Set<number>>(new Set());
@@ -47,9 +52,9 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId, on
       
       if (response.success && response.data) {
         // Transform pipeline data to match our component's format
-        const jobs: PipelineJob[] = response.data.map((run: PipelineStatus) => {
+        const jobs: PipelineJob[] = response.data.map((run: any) => {
           // Find business rules stage if it exists
-          const businessRulesStage = run.steps.find(step => 
+          const businessRulesStage = run.steps.find((step: any) => 
             step.name.toLowerCase().includes('business') || 
             step.name.toLowerCase().includes('rule')
           );
@@ -120,17 +125,18 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId, on
     try {
       setRunningSteps(prev => new Set(prev).add(stepId));
       
-      const response = await api.pipelineService.runPipelineStep(stepId);
+      // Call the API to run the pipeline step
+      const response = await api.pipelineService.runPipelineStage(datasetId || '', String(stepId));
       
       if (response.success) {
         toast({
           title: "Step started",
           description: "The pipeline step has been initiated successfully.",
         });
-        onUpdate?.();
-        if (datasetId) {
-          fetchPipelineRuns(datasetId);
-        }
+        // Refresh the pipeline runs after a short delay
+        setTimeout(() => {
+          datasetId && fetchPipelineRuns(datasetId);
+        }, 1000);
       } else {
         throw new Error(response.error || "Failed to start pipeline step");
       }
@@ -152,15 +158,40 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId, on
   const getStatusBadge = (status: PipelineJob['status']) => {
     switch (status) {
       case 'running':
-        return <Badge className="bg-blue-500">Running</Badge>;
+        return (
+          <div className="flex items-center gap-1">
+            <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+            <Badge className="bg-blue-500">Running</Badge>
+          </div>
+        );
       case 'completed':
-        return <Badge className="bg-green-500">Completed</Badge>;
+        return (
+          <div className="flex items-center gap-1">
+            <CheckCircle className="h-3 w-3 text-green-500" />
+            <Badge className="bg-green-500">Completed</Badge>
+          </div>
+        );
       case 'failed':
-        return <Badge className="bg-red-500">Failed</Badge>;
+        return (
+          <div className="flex items-center gap-1">
+            <XCircle className="h-3 w-3 text-red-500" />
+            <Badge className="bg-red-500">Failed</Badge>
+          </div>
+        );
       case 'queued':
-        return <Badge className="bg-yellow-500">Queued</Badge>;
+        return (
+          <div className="flex items-center gap-1">
+            <Clock className="h-3 w-3 text-yellow-500" />
+            <Badge className="bg-yellow-500">Queued</Badge>
+          </div>
+        );
       case 'pending':
-        return <Badge className="bg-gray-500">Pending</Badge>;
+        return (
+          <div className="flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3 text-gray-500" />
+            <Badge className="bg-gray-500">Pending</Badge>
+          </div>
+        );
       default:
         return <Badge>Unknown</Badge>;
     }
@@ -168,116 +199,149 @@ const PipelineStatusTable: React.FC<PipelineStatusTableProps> = ({ datasetId, on
 
   const getProgressBar = (progress: number) => {
     return (
-      <div className="w-full bg-gray-200 rounded-full h-2">
-        <div
-          className={`h-2 rounded-full ${
-            progress === 100 ? 'bg-green-500' : 
-            progress > 0 ? 'bg-blue-500' : 'bg-gray-300'
-          }`}
-          style={{ width: `${progress}%` }}
-        ></div>
+      <div className="flex items-center gap-2">
+        <Progress 
+          value={progress} 
+          className={cn(
+            "h-2", 
+            progress === 100 ? "bg-green-100" : 
+            progress > 0 ? "bg-blue-100" : "bg-gray-100"
+          )}
+        />
+        <span className="text-xs font-medium">{Math.round(progress)}%</span>
       </div>
     );
   };
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2">Loading pipeline data...</span>
-      </div>
+      <Card className="w-full">
+        <CardContent className="flex items-center justify-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-2">Loading pipeline data...</span>
+        </CardContent>
+      </Card>
     );
   }
   
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Job</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Steps</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Business Rules</th>
-          </tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {pipelineJobs.map((job) => (
-            <tr key={job.id}>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="font-medium text-gray-900">{job.name}</div>
-                <div className="text-sm text-gray-500">{job.id}</div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                {getStatusBadge(job.status)}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                {job.type}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="flex items-center">
-                  <div className="w-full mr-2">
-                    {getProgressBar(job.progress)}
-                  </div>
-                  <span className="text-xs text-gray-500">{job.progress}%</span>
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                {job.startTime}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                {job.endTime ? 
-                  new Date(new Date(job.endTime).getTime() - new Date(job.startTime).getTime()).toISOString().substr(11, 8) : 
-                  'In progress'}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="space-y-2">
-                  {job.steps?.map((step) => (
-                    <div key={step.id} className="flex items-center justify-between">
-                      <span className="text-sm">{step.name}</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleRunStep(step.id)}
-                        disabled={runningSteps.has(step.id) || step.status === 'completed' || step.status === 'in-progress'}
-                        className="ml-2"
-                      >
-                        {runningSteps.has(step.id) ? (
-                          <div className="flex items-center">
-                            <RefreshCw size={14} className="animate-spin mr-2" />
-                            Running...
-                          </div>
-                        ) : (
-                          <div className="flex items-center">
-                            <Play size={14} className="mr-2" />
-                            Run
-                          </div>
-                        )}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm">
-                {job.businessRulesStatus ? (
-                  <div className="flex flex-col">
-                    <span className="font-medium">{job.businessRulesStatus.passed} / {job.businessRulesStatus.total} passed</span>
-                    {job.businessRulesStatus.failed > 0 && (
-                      <span className="text-red-500 text-xs mt-1">{job.businessRulesStatus.failed} rules failed</span>
-                    )}
-                  </div>
-                ) : (
-                  <span className="text-gray-400">Not available</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Card className="w-full shadow-sm border-muted">
+      <CardHeader className="pb-3">
+        <div className="flex justify-between items-center">
+          <CardTitle>Pipeline Runs</CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => datasetId && fetchPipelineRuns(datasetId)}
+            disabled={isLoading}
+            className="h-8"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
+        <CardDescription>View and manage your data processing pipeline runs</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {pipelineJobs.length === 0 ? (
+          <div className="text-center py-8 bg-muted/20 rounded-md">
+            <Info className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+            <p className="text-muted-foreground">No pipeline jobs found</p>
+            <p className="text-xs text-muted-foreground mt-1">Start a new pipeline run to see results here</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b">
+                <tr>
+                  <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider py-3">Job</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider py-3">Status</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider py-3">Type</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider py-3 w-[200px]">Progress</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider py-3">Time</th>
+                  <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {pipelineJobs.map((job) => (
+                  <tr key={job.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="py-4">
+                      <div className="text-sm font-medium">{job.name}</div>
+                      {job.businessRulesStatus && (
+                        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                          <span className={job.businessRulesStatus.failed > 0 ? "text-red-500" : "text-green-500"}>
+                            Rules: {job.businessRulesStatus.passed}/{job.businessRulesStatus.total} passed
+                          </span>
+                          {job.businessRulesStatus.failed > 0 && (
+                            <Badge variant="destructive" className="text-[10px] h-4">
+                              {job.businessRulesStatus.failed} failed
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-4">
+                      {getStatusBadge(job.status)}
+                    </td>
+                    <td className="py-4 text-sm text-muted-foreground">
+                      {job.type}
+                    </td>
+                    <td className="py-4 w-[200px]">
+                      {getProgressBar(job.progress)}
+                    </td>
+                    <td className="py-4 text-sm text-muted-foreground">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger className="text-left">
+                            <div>{new Date(job.startTime).toLocaleDateString()}</div>
+                            <div className="text-xs">{job.endTime ? `Completed: ${new Date(job.endTime).toLocaleTimeString()}` : 'Running...'}</div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Started: {new Date(job.startTime).toLocaleString()}</p>
+                            {job.endTime && <p>Ended: {new Date(job.endTime).toLocaleString()}</p>}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </td>
+                    <td className="py-4">
+                      <div className="flex flex-wrap gap-2">
+                        {job.steps && job.steps.map((step, index) => (
+                          <Button
+                            key={`${job.id}-step-${index}`}
+                            variant={step.status === 'failed' ? "destructive" : "outline"}
+                            size="sm"
+                            onClick={() => step.id && handleRunStep(step.id)}
+                            disabled={runningSteps.has(step.id || 0) || job.status === 'running' || step.status === 'completed'}
+                            className="h-7 text-xs"
+                          >
+                            {runningSteps.has(step.id || 0) ? (
+                              <>
+                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                Running...
+                              </>
+                            ) : step.status === 'failed' ? (
+                              <>
+                                <ArrowRight className="h-3 w-3 mr-1" />
+                                Retry {step.name}
+                              </>
+                            ) : (
+                              <>
+                                <Play className="h-3 w-3 mr-1" />
+                                Run {step.name}
+                              </>
+                            )}
+                          </Button>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 

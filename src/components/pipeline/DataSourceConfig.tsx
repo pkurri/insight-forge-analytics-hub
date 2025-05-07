@@ -470,40 +470,49 @@ const DataSourceConfig: React.FC = () => {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Data Source Configuration</CardTitle>
+    <Card className="shadow-sm border-muted">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-2xl font-semibold flex items-center gap-2">
+          {activeTab === "api" ? <Globe className="h-5 w-5 text-blue-500" /> : <Database className="h-5 w-5 text-green-500" />}
+          Data Source Configuration
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid grid-cols-2 mb-4">
-            <TabsTrigger value="api">External APIs</TabsTrigger>
-            <TabsTrigger value="database">Databases</TabsTrigger>
+            <TabsTrigger value="api" className="flex items-center gap-2">
+              <Globe className="h-4 w-4" />
+              API Connections
+            </TabsTrigger>
+            <TabsTrigger value="database" className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Database Connections
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="api" className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-medium">API Connections</h3>
               <Dialog open={showApiDialog} onOpenChange={(open) => {
-                     if (!open) handleApiDialogClose();
-                     else setShowApiDialog(true);
-                   }}>
-                   <DialogTrigger asChild>
-                     <Button size="sm" onClick={() => {
-                       setEditingApiConnection(null);
-                       setShowApiDialog(true);
-                     }}>
-                       <Plus className="mr-2 h-4 w-4" />
-                       Add API Connection
-                     </Button>
-                   </DialogTrigger>
-                   <DialogContent className="sm:max-w-[500px]">
-                     <DialogHeader>
-                       <DialogTitle>{editingApiConnection ? "Edit API Connection" : "Add API Connection"}</DialogTitle>
-                       <button aria-label="Close dialog" className="absolute right-4 top-4" onClick={handleApiDialogClose}>
-                         ×
-                       </button>
-                     </DialogHeader>
+                if (!open) handleApiDialogClose();
+                else setShowApiDialog(true);
+              }}>
+                <DialogTrigger asChild>
+                  <Button size="sm" onClick={() => {
+                    setEditingApiConnection(null);
+                    setShowApiDialog(true);
+                  }}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add API Connection
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[500px]">
+                  <DialogHeader>
+                    <DialogTitle>{editingApiConnection ? "Edit API Connection" : "Add API Connection"}</DialogTitle>
+                    <button aria-label="Close dialog" className="absolute right-4 top-4" onClick={handleApiDialogClose}>
+                      ×
+                    </button>
+                  </DialogHeader>
 
                   <Form {...apiForm}>
                     <form onSubmit={apiForm.handleSubmit(onApiSubmit)} className="space-y-4 py-4">

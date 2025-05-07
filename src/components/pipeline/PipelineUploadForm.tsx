@@ -3,12 +3,15 @@ import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, UploadCloud, CheckCircle2, XCircle, FileUp, Globe, Upload } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Loader2, UploadCloud, CheckCircle2, XCircle, FileUp, Globe, Upload, Database, AlertCircle, ArrowRight, ArrowLeft, Info, Sparkles, HardDrive, Filter } from 'lucide-react';
 import { pipelineService, BusinessRule, ValidationResult } from '@/api/services/pipeline';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface StepProps {
   children: React.ReactNode;
@@ -16,13 +19,52 @@ interface StepProps {
   isCompleted: boolean;
   description: string;
   icon?: React.ReactNode;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  onClick?: () => void;
+  disabled?: boolean;
 }
 
-const Step: React.FC<StepProps> = ({ children, isActive, isCompleted, description, icon }) => {
+const Step: React.FC<StepProps> = ({ 
+  children, 
+  isActive, 
+  isCompleted, 
+  description, 
+  icon, 
+  status, 
+  onClick, 
+  disabled = false 
+}) => {
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+      case 'failed':
+        return <XCircle className="h-5 w-5 text-red-500" />;
+      case 'processing':
+        return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />;
+      default:
+        return icon;
+    }
+  };
+
   return (
-    <div className={`flex items-start gap-4 p-4 rounded-lg ${isActive ? 'bg-accent' : ''}`}>
-      <div className="flex-shrink-0">
-        {icon}
+    <div 
+      onClick={disabled ? undefined : onClick}
+      className={`flex items-start gap-4 p-4 rounded-lg transition-all ${onClick && !disabled ? 'cursor-pointer hover:shadow-md' : ''} ${
+        isActive ? 'bg-accent shadow-sm' : 
+        isCompleted ? 'bg-muted/30' : 
+        status === 'failed' ? 'bg-red-50' : 
+        'bg-background'
+      } border ${isActive ? 'border-primary' : 'border-border'} ${disabled ? 'opacity-60' : ''}`}
+    >
+      <div className={`flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
+        status === 'completed' ? 'bg-green-100 text-green-600' : 
+        status === 'failed' ? 'bg-red-100 text-red-600' : 
+        status === 'processing' ? 'bg-blue-100 text-blue-600' : 
+        isActive ? 'bg-primary/10 text-primary' : 
+        'bg-muted text-muted-foreground'
+      }`}>
+        {getStatusIcon()}
       </div>
       <div className="flex-grow">
         {children}
@@ -33,6 +75,7 @@ const Step: React.FC<StepProps> = ({ children, isActive, isCompleted, descriptio
 
 type DataSource = 'local' | 'api' | 'database';
 type FileType = 'csv' | 'json' | 'excel' | 'parquet';
+type StepStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 interface ApiConfig {
   url: string;
@@ -64,6 +107,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
   const [error, setError] = useState<string | null>(null);
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
+  const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [businessRules, setBusinessRules] = useState<BusinessRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(false);
@@ -73,14 +117,63 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
     transform: false,
     enrich: false,
     load: false
-  });
-  const [pipelineSteps, setPipelineSteps] = useState([
-    { name: 'Upload', status: 'pending' },
-    { name: 'Validate', status: 'pending' },
-    { name: 'Business Rules', status: 'pending' },
-    { name: 'Transform', status: 'pending' },
-    { name: 'Enrich', status: 'pending' },
-    { name: 'Load', status: 'pending' }
+  } as const);
+  interface PipelineStep {
+  name: string;
+  status: StepStatus;
+  description: string;
+  icon: React.ReactNode;
+  details: string;
+}
+
+// Helper function to update step status safely with proper typing
+const updateStepStatus = (steps: PipelineStep[], index: number, status: StepStatus): PipelineStep[] => {
+  return steps.map((step, i) => i === index ? { ...step, status } : step);
+}
+
+const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([
+    { 
+      name: 'Upload', 
+      status: 'pending',
+      description: 'Upload and validate data file',
+      icon: <UploadCloud className="h-5 w-5" />,
+      details: 'Upload your data from a local file, API, or database connection'
+    },
+    { 
+      name: 'Validate', 
+      status: 'pending',
+      description: 'Validate data structure and integrity',
+      icon: <CheckCircle2 className="h-5 w-5" />,
+      details: 'Verify data schema, types, and basic integrity checks'
+    },
+    { 
+      name: 'Business Rules', 
+      status: 'pending',
+      description: 'Apply business rules and constraints',
+      icon: <Filter className="h-5 w-5" />,
+      details: 'Apply custom business rules and data quality constraints'
+    },
+    { 
+      name: 'Transform', 
+      status: 'pending',
+      description: 'Apply data transformations',
+      icon: <Sparkles className="h-5 w-5" />,
+      details: 'Transform data structure and format for analysis'
+    },
+    { 
+      name: 'Enrich', 
+      status: 'pending',
+      description: 'Add derived fields and enrichments',
+      icon: <Info className="h-5 w-5" />,
+      details: 'Add derived fields, external data, and enrich your dataset'
+    },
+    { 
+      name: 'Load', 
+      status: 'pending',
+      description: 'Save processed data to destination',
+      icon: <HardDrive className="h-5 w-5" />,
+      details: 'Load processed data to your target destination'
+    }
   ]);
   const [dataSource, setDataSource] = useState<DataSource>('local');
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
@@ -134,6 +227,11 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
       return;
     }
 
+    if (dataSource === 'local' && !selectedFile) {
+      setError('Please select a file');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -170,11 +268,17 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
       const response = await pipelineService.uploadData(uploadData);
       
       if (response.success && response.data?.dataset_id) {
+        setDatasetId(response.data.dataset_id);
+        setCompletedSteps(prev => [...prev, 0]); // Mark upload step as completed
+        setCurrentStep(1); // Move to validation step
+        
         toast({
           title: 'Success',
-          description: 'Data uploaded successfully'
+          description: 'Data uploaded successfully. Proceeding to validation.'
         });
-        onUploadComplete(response.data.dataset_id);
+        
+        // Auto-start validation
+        await handleStartValidation();
       } else {
         throw new Error(response.error || 'Failed to upload data');
       }
@@ -195,18 +299,25 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
       setError("No dataset ID available");
       return;
     }
-
-    setStageLoading((prev) => ({ ...prev, validate: true }));
+    
+    setStageLoading(prev => ({ ...prev, validate: true }));
     setError(null);
+    
+    // Update step status to processing
+    setPipelineSteps(steps => updateStepStatus(steps, 1, 'processing'));
 
     try {
       const validationResponse = await pipelineService.validateData(datasetId);
       if (validationResponse.success && validationResponse.data) {
         setValidationResult(validationResponse.data);
-        setPipelineSteps((steps) => steps.map((step, index) => ({
-          ...step,
-          status: index === 1 ? "completed" : step.status
-        })));
+        setCompletedSteps(prev => [...new Set([...prev, 1])]);
+        setCurrentStep(2);
+        // Update validation step to completed and set next step as active
+        setPipelineSteps(steps => {
+          let newSteps = [...steps];
+          newSteps = updateStepStatus(newSteps, 1, 'completed');
+          return updateStepStatus(newSteps, 2, 'pending');
+        });
         
         toast({
           title: "Validation started",
@@ -217,6 +328,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to start validation");
+      setPipelineSteps(steps => updateStepStatus(steps, 1, 'failed'));
       toast({
         title: "Validation failed",
         description: error instanceof Error ? error.message : "Failed to start validation",
@@ -232,17 +344,31 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
       setError("No dataset ID available");
       return;
     }
+    
+    setStageLoading(prev => ({ ...prev, rules: true }));
+    setError(null);
+    
+    // Mark validation as completed if not already
+    if (!completedSteps.includes(1)) {
+      setCompletedSteps(prev => [...prev, 1]);
+    }
+    
+    // Update step status to processing
+    setPipelineSteps(steps => updateStepStatus(steps, 2, 'processing'));
 
     setRulesLoading(true);
-    setError(null);
 
     try {
       const rulesResponse = await pipelineService.applyBusinessRules(datasetId, businessRules);
       if (rulesResponse.success) {
-        setPipelineSteps((steps) => steps.map((step, index) => ({
-          ...step,
-          status: index === 2 ? "completed" : step.status
-        })));
+        setCompletedSteps(prev => [...new Set([...prev, 2])]);
+        setCurrentStep(3);
+        // Update business rules step to completed and set next step as active
+        setPipelineSteps(steps => {
+          let newSteps = [...steps];
+          newSteps = updateStepStatus(newSteps, 2, 'completed');
+          return updateStepStatus(newSteps, 3, 'pending');
+        });
         
         toast({
           title: "Business rules applied",
@@ -253,6 +379,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to apply business rules");
+      setPipelineSteps(steps => updateStepStatus(steps, 2, 'failed'));
       toast({
         title: "Business rules failed",
         description: error instanceof Error ? error.message : "Failed to apply business rules",
@@ -263,47 +390,76 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
     }
   };
 
+  // Calculate overall progress percentage
+  const calculateProgress = () => {
+    const totalSteps = pipelineSteps.length;
+    const completedSteps = pipelineSteps.filter(step => step.status === 'completed').length;
+    return (completedSteps / totalSteps) * 100;
+  };
+
+  // Handle step click to navigate (if allowed)
+  const handleStepClick = (index: number) => {
+    // Only allow clicking on completed steps or the next step
+    if (index <= Math.max(...completedSteps, currentStep)) {
+      setCurrentStep(index);
+    }
+  };
+
+  // Get appropriate card title based on current step
+  const getCardTitle = () => {
+    return pipelineSteps[currentStep]?.name || 'Data Pipeline';
+  };
+
+  // Get appropriate card description based on current step
+  const getCardDescription = () => {
+    return pipelineSteps[currentStep]?.details || '';
+  };
+
   return (
     <div className="space-y-6">
-      <div className="space-y-4">
-        {pipelineSteps.map((step, index) => (
-          <Step
-            key={step.name}
-            isActive={index === currentStep}
-            isCompleted={index < currentStep}
-            description={step.name}
-            icon={
-              step.name === 'Upload' ? <UploadCloud className="h-4 w-4" /> :
-              step.name === 'Validate' ? (
-                step.status === 'completed' ? <CheckCircle2 className="h-4 w-4 text-green-500" /> :
-                step.status === 'failed' ? <XCircle className="h-4 w-4 text-red-500" /> :
-                <UploadCloud className="h-4 w-4" />
-              ) : <UploadCloud className="h-4 w-4" />
-            }
-          >
-            <div className="flex items-center gap-2">
-              <div>
-                <div className="font-medium">{step.name}</div>
-                <div className="text-xs text-muted-foreground">
-                  {step.name === 'Upload' ? 'Upload and validate data file' :
-                   step.name === 'Validate' ? 'Validate data structure and integrity' :
-                   step.name === 'Business Rules' ? 'Apply business rules and constraints' :
-                   step.name === 'Transform' ? 'Apply data transformations' :
-                   step.name === 'Enrich' ? 'Add derived fields and enrichments' :
-                   'Save processed data to destination'}
-                </div>
-              </div>
-              {stageLoading[step.name.toLowerCase() as keyof typeof stageLoading] && (
-                <Loader2 className="h-4 w-4 animate-spin ml-2" />
-              )}
-            </div>
-          </Step>
-        ))}
+      <div className="mb-6">
+        <div className="flex justify-between items-center mb-2">
+          <h2 className="text-xl font-semibold">Pipeline Progress</h2>
+          <Badge className={calculateProgress() === 100 ? "bg-green-500 text-white" : ""} variant="outline">
+            {Math.round(calculateProgress())}% Complete
+          </Badge>
+        </div>
+        <Progress value={calculateProgress()} className="h-2" />
       </div>
 
-      <Card>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="md:col-span-1 space-y-3">
+          {pipelineSteps.map((step, index) => (
+            <Step
+              key={step.name}
+              isActive={index === currentStep}
+              isCompleted={completedSteps.includes(index)}
+              description={step.name}
+              status={step.status}
+              icon={step.icon}
+              onClick={() => handleStepClick(index)}
+              disabled={index > Math.max(...completedSteps, currentStep)}
+            >
+              <div className="flex items-center justify-between w-full">
+                <div>
+                  <div className="font-medium">{step.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {step.description}
+                  </div>
+                </div>
+                {index === currentStep && (
+                  <Badge variant="outline" className="ml-2">Current</Badge>
+                )}
+              </div>
+            </Step>
+          ))}
+        </div>
+      </div>
+
+      <Card className="md:col-span-2">
         <CardHeader>
-          <CardTitle>Upload Data</CardTitle>
+          <CardTitle>{getCardTitle()}</CardTitle>
+          <CardDescription>{getCardDescription()}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -517,33 +673,121 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
             </Alert>
           )}
 
-          <div className="flex justify-end">
+        </CardContent>
+        <CardFooter className="flex justify-between items-center border-t pt-6">
+          {currentStep > 0 && (
             <Button
-              onClick={() => {
-                if (currentStep === 0) {
-                  handleUpload();
-                } else if (currentStep === 1) {
-                  handleStartValidation();
-                } else if (currentStep === 2) {
-                  handleStartBusinessRules();
+              variant="outline"
+              onClick={() => setCurrentStep(prev => prev - 1)}
+              disabled={loading || rulesLoading || Object.values(stageLoading).some(val => val)}
+              className="flex items-center"
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back
+            </Button>
+          )}
+          {currentStep === 0 && <div></div>}
+          <div className="flex items-center gap-2">
+            {error && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center text-destructive text-sm mr-4 cursor-help">
+                      <AlertCircle className="h-4 w-4 mr-1" />
+                      Error
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm">
+                    <p>{error}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            <Button
+              onClick={async () => {
+                try {
+                  if (currentStep === 0) {
+                    await handleUpload();
+                  } else if (currentStep === 1) {
+                    await handleStartValidation();
+                  } else if (currentStep === 2) {
+                    await handleStartBusinessRules();
+                  } else if (currentStep === 3) {
+                    // Transform handler
+                    setPipelineSteps(steps => updateStepStatus(steps, 3, 'processing'));
+                    setTimeout(() => {
+                      setPipelineSteps(steps => {
+                        let newSteps = [...steps];
+                        newSteps = updateStepStatus(newSteps, 3, 'completed');
+                        return updateStepStatus(newSteps, 4, 'pending');
+                      });
+                      setCompletedSteps(prev => [...new Set([...prev, 3])]);
+                      setCurrentStep(prev => prev + 1);
+                      toast({
+                        title: "Transform completed",
+                        description: "Data transformation has been completed successfully."
+                      });
+                    }, 1500);
+                  } else if (currentStep === 4) {
+                    // Enrich handler
+                    setPipelineSteps(steps => updateStepStatus(steps, 4, 'processing'));
+                    setTimeout(() => {
+                      setPipelineSteps(steps => {
+                        let newSteps = [...steps];
+                        newSteps = updateStepStatus(newSteps, 4, 'completed');
+                        return updateStepStatus(newSteps, 5, 'pending');
+                      });
+                      setCompletedSteps(prev => [...new Set([...prev, 4])]);
+                      setCurrentStep(prev => prev + 1);
+                      toast({
+                        title: "Enrichment completed",
+                        description: "Data enrichment has been completed successfully."
+                      });
+                    }, 1500);
+                  } else if (currentStep === 5) {
+                    // Load handler
+                    setPipelineSteps(steps => updateStepStatus(steps, 5, 'processing'));
+                    setTimeout(() => {
+                      setPipelineSteps(steps => updateStepStatus(steps, 5, 'completed'));
+                      setCompletedSteps(prev => [...new Set([...prev, 5])]);
+                      toast({
+                        title: "Pipeline completed",
+                        description: "All pipeline steps have been completed successfully."
+                      });
+                      onUploadComplete(datasetId || '');
+                    }, 1500);
+                  }
+                } catch (error) {
+                  console.error('Step error:', error);
                 }
               }}
-              disabled={loading || rulesLoading || stageLoading.validate || stageLoading.rules}
+              disabled={loading || rulesLoading || Object.values(stageLoading).some(val => val)}
+              className="flex items-center"
+              variant={currentStep === pipelineSteps.length - 1 ? "default" : "default"}
             >
-              {loading || rulesLoading || stageLoading.validate || stageLoading.rules ? (
+              {loading || rulesLoading || Object.values(stageLoading).some(val => val) ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Processing...
                 </>
+              ) : currentStep === pipelineSteps.length - 1 ? (
+                <>
+                  Finish
+                  <CheckCircle2 className="ml-2 h-4 w-4" />
+                </>
               ) : (
-                'Next'
+                <>
+                  Next
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </>
               )}
             </Button>
           </div>
-        </CardContent>
+        </CardFooter>
       </Card>
     </div>
   );
 };
+
 
 export default PipelineUploadForm;
