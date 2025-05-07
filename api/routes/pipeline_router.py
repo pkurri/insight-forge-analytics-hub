@@ -503,6 +503,80 @@ async def run_pipeline_step(
     result = await pipeline_service.run_pipeline_step(dataset_id, step_type)
     return result
 
+@router.post(
+    "/pipeline/extract-sample",
+    response_model=Dict[str, Any],
+    summary="Extract sample data from an uploaded file",
+    description="Extract a sample of data from an uploaded file for preview and rule testing"
+)
+async def extract_sample_data(
+    file: UploadFile = File(...),
+    max_rows: int = Form(100)
+):
+    """Extract sample data from an uploaded file."""
+    try:
+        # Create a temporary file to store the uploaded file
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            # Copy the uploaded file to the temporary file
+            shutil.copyfileobj(file.file, temp_file)
+            temp_file_path = temp_file.name
+
+        # Determine file type from extension
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        if file_extension == '.csv':
+            file_type = FileType.CSV
+            df = pd.read_csv(temp_file_path, nrows=max_rows)
+        elif file_extension == '.json':
+            file_type = FileType.JSON
+            df = pd.read_json(temp_file_path)
+            df = df.head(max_rows)
+        elif file_extension in ['.xlsx', '.xls']:
+            file_type = FileType.EXCEL
+            df = pd.read_excel(temp_file_path, nrows=max_rows)
+        elif file_extension == '.parquet':
+            file_type = FileType.PARQUET
+            df = pd.read_parquet(temp_file_path)
+            df = df.head(max_rows)
+        else:
+            # Clean up the temporary file
+            os.unlink(temp_file_path)
+            return {"success": False, "error": f"Unsupported file type: {file_extension}"}
+
+        # Convert the sample data to a list of dictionaries
+        sample_data = df.to_dict(orient='records')
+        
+        # Get column information
+        columns = []
+        for col in df.columns:
+            dtype = str(df[col].dtype)
+            sample_values = df[col].dropna().head(5).tolist()
+            columns.append({
+                "name": col,
+                "type": dtype,
+                "sample_values": sample_values
+            })
+
+        # Clean up the temporary file
+        os.unlink(temp_file_path)
+        
+        return {
+            "success": True, 
+            "data": {
+                "sample": sample_data,
+                "columns": columns,
+                "row_count": len(sample_data),
+                "file_type": file_type
+            }
+        }
+    except Exception as e:
+        # Ensure the temporary file is cleaned up in case of an error
+        if 'temp_file_path' in locals():
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+        return {"success": False, "error": str(e)}
+
 @router.get("/pipeline/runs/{dataset_id}", response_model=Dict[str, Any])
 async def get_pipeline_runs(
     dataset_id: int,
@@ -510,28 +584,32 @@ async def get_pipeline_runs(
     limit: int = 100
 ):
     """Get pipeline runs for a dataset."""
-    runs = await pipeline_repo.get_pipeline_runs(dataset_id, skip, limit)
-    
-    return {
-        "dataset_id": dataset_id,
-        "runs": [
-            {
+    try:
+        # Get pipeline runs for the dataset
+        runs = await pipeline_repo.get_pipeline_runs_by_dataset(dataset_id, skip, limit)
+        
+        # Format the response
+        formatted_runs = []
+        for run in runs:
+            steps = await pipeline_repo.get_pipeline_steps_by_run(run["id"])
+            formatted_steps = []
+            for step in steps:
+                formatted_steps.append({
+                    "id": step["id"],
+                    "type": step["step_type"],
+                    "status": step["status"],
+                    "started_at": step["started_at"].isoformat() if step["started_at"] else None,
+                    "completed_at": step["completed_at"].isoformat() if step["completed_at"] else None,
+                    "error": step["error"]
+                })
+            
+            formatted_runs.append({
                 "id": run["id"],
                 "status": run["status"],
-                "start_time": run["start_time"],
-                "end_time": run["end_time"],
-                "steps": [
-                    {
-                        "id": step["id"],
-                        "step_type": step["step_type"],
-                        "status": step["status"],
-                        "start_time": step["start_time"],
-                        "end_time": step["end_time"],
-                        "metadata": step["pipeline_metadata"]
-                    }
-                    for step in run["steps"]
-                ]
-            }
-            for run in runs
-        ]
-    }
+                "created_at": run["created_at"].isoformat(),
+                "steps": formatted_steps
+            })
+        
+        return {"success": True, "runs": formatted_runs}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
