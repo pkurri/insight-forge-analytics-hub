@@ -21,6 +21,7 @@ from models.pipeline import PipelineStepType, PipelineRunStatus
 from services.validation_service import validation_service
 from services.cleaning_service import cleaning_service
 from services.profiling_service import profiling_service
+from services.business_rules_service import business_rules_service
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -461,12 +462,13 @@ class DataPipeline:
 class PipelineService:
     """Service for managing data pipelines."""
     
-    def __init__(self):
+    def __init__(self, business_rules_service):
         self.dataset_repo = DatasetRepository()
         self.pipeline_repo = PipelineRepository()
         self.processing_service = DataProcessingService()
         self.validation_service = DataValidationService()
         self.profiling_service = DataProfilingService()
+        self.business_rules_service = business_rules_service
     
     async def process_uploaded_file(
         self,
@@ -571,6 +573,94 @@ class PipelineService:
                 }
             )
             raise
+    
+    async def extract_sample_data(self, file_path: str, file_type: FileType, max_rows: int = 100) -> Dict[str, Any]:
+        """
+        Extract a sample of data from a file for rule testing and preview.
+        
+        Args:
+            file_path: Path to the file
+            file_type: Type of file (csv, json, etc.)
+            max_rows: Maximum number of rows to extract
+            
+        Returns:
+            Dictionary with sample data and metadata
+        """
+        try:
+            # Read data based on file type
+            if file_type == FileType.CSV:
+                df = pd.read_csv(file_path, nrows=max_rows)
+            elif file_type == FileType.JSON:
+                df = pd.read_json(file_path)
+                df = df.head(max_rows)
+            elif file_type == FileType.EXCEL:
+                df = pd.read_excel(file_path, nrows=max_rows)
+            elif file_type == FileType.PARQUET:
+                df = pd.read_parquet(file_path)
+                df = df.head(max_rows)
+            else:
+                raise ValueError(f"Unsupported file type: {file_type}")
+                
+            # Convert to list of dictionaries for API response
+            sample_data = df.to_dict(orient='records')
+            
+            # Get basic metadata
+            metadata = {
+                "columns": list(df.columns),
+                "dtypes": {col: str(df[col].dtype) for col in df.columns},
+                "row_count": len(df),
+                "sample_size": min(max_rows, len(df))
+            }
+            
+            return {
+                "success": True,
+                "sample": sample_data,
+                "metadata": metadata
+            }
+            
+        except Exception as e:
+            logger.error(f"Error extracting sample data: {str(e)}")
+            return {
+                "success": False,
+                "error": f"Failed to extract sample data: {str(e)}"
+            }
+    
+    async def apply_business_rules(self, dataset_id: str, rule_ids: List[str]) -> Dict[str, Any]:
+        """
+        Apply business rules to a dataset.
+        
+        Args:
+            dataset_id: ID of the dataset
+            rule_ids: List of rule IDs to apply
+            
+        Returns:
+            Dictionary with results of applying rules
+        """
+        try:
+            # Get dataset metadata
+            dataset = await self.dataset_repo.get_dataset(dataset_id)
+            if not dataset:
+                return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
+                
+            # Load dataset
+            df = await self.processing_service.load_dataset(dataset_id)
+            
+            # Apply business rules
+            result = await self.business_rules_service.apply_rules_to_dataset(
+                dataset_id, df.to_dict(orient='records'), rule_ids
+            )
+            
+            # Update dataset metadata with applied rules
+            await self.dataset_repo.update_dataset(
+                dataset_id, 
+                {"applied_rule_ids": rule_ids, "last_rule_application": datetime.now().isoformat()}
+            )
+            
+            return {"success": True, "data": result}
+            
+        except Exception as e:
+            logger.error(f"Error applying business rules: {str(e)}")
+            return {"success": False, "error": f"Failed to apply business rules: {str(e)}"}
     
     async def run_pipeline_step(
         self,

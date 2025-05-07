@@ -17,6 +17,7 @@ from api.services.business_rules import business_rules_service
 from api.services.business_rules.core import BusinessRulesService
 from api.dependencies.auth import get_current_user
 from api.dependencies.services import get_business_rules_service
+from api.services.pipeline_service import pipeline_service
 
 router = APIRouter(
     prefix="/business-rules",
@@ -217,6 +218,7 @@ async def test_rules_on_sample(
     dataset_id: str = Path(..., description="ID of the dataset"),
     sample_data: List[Dict[str, Any]] = Body(..., description="Sample data to test rules against"),
     rule_ids: Optional[List[str]] = Query(None, description="Specific rules to test, if None all active rules will be used"),
+    test_rule: Optional[Dict[str, Any]] = Body(None, description="Optional test rule to evaluate"),
     confidence_threshold: float = Query(0.8, ge=0.0, le=1.0, description="Minimum confidence threshold for rule suggestions"),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
@@ -225,6 +227,9 @@ async def test_rules_on_sample(
     
     This endpoint allows testing rules against a sample of data before applying them to the full dataset.
     It returns validation results and may suggest new rules based on data patterns.
+    
+    If a test_rule is provided, it will be evaluated against the sample data without being saved to the database.
+    This is useful for testing new rules before creating them.
     """
     try:
         # Validate sample data against existing rules
@@ -272,6 +277,36 @@ async def get_rule_metrics(
         return StandardResponse(success=True, data=metrics)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving rule metrics: {str(e)}")
+
+@router.post("/extract-sample/{dataset_id}", response_model=StandardResponse[Dict[str, Any]])
+async def extract_sample_data(
+    dataset_id: str = Path(..., description="ID of the dataset"),
+    max_rows: int = Query(100, ge=1, le=1000, description="Maximum number of rows to extract"),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Extract a sample of data from a dataset for rule testing and preview.
+    
+    This endpoint extracts a sample of data from the dataset file for use in rule testing
+    and data preview. It returns the sample data along with basic metadata.
+    """
+    try:
+        # Get dataset metadata
+        dataset = await pipeline_service.dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            return StandardResponse(success=False, error=f"Dataset with ID {dataset_id} not found")
+        
+        # Extract sample data
+        file_path = dataset.get("file_path")
+        file_type = dataset.get("file_type")
+        
+        if not file_path or not file_type:
+            return StandardResponse(success=False, error="Dataset missing file path or file type information")
+        
+        result = await pipeline_service.extract_sample_data(file_path, file_type, max_rows)
+        return StandardResponse(success=result.get("success", False), data=result)
+        
+    except Exception as e:
+        return StandardResponse(success=False, error=f"Error extracting sample data: {str(e)}")
 
 @router.post("/suggest/{dataset_id}", response_model=StandardResponse[Dict[str, Any]])
 async def suggest_rules(

@@ -1,0 +1,729 @@
+import React, { useState } from 'react';
+import { useToast } from '@/components/ui/use-toast';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Loader2, UploadCloud, CheckCircle2, XCircle, AlertCircle, Info, Sparkles, HardDrive, Filter } from 'lucide-react';
+import EnhancedBusinessRules from './EnhancedBusinessRules';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { api } from '@/api/api';
+
+// Define types
+type DataSource = 'local' | 'api' | 'database';
+type FileType = 'csv' | 'json' | 'excel' | 'parquet';
+type StepStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+interface ApiConfig {
+  url: string;
+  method: 'GET' | 'POST';
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+interface DatabaseConfig {
+  type: 'postgresql' | 'mysql' | 'sqlserver' | 'oracle';
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  query: string;
+}
+
+interface ValidationResult {
+  success: boolean;
+  errors?: string[];
+  warnings?: string[];
+  data?: any;
+}
+
+interface BusinessRule {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  severity: string;
+  condition: string;
+  action?: string;
+}
+
+interface PipelineStep {
+  name: string;
+  status: StepStatus;
+  description: string;
+  icon: React.ReactNode;
+  details: string;
+}
+
+interface PipelineUploadFormProps {
+  onUploadComplete?: (datasetId: string) => void;
+}
+
+// Step component for rendering each pipeline step
+const Step: React.FC<{
+  children: React.ReactNode;
+  isActive: boolean;
+  isCompleted: boolean;
+  description: string;
+  icon?: React.ReactNode;
+  status: StepStatus;
+  onClick?: () => void;
+  disabled?: boolean;
+}> = ({ 
+  children, 
+  isActive, 
+  isCompleted, 
+  description, 
+  icon, 
+  status, 
+  onClick, 
+  disabled = false 
+}) => {
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+      case 'failed':
+        return <XCircle className="h-5 w-5 text-red-500" />;
+      case 'processing':
+        return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />;
+      default:
+        return icon;
+    }
+  };
+
+  return (
+    <div 
+      onClick={disabled ? undefined : onClick}
+      className={`flex items-start gap-4 p-4 rounded-lg transition-all ${onClick && !disabled ? 'cursor-pointer hover:shadow-md' : ''} ${
+        isActive ? 'bg-accent shadow-sm' : 
+        isCompleted ? 'bg-muted/30' : 
+        status === 'failed' ? 'bg-red-50' : 
+        'bg-background'
+      } border ${isActive ? 'border-primary' : 'border-border'} ${disabled ? 'opacity-60' : ''}`}
+    >
+      <div className={`flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
+        status === 'completed' ? 'bg-green-100 text-green-600' : 
+        status === 'failed' ? 'bg-red-100 text-red-600' : 
+        status === 'processing' ? 'bg-blue-100 text-blue-600' : 
+        isActive ? 'bg-primary/10 text-primary' : 
+        'bg-muted text-muted-foreground'
+      }`}>
+        {getStatusIcon()}
+      </div>
+      <div className="flex-grow">
+        {children}
+      </div>
+    </div>
+  );
+};
+
+interface StepProps {
+  children: React.ReactNode;
+  isActive: boolean;
+  isCompleted: boolean;
+  description: string;
+  icon?: React.ReactNode;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  onClick?: () => void;
+  disabled?: boolean;
+}
+
+const Step: React.FC<StepProps> = ({ 
+  children, 
+  isActive, 
+  isCompleted, 
+  description, 
+  icon, 
+  status, 
+  onClick, 
+  disabled = false 
+}) => {
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+      case 'failed':
+        return <XCircle className="h-5 w-5 text-red-500" />;
+      case 'processing':
+        return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />;
+      default:
+        return icon;
+    }
+  };
+
+  return (
+    <div 
+      onClick={disabled ? undefined : onClick}
+      className={`flex items-start gap-4 p-4 rounded-lg transition-all ${onClick && !disabled ? 'cursor-pointer hover:shadow-md' : ''} ${
+        isActive ? 'bg-accent shadow-sm' : 
+        isCompleted ? 'bg-muted/30' : 
+        status === 'failed' ? 'bg-red-50' : 
+        'bg-background'
+      } border ${isActive ? 'border-primary' : 'border-border'} ${disabled ? 'opacity-60' : ''}`}
+    >
+      <div className={`flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
+        status === 'completed' ? 'bg-green-100 text-green-600' : 
+        status === 'failed' ? 'bg-red-100 text-red-600' : 
+        status === 'processing' ? 'bg-blue-100 text-blue-600' : 
+        isActive ? 'bg-primary/10 text-primary' : 
+        'bg-muted text-muted-foreground'
+      }`}>
+        {getStatusIcon()}
+      </div>
+      <div className="flex-grow">
+        {children}
+      </div>
+    </div>
+  );
+};
+
+type DataSource = 'local' | 'api' | 'database';
+type FileType = 'csv' | 'json' | 'excel' | 'parquet';
+type StepStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+interface ApiConfig {
+  url: string;
+  method: 'GET' | 'POST';
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+interface DatabaseConfig {
+  type: 'postgresql' | 'mysql' | 'sqlserver' | 'oracle';
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  query: string;
+}
+
+interface ValidationResult {
+  success: boolean;
+  errors?: string[];
+  warnings?: string[];
+  data?: any;
+}
+
+interface BusinessRule {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  severity: string;
+  condition: string;
+  action?: string;
+}
+
+interface PipelineUploadFormProps {
+  onUploadComplete?: (datasetId: string) => void;
+}
+
+const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileType, setFileType] = useState<FileType>('csv');
+  const [name, setName] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+  const [datasetId, setDatasetId] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [completedSteps, setCompletedSteps] = useState<number[]>([]);
+  const [stageLoading, setStageLoading] = useState({
+    validate: false,
+    rules: false,
+    transform: false,
+    enrich: false,
+    load: false
+  } as const);
+  interface PipelineStep {
+  name: string;
+  status: StepStatus;
+  description: string;
+  icon: React.ReactNode;
+  details: string;
+}
+
+// Helper function to update step status safely with proper typing
+const updateStepStatus = (steps: PipelineStep[], index: number, status: StepStatus): PipelineStep[] => {
+  return steps.map((step, i) => i === index ? { ...step, status } : step);
+}
+
+const [selectedRules, setSelectedRules] = useState<string[]>([]);
+const [sampleData, setSampleData] = useState<any[]>([]);
+
+const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([
+    { 
+      name: 'Upload', 
+      status: 'pending',
+      description: 'Upload and validate data file',
+      icon: <UploadCloud className="h-5 w-5" />,
+      details: 'Upload your data from a local file, API, or database connection'
+    },
+    { 
+      name: 'Validate', 
+      status: 'pending',
+      description: 'Validate data structure and integrity',
+      icon: <CheckCircle2 className="h-5 w-5" />,
+      details: 'Verify data schema, types, and basic integrity checks'
+    },
+    { 
+      name: 'Business Rules', 
+      status: 'pending',
+      description: 'Define and apply business rules',
+      icon: <Filter className="h-5 w-5" />,
+      details: 'Define, select, and apply custom business rules to validate and transform your data'
+    },
+    { 
+      name: 'Transform', 
+      status: 'pending',
+      description: 'Apply data transformations',
+      icon: <Sparkles className="h-5 w-5" />,
+      details: 'Transform data structure and format for analysis'
+    },
+    { 
+      name: 'Enrich', 
+      status: 'pending',
+      description: 'Add derived fields and enrichments',
+      icon: <Info className="h-5 w-5" />,
+      details: 'Add derived fields, external data, and enrich your dataset'
+    },
+    { 
+      name: 'Load', 
+      status: 'pending',
+      description: 'Save processed data to destination',
+      icon: <HardDrive className="h-5 w-5" />,
+      details: 'Load processed data to your target destination'
+    }
+  ]);
+  const [, setDataSource] = useState<DataSource>('local');
+  const [apiConfig, setApiConfig] = useState<ApiConfig>({
+    url: '',
+    method: 'GET',
+    headers: {},
+    body: ''
+  });
+  const [dbConfig, setDbConfig] = useState<DatabaseConfig>({
+    type: 'postgresql',
+    host: '',
+    port: 5432,
+    database: '',
+    username: '',
+    password: '',
+    query: ''
+  });
+
+  const { toast } = useToast();
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      // Auto-detect file type from extension
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      if (extension === 'csv') setFileType('csv');
+      else if (extension === 'json') setFileType('json');
+      else if (extension === 'xlsx' || extension === 'xls') setFileType('excel');
+      else if (extension === 'parquet') setFileType('parquet');
+    }
+  };
+
+  const handleApiConfigChange = (field: keyof ApiConfig, value: string) => {
+    setApiConfig(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleDbConfigChange = (field: keyof DatabaseConfig, value: string | number) => {
+    setDbConfig(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // Extract sample data for rule testing
+  const extractSampleData = async (file: File) => {
+    try {
+      // Extract first 100 rows as sample data for rule testing
+      const response = await api.pipeline.extractSampleData(file);
+      if (response.success && response.data) {
+        setSampleData(response.data.sample || []);
+      }
+    } catch (error) {
+      console.error('Error extracting sample data:', error);
+    }
+  };
+
+  // Handle file validation
+  const handleValidateFile = async () => {
+    if (!name) {
+      setError('Please provide a name for the dataset');
+      return;
+    }
+    
+    try {
+      setStageLoading({...stageLoading, validate: true});
+      setPipelineSteps(steps => updateStepStatus(steps, 1, 'processing'));
+      
+      // Call API to validate the file
+      const validationResponse = await api.pipeline.validateData(datasetId || '');
+      
+      if (validationResponse.success) {
+        setCompletedSteps(prev => [...new Set([...prev, 1])]);
+        setCurrentStep(2);
+        // Update validation step to completed and set next step as active
+        setPipelineSteps(steps => {
+          let newSteps = [...steps];
+          newSteps = updateStepStatus(newSteps, 1, 'completed');
+          return updateStepStatus(newSteps, 2, 'processing');
+        });
+
+        // Extract sample data for rule testing
+        if (selectedFile) {
+          await extractSampleData(selectedFile);
+        }
+
+        toast({
+          title: "Validation Successful",
+          description: "Your data has been validated successfully."
+        });
+      } else {
+        setPipelineSteps(steps => updateStepStatus(steps, 1, 'failed'));
+        throw new Error(validationResponse.error || "Failed to start validation");
+      }
+    } catch (error) {
+      setPipelineSteps(steps => updateStepStatus(steps, 1, 'failed'));
+      setError(error instanceof Error ? error.message : 'Failed to validate file');
+      toast({
+        title: "Validation Failed",
+        description: error instanceof Error ? error.message : 'Failed to validate file',
+        variant: "destructive"
+      });
+    } finally {
+      setStageLoading({...stageLoading, validate: false});
+    }
+  };
+
+// Handle business rules application
+const handleBusinessRules = async (appliedRuleIds?: string[]) => {
+  setStageLoading({...stageLoading, rules: true});
+  try {
+    // If rule IDs are provided, use them; otherwise use selectedRules
+    const ruleIds = appliedRuleIds || selectedRules;
+
+    if (ruleIds.length === 0) {
+      toast({
+        title: "No Rules Selected",
+        description: "No business rules were selected to apply.",
+        variant: "default"
+      });
+      return;
+    }
+
+    // Call the API to apply the selected rules
+    const response = await api.pipeline.applyBusinessRules(datasetId || '', ruleIds);
+
+    if (response.success) {
+      // Update step status
+      setCompletedSteps(prev => [...new Set([...prev, 2])]);
+      setCurrentStep(3); // Move to transform step
+      setPipelineSteps(steps => {
+        let newSteps = [...steps];
+        newSteps = updateStepStatus(newSteps, 2, 'completed');
+        return updateStepStatus(newSteps, 3, 'processing');
+      });
+
+      toast({
+        title: "Business Rules Applied",
+        description: `Successfully applied ${ruleIds.length} business rules.`
+      });
+    } else {
+      setPipelineSteps(steps => updateStepStatus(steps, 2, 'failed'));
+      toast({
+        title: "Error",
+        description: response.error || "Failed to apply business rules.",
+        variant: "destructive"
+      });
+    }
+  } catch (error) {
+    setPipelineSteps(steps => updateStepStatus(steps, 2, 'failed'));
+    toast({
+      title: "Error",
+      description: "Failed to apply business rules.",
+      variant: "destructive"
+    });
+  } finally {
+    setStageLoading({...stageLoading, rules: false});
+  }
+};
+
+// Handle rule selection change (used by EnhancedBusinessRules)
+
+// Render the form
+return (
+  <div className="space-y-8">
+    <Card>
+      <CardHeader>
+        <CardTitle>Data Pipeline</CardTitle>
+        <CardDescription>Upload, validate, transform, and load your data</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-6">
+          {/* Pipeline Steps */}
+          <div className="space-y-4">
+            {pipelineSteps.map((step, index) => (
+              <Step
+                key={index}
+                isActive={currentStep === index}
+                isCompleted={completedSteps.includes(index)}
+                description={step.description}
+                icon={step.icon}
+                status={step.status}
+                onClick={() => {
+                  // Only allow clicking on completed steps or the current step
+                  if (completedSteps.includes(index) || index === currentStep) {
+                    setCurrentStep(index);
+                  }
+                }}
+                disabled={!completedSteps.includes(index) && index !== currentStep}
+              >
+                <div className="space-y-1">
+                  <div className="font-medium">{step.name}</div>
+                  <div className="text-sm text-muted-foreground">{step.description}</div>
+                </div>
+              </Step>
+            ))}
+          </div>
+
+          {/* Step Content */}
+          <div className="mt-8">
+            {/* Upload Step */}
+            {currentStep === 0 && (
+              <div className="space-y-4">
+                <Tabs defaultValue="local" className="w-full">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="local" onClick={() => setDataSource('local')}>Local File</TabsTrigger>
+                    <TabsTrigger value="api" onClick={() => setDataSource('api')}>API</TabsTrigger>
+                    <TabsTrigger value="database" onClick={() => setDataSource('database')}>Database</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="local" className="space-y-4">
+                    <div className="grid gap-4">
+                      <div>
+                        <label htmlFor="name" className="block text-sm font-medium mb-1">Dataset Name</label>
+                        <input 
+                          id="name"
+                          type="text"
+                          className="w-full p-2 border rounded"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          placeholder="Enter dataset name"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label htmlFor="file" className="block text-sm font-medium mb-1">Upload File</label>
+                        <input 
+                          id="file"
+                          type="file"
+                          className="w-full p-2 border rounded"
+                          onChange={handleFileChange}
+                          accept=".csv,.json,.xlsx,.xls,.parquet"
+                        />
+                      </div>
+                      
+                      {selectedFile && (
+                        <Alert>
+                          <CheckCircle2 className="h-4 w-4" />
+                          <AlertTitle>File Selected</AlertTitle>
+                          <AlertDescription>
+                            {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </div>
+                    
+                    <div className="flex justify-end">
+                      <button
+                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                        onClick={handleValidateFile}
+                        disabled={!selectedFile || stageLoading.validate}
+                      >
+                        {stageLoading.validate ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Validating...
+                          </>
+                        ) : (
+                          'Validate & Continue'
+                        )}
+                      </button>
+                    </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="api" className="space-y-4">
+                    {/* API configuration UI */}
+                    <div className="grid gap-4">
+                      <div>
+                        <label htmlFor="api-name" className="block text-sm font-medium mb-1">Dataset Name</label>
+                        <input 
+                          id="api-name"
+                          type="text"
+                          className="w-full p-2 border rounded"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          placeholder="Enter dataset name"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label htmlFor="api-url" className="block text-sm font-medium mb-1">API URL</label>
+                        <input 
+                          id="api-url"
+                          type="text"
+                          className="w-full p-2 border rounded"
+                          value={apiConfig.url}
+                          onChange={(e) => handleApiConfigChange('url', e.target.value)}
+                          placeholder="https://api.example.com/data"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label htmlFor="api-method" className="block text-sm font-medium mb-1">Method</label>
+                        <Select 
+                          value={apiConfig.method} 
+                          onValueChange={(value) => handleApiConfigChange('method', value as 'GET' | 'POST')}
+                        >
+                          <SelectTrigger id="api-method">
+                            <SelectValue placeholder="Select method" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="GET">GET</SelectItem>
+                            <SelectItem value="POST">POST</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="database" className="space-y-4">
+                    {/* Database configuration UI */}
+                    <div className="grid gap-4">
+                      <div>
+                        <label htmlFor="db-name" className="block text-sm font-medium mb-1">Dataset Name</label>
+                        <input 
+                          id="db-name"
+                          type="text"
+                          className="w-full p-2 border rounded"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          placeholder="Enter dataset name"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label htmlFor="db-type" className="block text-sm font-medium mb-1">Database Type</label>
+                        <Select 
+                          value={dbConfig.type} 
+                          onValueChange={(value) => handleDbConfigChange('type', value as any)}
+                        >
+                          <SelectTrigger id="db-type">
+                            <SelectValue placeholder="Select database type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="postgresql">PostgreSQL</SelectItem>
+                            <SelectItem value="mysql">MySQL</SelectItem>
+                            <SelectItem value="sqlserver">SQL Server</SelectItem>
+                            <SelectItem value="oracle">Oracle</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </div>
+            )}
+
+            {/* Validate Step */}
+            {currentStep === 1 && (
+              <div className="space-y-4">
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>Validation in Progress</AlertTitle>
+                  <AlertDescription>
+                    Validating your data structure and integrity...
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
+
+            {/* Business Rules Step */}
+            {currentStep === 2 && (
+              <EnhancedBusinessRules
+                datasetId={datasetId || ''}
+                sampleData={sampleData}
+                onRulesApplied={(ruleIds) => {
+                  setSelectedRules(ruleIds);
+                  handleBusinessRules(ruleIds);
+                }}
+                onComplete={() => {
+                  // This will be called when the business rules step is completed
+                  // Move to the next step if needed
+                }}
+              />
+            )}
+
+            {/* Transform Step */}
+            {currentStep === 3 && (
+              <div className="space-y-4">
+                <Alert>
+                  <Sparkles className="h-4 w-4" />
+                  <AlertTitle>Transform Data</AlertTitle>
+                  <AlertDescription>
+                    Apply transformations to your data.
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
+
+            {/* Enrich Step */}
+            {currentStep === 4 && (
+              <div className="space-y-4">
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>Enrich Data</AlertTitle>
+                  <AlertDescription>
+                    Add derived fields and enrichments to your data.
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
+
+            {/* Load Step */}
+            {currentStep === 5 && (
+              <div className="space-y-4">
+                <Alert>
+                  <HardDrive className="h-4 w-4" />
+                  <AlertTitle>Load Data</AlertTitle>
+                  <AlertDescription>
+                    Save processed data to your target destination.
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+
+    {error && (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    )}
+  </div>
+);
+
+export default PipelineUploadForm;
