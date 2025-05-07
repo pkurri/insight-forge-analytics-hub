@@ -96,6 +96,10 @@ const pipelineService = {
    * @returns {Promise<Object>} - API response with sample data
    */
   async extractSampleData(file, maxRows = 100) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('max_rows', maxRows.toString());
+    
     return apiClient.uploadFile('pipeline/extract-sample', {
       file,
       max_rows: maxRows
@@ -124,9 +128,5 @@ const pipelineService = {
     return apiClient.post(`pipeline/step/${datasetId}/${stepType}`);
   }
 };
-
-// Export types for TypeScript support
-export const BusinessRule = {};
-export const ValidationResult = {};
 
 export default pipelineService;
