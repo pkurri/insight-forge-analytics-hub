@@ -59,6 +59,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
   const [selectedRules, setSelectedRules] = useState<string[]>([]);
   const [sampleData, setSampleData] = useState<any[]>([]);
   const [stageLoading, setStageLoading] = useState({
+    upload: false,
     validate: false,
     rules: false,
     transform: false,
@@ -179,10 +180,67 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
     }
   };
 
+  // Handle file upload
+  const handleUpload = async () => {
+    if (!selectedFile || !name) {
+      setError('Please provide a name and select a file');
+      return;
+    }
+    
+    try {
+      setStageLoading({...stageLoading, upload: true});
+      setPipelineSteps(steps => updateStepStatus(steps, 0, 'processing'));
+      
+      // Call API to upload the file
+      const uploadResponse = await api.pipeline.uploadData({
+        file: selectedFile,
+        name: name,
+        description: '',
+        fileType: fileType || 'csv'
+      });
+      
+      if (uploadResponse.success) {
+        setDatasetId(uploadResponse.dataset_id);
+        setCompletedSteps(prev => [...new Set([...prev, 0])]);
+        setCurrentStep(1);
+        
+        // Update upload step to completed and set validation step as active
+        setPipelineSteps(steps => {
+          let newSteps = [...steps];
+          newSteps = updateStepStatus(newSteps, 0, 'completed');
+          return updateStepStatus(newSteps, 1, 'processing');
+        });
+
+        toast({
+          title: "Upload Successful",
+          description: "Your data has been uploaded successfully."
+        });
+        
+        // Automatically start validation
+        await handleValidateFile(uploadResponse.dataset_id);
+      } else {
+        setPipelineSteps(steps => updateStepStatus(steps, 0, 'failed'));
+        throw new Error(uploadResponse.error || "Failed to upload file");
+      }
+    } catch (error) {
+      setPipelineSteps(steps => updateStepStatus(steps, 0, 'failed'));
+      setError(error instanceof Error ? error.message : 'Failed to upload file');
+      toast({
+        title: "Upload Failed",
+        description: error instanceof Error ? error.message : 'Failed to upload file',
+        variant: "destructive"
+      });
+    } finally {
+      setStageLoading({...stageLoading, upload: false});
+    }
+  };
+  
   // Handle file validation
-  const handleValidateFile = async () => {
-    if (!name) {
-      setError('Please provide a name for the dataset');
+  const handleValidateFile = async (uploadedDatasetId?: string) => {
+    const datasetToValidate = uploadedDatasetId || datasetId;
+    
+    if (!datasetToValidate) {
+      setError('No dataset available to validate');
       return;
     }
     
@@ -191,7 +249,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
       setPipelineSteps(steps => updateStepStatus(steps, 1, 'processing'));
       
       // Call API to validate the file
-      const validationResponse = await api.pipeline.validateData(datasetId || '');
+      const validationResponse = await api.pipeline.validateData(datasetToValidate);
       
       if (validationResponse.success) {
         setCompletedSteps(prev => [...new Set([...prev, 1])]);
@@ -292,34 +350,49 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
-            {/* Pipeline Steps */}
-            <div className="space-y-4">
-              {pipelineSteps.map((step, index) => (
-                <PipelineStep
-                  key={index}
-                  isActive={currentStep === index}
-                  isCompleted={completedSteps.includes(index)}
-                  description={step.description}
-                  icon={step.icon}
-                  status={step.status}
-                  onClick={() => {
-                    // Only allow clicking on completed steps or the current step
-                    if (completedSteps.includes(index) || index === currentStep) {
-                      setCurrentStep(index);
-                    }
-                  }}
-                  disabled={!completedSteps.includes(index) && index !== currentStep}
-                >
-                  <div className="space-y-1">
-                    <div className="font-medium">{step.name}</div>
-                    <div className="text-sm text-muted-foreground">{step.description}</div>
+            {/* Pipeline Steps - Vertical Layout */}
+            <div className="flex">
+              {/* Left sidebar with steps */}
+              <div className="w-1/4 space-y-2 border-r pr-4">
+                {pipelineSteps.map((step, index) => (
+                  <div 
+                    key={index}
+                    onClick={() => {
+                      // Only allow clicking on completed steps or the current step
+                      if (completedSteps.includes(index) || index === currentStep) {
+                        setCurrentStep(index);
+                      }
+                    }}
+                    className={`
+                      p-3 rounded-md flex flex-col space-y-1 cursor-pointer
+                      ${currentStep === index ? 'bg-blue-50 border-l-4 border-blue-500' : ''}
+                      ${completedSteps.includes(index) ? 'text-blue-700' : 'text-gray-500'}
+                      ${!completedSteps.includes(index) && index !== currentStep ? 'opacity-60' : ''}
+                    `}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <div className={`
+                        flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center
+                        ${step.status === 'completed' ? 'bg-green-100 text-green-600' : 
+                          step.status === 'failed' ? 'bg-red-100 text-red-600' : 
+                          step.status === 'processing' ? 'bg-blue-100 text-blue-600' : 
+                          currentStep === index ? 'bg-blue-100 text-blue-600' : 
+                          'bg-gray-100 text-gray-500'}
+                      `}>
+                        {step.status === 'completed' ? <CheckCircle2 className="h-4 w-4" /> :
+                         step.status === 'failed' ? <XCircle className="h-4 w-4" /> :
+                         step.status === 'processing' ? <Loader2 className="h-4 w-4 animate-spin" /> :
+                         step.icon}
+                      </div>
+                      <div className="font-medium">{step.name}</div>
+                    </div>
+                    <div className="text-xs text-muted-foreground pl-8">{step.description}</div>
                   </div>
-                </PipelineStep>
-              ))}
-            </div>
-
-            {/* Step Content */}
-            <div className="mt-8">
+                ))}
+              </div>
+              
+              {/* Right content area */}
+              <div className="w-3/4 pl-6 space-y-4">
               {/* Upload Step */}
               {currentStep === 0 && (
                 <div className="space-y-4">
@@ -368,17 +441,20 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
                       
                       <div className="flex justify-end">
                         <button
-                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                          onClick={handleValidateFile}
-                          disabled={!selectedFile || stageLoading.validate}
+                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
+                          onClick={handleUpload}
+                          disabled={!selectedFile || !name || stageLoading.upload}
                         >
-                          {stageLoading.validate ? (
+                          {stageLoading.upload ? (
                             <>
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Validating...
+                              Uploading...
                             </>
                           ) : (
-                            'Validate & Continue'
+                            <>
+                              <UploadCloud className="mr-2 h-4 w-4" />
+                              Upload & Continue
+                            </>
                           )}
                         </button>
                       </div>
@@ -534,6 +610,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
                   </Alert>
                 </div>
               )}
+              </div>
             </div>
           </div>
         </CardContent>
