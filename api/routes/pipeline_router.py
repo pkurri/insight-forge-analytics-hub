@@ -5,36 +5,23 @@ import tempfile
 import os
 import shutil
 import json
+import pandas as pd
 
 from models.dataset import PipelineRun, PipelineStep, PipelineRunStatus, PipelineStepType, DatasetCreate, DatasetStatus, SourceType, FileType
-from repositories.pipeline_repository import get_pipeline_repository
-from repositories.dataset_repository import get_dataset_repository, DatasetRepository
-from services.pipeline_service import run_pipeline_step, DataPipeline, pipeline_service
+from repositories.pipeline_repository import PipelineRepository
+from repositories.dataset_repository import DatasetRepository
+from services.pipeline_service import pipeline_service
 from routes.auth_router import get_current_user_or_api_key
 from services.file_service import process_uploaded_file
-from services.data_cleaning_service import DataCleaningService
-from services.validation_service import ValidationService
-from services.database_service import DatabaseService
-from services.analytics_service import get_data_profile, detect_anomalies
 from config.settings import get_settings
-from services.ai_models import AIModelService
 from services.vector_service import vector_service
 from services.external_data_service import fetch_from_api, fetch_from_database
-from db.session import get_db
 
 settings = get_settings()
 
-# Initialize services
-data_cleaning_service = DataCleaningService()
-validation_service = ValidationService()
-database_service = DatabaseService({
-    'user': settings.DB_USER,
-    'password': settings.DB_PASSWORD,
-    'database': settings.DB_NAME,
-    'host': settings.DB_HOST,
-    'port': settings.DB_PORT
-})
-ai_model_service = AIModelService()
+# Initialize repositories
+dataset_repo = DatasetRepository()
+pipeline_repo = PipelineRepository()
 
 router = APIRouter()
 
@@ -348,12 +335,6 @@ async def list_pipeline_runs(
         run_dict["steps"] = steps
         result.append(PipelineRun(**run_dict))
     
-    return result
-
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-@router.post("/upload")
 async def upload_data_to_pipeline(
     background_tasks: BackgroundTasks,
     file: Optional[UploadFile] = File(None),
@@ -363,149 +344,192 @@ async def upload_data_to_pipeline(
     name: str = Form(...),
     description: Optional[str] = Form(None),
     user_id: int = Form(...)
-) -> Dict[str, Any]:
+):
     """Upload data to the pipeline from various sources."""
-    dataset_repo = DatasetRepository()
-    source_type = None
-    source_info = {}
-    
-    # Handle file upload
-    if file:
-        if not file_type:
-            raise HTTPException(status_code=400, detail="File type is required for file uploads")
-            
-        # Save file
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        filename = f"{timestamp}_{file.filename}"
-        file_path = os.path.join(UPLOAD_DIR, filename)
+    try:
+        # Create dataset record
+        dataset_create = DatasetCreate(
+            name=name,
+            description=description or "",
+            status=DatasetStatus.PENDING
+        )
         
-        with open(file_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
+        # Handle different source types
+        if file:
+            # File upload
+            dataset_create.source_type = SourceType.FILE
+            dataset_create.file_type = file_type or FileType.CSV
             
-        source_type = SourceType.FILE
-        source_info = {
-            "file_path": file_path,
-            "file_type": file_type,
-            "original_filename": file.filename
+            # Save file
+            file_path = os.path.join(UPLOAD_DIR, f"{datetime.now().timestamp()}_{file.filename}")
+            with open(file_path, "wb") as f:
+                shutil.copyfileobj(file.file, f)
+                
+            # Set source info
+            dataset_create.source_info = {
+                "file_path": file_path,
+                "original_filename": file.filename
+            }
+            
+        elif api_config:
+            # API source
+            dataset_create.source_type = SourceType.API
+            dataset_create.file_type = file_type or FileType.JSON
+            
+            # Parse API config
+            api_config_dict = json.loads(api_config)
+            dataset_create.source_info = api_config_dict
+            
+        elif db_config:
+            # Database source
+            dataset_create.source_type = SourceType.DATABASE
+            dataset_create.file_type = file_type or FileType.CSV
+            
+            # Parse DB config
+            db_config_dict = json.loads(db_config)
+            dataset_create.source_info = db_config_dict
+            
+        else:
+            return {
+                "success": False,
+                "error": "No data source provided. Please provide a file, API config, or database config."
+            }
+        
+        # Create dataset
+        dataset = await dataset_repo.create_dataset(dataset_create, user_id)
+        
+        # Process file if uploaded
+        if file:
+            background_tasks.add_task(
+                pipeline_service.process_uploaded_file,
+                dataset.id,
+                file_path,
+                dataset_create.file_type
+            )
+        elif api_config:
+            # Add background task to fetch data from API
+            background_tasks.add_task(
+                fetch_from_api,
+                api_config_dict,
+                dataset.id
+            )
+        elif db_config:
+            # Add background task to fetch data from database
+            background_tasks.add_task(
+                fetch_from_database,
+                db_config_dict,
+                dataset.id
+            )
+        
+        return {
+            "success": True,
+            "dataset_id": dataset.id,
+            "name": dataset.name,
+            "status": dataset.status
         }
         
-    # Handle API source
-    elif api_config:
-        try:
-            config = json.loads(api_config)
-            source_type = SourceType.API
-            source_info = config
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=400, detail="Invalid API configuration JSON")
-            
-    # Handle database source
-    elif db_config:
-        try:
-            config = json.loads(db_config)
-            source_type = SourceType.DATABASE
-            source_info = config
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=400, detail="Invalid database configuration JSON")
-            
-    else:
-        raise HTTPException(status_code=400, detail="No data source provided")
-        
-    # Create dataset record
-    dataset = DatasetCreate(
-        name=name,
-        description=description,
-        user_id=user_id,
-        source_type=source_type,
-        source_info=source_info,
-        status=DatasetStatus.PENDING
-    )
-    
-    created_dataset = await dataset_repo.create_dataset(dataset)
-    
-    # Add background task based on source type
-    if source_type == SourceType.FILE:
-        background_tasks.add_task(
-            pipeline_service.process_uploaded_file,
-            created_dataset.id,
-            source_info["file_path"],
-            source_info["file_type"]
-        )
-    elif source_type == SourceType.API:
-        background_tasks.add_task(
-            fetch_from_api,
-            created_dataset.id,
-            source_info
-        )
-    elif source_type == SourceType.DATABASE:
-        background_tasks.add_task(
-            fetch_from_database,
-            created_dataset.id,
-            source_info
-        )
-        
-    return {
-        "id": created_dataset.id,
-        "source_type": source_type,
-        "file_type": file_type if file else None,
-        "status": created_dataset.status,
-        "upload_time": created_dataset.created_at
-    }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
-@router.post("/{dataset_id}/run-step")
+@router.post("/pipeline/business-rules/{dataset_id}", response_model=Dict[str, Any])
+async def apply_business_rules(
+    dataset_id: int,
+    rule_ids: List[str] = Body(...)
+):
+    """Apply business rules to a dataset."""
+    result = await pipeline_service.apply_business_rules(str(dataset_id), rule_ids)
+    return result
+
+@router.post("/pipeline/transform/{dataset_id}", response_model=Dict[str, Any])
+async def transform_data(
+    dataset_id: int
+):
+    """Transform data using defined transformations."""
+    result = await pipeline_service.transform_data(dataset_id)
+    return result
+
+@router.post("/pipeline/enrich/{dataset_id}", response_model=Dict[str, Any])
+async def enrich_data(
+    dataset_id: int
+):
+    """Enrich data with external sources or derived fields."""
+    result = await pipeline_service.enrich_data(dataset_id)
+    return result
+
+@router.post("/pipeline/load/{dataset_id}", response_model=Dict[str, Any])
+async def load_to_vector_db(
+    dataset_id: int
+):
+    """Load data to vector database."""
+    result = await pipeline_service.load_to_vector_db(dataset_id)
+    return result
+
+@router.get("/pipeline/sample/{dataset_id}", response_model=Dict[str, Any])
+async def get_sample_data(
+    dataset_id: int,
+    max_rows: int = 100
+):
+    """Get a sample of data from a dataset for preview and rule testing."""
+    try:
+        # Get dataset
+        dataset = await dataset_repo.get_dataset(dataset_id)
+        if not dataset:
+            return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
+        
+        # Extract sample data
+        file_path = dataset.source_info.get("file_path")
+        if not file_path or not os.path.exists(file_path):
+            return {"success": False, "error": "Dataset file not found"}
+        
+        result = await pipeline_service.extract_sample_data(
+            file_path,
+            dataset.file_type,
+            max_rows
+        )
+        
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.post("/pipeline/step/{dataset_id}/{step_type}", response_model=Dict[str, Any])
 async def run_pipeline_step(
     dataset_id: int,
     step_type: PipelineStepType
-) -> Dict[str, Any]:
+):
     """Run a specific pipeline step on a dataset."""
-    try:
-        step = await pipeline_service.run_pipeline_step(dataset_id, step_type)
-        return {
-            "step_id": step.id,
-            "status": step.status,
-            "metadata": step.pipeline_metadata
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    result = await pipeline_service.run_pipeline_step(dataset_id, step_type)
+    return result
 
-@router.get("/{dataset_id}/runs")
+@router.get("/pipeline/runs/{dataset_id}", response_model=Dict[str, Any])
 async def get_pipeline_runs(
     dataset_id: int,
     skip: int = 0,
     limit: int = 100
-) -> Dict[str, Any]:
+):
     """Get pipeline runs for a dataset."""
-    dataset_repo = DatasetRepository()
-    dataset = await dataset_repo.get_dataset(dataset_id)
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-        
-    runs = await pipeline_service.pipeline_repo.get_pipeline_runs(
-        dataset_id=dataset_id,
-        skip=skip,
-        limit=limit
-    )
+    runs = await pipeline_repo.get_pipeline_runs(dataset_id, skip, limit)
     
     return {
         "dataset_id": dataset_id,
         "runs": [
             {
-                "id": run.id,
-                "status": run.status,
-                "start_time": run.start_time,
-                "end_time": run.end_time,
+                "id": run["id"],
+                "status": run["status"],
+                "start_time": run["start_time"],
+                "end_time": run["end_time"],
                 "steps": [
                     {
-                        "id": step.id,
-                        "step_type": step.step_type,
-                        "status": step.status,
-                        "start_time": step.start_time,
-                        "end_time": step.end_time,
-                        "metadata": step.pipeline_metadata
+                        "id": step["id"],
+                        "step_type": step["step_type"],
+                        "status": step["status"],
+                        "start_time": step["start_time"],
+                        "end_time": step["end_time"],
+                        "metadata": step["pipeline_metadata"]
                     }
-                    for step in run.steps
+                    for step in run["steps"]
                 ]
             }
             for run in runs

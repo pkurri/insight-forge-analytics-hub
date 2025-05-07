@@ -2,9 +2,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-from api.db.connection import get_db_session
+import json
 from api.config.redis_config import get_redis_client
 from api.services.analytics_service import (
     process_dataset,
@@ -12,26 +10,24 @@ from api.services.analytics_service import (
     detect_anomalies,
     get_data_profile
 )
-import json
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-import numpy as np
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
 from models.dataset import Dataset, DatasetCreate, DatasetStatus, SourceType
-from models.db_models import Dataset as DatasetModel
-
-from api.models.db_models import Dataset, DatasetColumn, DatasetEmbedding, PipelineRun
-from db.connection import get_db_connection, execute_query, execute_transaction
+from db.connection import (
+    get_db_connection, 
+    execute_query, 
+    execute_transaction,
+    execute_single,
+    execute_value,
+    execute_command,
+    execute_many
+)
 
 class DatasetRepository:
     """Repository for dataset-related database operations."""
     
-    def __init__(self, session: AsyncSession):
-        """Initialize the repository with database and Redis connection."""
+    def __init__(self):
+        """Initialize the repository with Redis connection."""
         self.redis = get_redis_client()
         self.cache_ttl = 3600  # Cache TTL in seconds
-        self.session = session
         
     async def _get_cache_key(self, key_type: str, key_id: str) -> str:
         """Generate cache key."""
@@ -64,13 +60,12 @@ class DatasetRepository:
         return Dataset(**dict(result[0]))
 
     async def store_embeddings(self, dataset_id: int, embeddings: np.ndarray) -> None:
-        db_embedding = DatasetEmbedding(
-            dataset_id=dataset_id,
-            embedding=embeddings.tolist()
-        )
-        async with get_db_session() as session:
-            session.add(db_embedding)
-            await session.flush()
+        """Store embeddings for a dataset."""
+        query = """
+        INSERT INTO dataset_embeddings (dataset_id, embedding)
+        VALUES ($1, $2)
+        """
+        await execute_command(query, dataset_id, embeddings.tolist())
 
     async def get_dataset(self, dataset_id: int) -> Optional[Dataset]:
         """Get a dataset by ID."""
@@ -79,15 +74,10 @@ class DatasetRepository:
         return Dataset(**dict(result[0])) if result else None
 
     async def get_datasets_by_user(self, user_id: int) -> List[Dataset]:
-        async with get_db_session() as session:
-            result = await session.execute(
-                text(f"""
-                SELECT * FROM {settings.DB_SCHEMA}.datasets 
-                WHERE user_id = :user_id
-                """),
-                {"user_id": user_id}
-            )
-            return [dict(row) for row in result]
+        """Get all datasets for a user."""
+        query = "SELECT * FROM datasets WHERE user_id = $1"
+        result = await execute_query(query, user_id)
+        return [Dataset(**dict(row)) for row in result]
 
     async def search_similar_datasets(
         self,
@@ -95,23 +85,17 @@ class DatasetRepository:
         limit: int = 5
     ) -> List[Dict[str, Any]]:
         """Search for similar datasets using vector similarity."""
-        async with get_db_session() as session:
-            result = await session.execute(
-                text("""
-                SELECT 
-                    d.*,
-                    e.embedding <=> :query_embedding as similarity
-                FROM datasets d
-                JOIN dataset_embeddings e ON d.id = e.dataset_id
-                ORDER BY similarity ASC
-                LIMIT :limit
-                """),
-                {
-                    "query_embedding": query_embedding.tolist(),
-                    "limit": limit
-                }
-            )
-            return [dict(r._mapping) for r in result]
+        query = """
+        SELECT 
+            d.*,
+            e.embedding <=> $1 as similarity
+        FROM datasets d
+        JOIN dataset_embeddings e ON d.id = e.dataset_id
+        ORDER BY similarity ASC
+        LIMIT $2
+        """
+        result = await execute_query(query, query_embedding.tolist(), limit)
+        return [dict(row) for row in result]
 
     async def update_dataset_status(
         self,
@@ -119,33 +103,34 @@ class DatasetRepository:
         status: DatasetStatus,
         dataset_metadata: Optional[Dict[str, Any]] = None
     ) -> None:
-        async with get_db_session() as session:
-            result = await session.execute(
-                text("""
-                SELECT * FROM datasets 
-                WHERE id = :dataset_id
-                """),
-                {"dataset_id": dataset_id}
+        """Update the status and metadata of a dataset."""
+        # First get the current dataset
+        query = "SELECT * FROM datasets WHERE id = $1"
+        result = await execute_single(query, dataset_id)
+        
+        if result:
+            dataset = dict(result)
+            dataset["status"] = status.value
+            
+            # Update metadata if provided
+            if dataset_metadata:
+                current_metadata = json.loads(dataset.get("dataset_metadata", "{}"))
+                updated_metadata = {**current_metadata, **dataset_metadata}
+                dataset["dataset_metadata"] = json.dumps(updated_metadata)
+            
+            # Update the dataset
+            update_query = """
+            UPDATE datasets 
+            SET status = $1, dataset_metadata = $2, updated_at = $3
+            WHERE id = $4
+            """
+            await execute_command(
+                update_query,
+                dataset["status"],
+                dataset.get("dataset_metadata", "{}"),
+                datetime.utcnow(),
+                dataset_id
             )
-            row = result.first()
-            if row:
-                dataset = dict(row)
-                dataset["status"] = status.value
-                if dataset_metadata:
-                    dataset["dataset_metadata"] = json.dumps({**json.loads(dataset["dataset_metadata"]), **dataset_metadata})
-                await session.execute(
-                    text("""
-                    UPDATE datasets 
-                    SET status = :status, dataset_metadata = :dataset_metadata
-                    WHERE id = :dataset_id
-                    """),
-                    {
-                        "status": dataset["status"],
-                        "dataset_metadata": dataset["dataset_metadata"],
-                        "dataset_id": dataset_id
-                    }
-                )
-                await session.commit()
 
     async def add_dataset_columns(self, dataset_id: int, columns: List[Dict[str, Any]]) -> None:
         """Add columns to a dataset."""

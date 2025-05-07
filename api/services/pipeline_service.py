@@ -462,13 +462,14 @@ class DataPipeline:
 class PipelineService:
     """Service for managing data pipelines."""
     
-    def __init__(self, business_rules_service):
+    def __init__(self, business_rules_service=None):
         self.dataset_repo = DatasetRepository()
         self.pipeline_repo = PipelineRepository()
         self.processing_service = DataProcessingService()
         self.validation_service = DataValidationService()
         self.profiling_service = DataProfilingService()
         self.business_rules_service = business_rules_service
+        self.vector_service = None  # Will be initialized on demand
     
     async def process_uploaded_file(
         self,
@@ -562,6 +563,34 @@ class PipelineService:
                 profiling_results
             )
             
+            # Add business rules step (but don't run it yet)
+            business_rules_step = await self.pipeline_repo.create_pipeline_step(
+                pipeline_run.id,
+                PipelineStepType.BUSINESS_RULES,
+                PipelineRunStatus.PENDING
+            )
+            
+            # Add transform step (but don't run it yet)
+            transform_step = await self.pipeline_repo.create_pipeline_step(
+                pipeline_run.id,
+                PipelineStepType.TRANSFORM,
+                PipelineRunStatus.PENDING
+            )
+            
+            # Add enrich step (but don't run it yet)
+            enrich_step = await self.pipeline_repo.create_pipeline_step(
+                pipeline_run.id,
+                PipelineStepType.ENRICH,
+                PipelineRunStatus.PENDING
+            )
+            
+            # Add load step (but don't run it yet)
+            load_step = await self.pipeline_repo.create_pipeline_step(
+                pipeline_run.id,
+                PipelineStepType.LOAD,
+                PipelineRunStatus.PENDING
+            )
+            
             return await self.dataset_repo.get_dataset(dataset_id)
             
         except Exception as e:
@@ -645,10 +674,40 @@ class PipelineService:
             # Load dataset
             df = await self.processing_service.load_dataset(dataset_id)
             
+            # Get the latest pipeline run or create a new one
+            pipeline_run = await self.pipeline_repo.get_latest_pipeline_run(dataset_id)
+            if not pipeline_run:
+                pipeline_run = await self.pipeline_repo.create_pipeline_run(dataset_id)
+            
+            # Create business rules step
+            business_rules_step = await self.pipeline_repo.create_pipeline_step(
+                pipeline_run["id"],
+                PipelineStepType.BUSINESS_RULES,
+                PipelineRunStatus.PROCESSING
+            )
+            
             # Apply business rules
             result = await self.business_rules_service.apply_rules_to_dataset(
                 dataset_id, df.to_dict(orient='records'), rule_ids
             )
+            
+            # Update step status
+            if result.get("success", False):
+                await self.pipeline_repo.update_pipeline_step_status(
+                    business_rules_step["id"],
+                    PipelineRunStatus.COMPLETED,
+                    {
+                        "rules_applied": len(rule_ids),
+                        "rows_affected": result.get("rows_affected", 0),
+                        "rules_metadata": result.get("rules_metadata", {})
+                    }
+                )
+            else:
+                await self.pipeline_repo.update_pipeline_step_status(
+                    business_rules_step["id"],
+                    PipelineRunStatus.FAILED,
+                    {"error": result.get("error", "Unknown error applying business rules")}
+                )
             
             # Update dataset metadata with applied rules
             await self.dataset_repo.update_dataset(
@@ -666,64 +725,130 @@ class PipelineService:
         self,
         dataset_id: int,
         step_type: PipelineStepType
-    ) -> PipelineStep:
+    ) -> Dict[str, Any]:
         """Run a specific pipeline step on a dataset."""
-        # Get dataset
-        dataset = await self.dataset_repo.get_dataset(dataset_id)
-        if not dataset:
-            raise ValueError(f"Dataset {dataset_id} not found")
-            
-        if dataset.status != DatasetStatus.COMPLETED:
-            raise ValueError(f"Dataset {dataset_id} is not in completed state")
-            
-        # Create pipeline run if needed
-        latest_run = await self.pipeline_repo.get_pipeline_runs(
-            dataset_id=dataset_id,
-            limit=1
-        )
-        
-        if not latest_run:
-            pipeline_run = await self.pipeline_repo.create_pipeline_run(dataset_id)
-        else:
-            pipeline_run = latest_run[0]
-            
-        # Create and run step
-        step = await self.pipeline_repo.create_pipeline_step(
-            pipeline_run.id,
-            step_type,
-            PipelineRunStatus.PROCESSING
-        )
-        
         try:
-            # Read data
-            df = pd.read_csv(dataset.metadata["file_path"])
+            # Get dataset
+            dataset = await self.dataset_repo.get_dataset(dataset_id)
+            if not dataset:
+                return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
+                
+            # Get latest pipeline run
+            pipeline_run = await self.pipeline_repo.get_latest_pipeline_run(dataset_id)
+            if not pipeline_run:
+                pipeline_run = await self.pipeline_repo.create_pipeline_run(dataset_id)
+                
+            # Create and start step
+            step = await self.pipeline_repo.create_pipeline_step(
+                pipeline_run["id"],
+                step_type,
+                PipelineRunStatus.PROCESSING
+            )
             
-            # Run step
+            # Load dataset
+            df = await self.processing_service.load_dataset(dataset_id)
+            
+            # Run step based on type
             if step_type == PipelineStepType.CLEAN:
-                result_df = await self.processing_service.clean_data(df)
-                metadata = {"rows_cleaned": len(df) - len(result_df)}
+                result = await self.processing_service.clean_data(df)
+                metadata = {"rows_cleaned": len(df) - len(result)}
             elif step_type == PipelineStepType.VALIDATE:
-                metadata = await self.validation_service.validate_data(df)
+                result = await self.validation_service.validate_data(df)
+                metadata = result
             elif step_type == PipelineStepType.PROFILE:
-                metadata = await self.profiling_service.profile_data(df)
+                result = await self.profiling_service.profile_data(df)
+                metadata = result
+            elif step_type == PipelineStepType.BUSINESS_RULES:
+                # Get active rules for dataset
+                rules = await self.business_rules_service.get_rules_for_dataset(dataset_id)
+                rule_ids = [rule["id"] for rule in rules]
+                result = await self.business_rules_service.apply_rules_to_dataset(dataset_id, df.to_dict(orient='records'), rule_ids)
+                metadata = {
+                    "rules_applied": len(rule_ids),
+                    "rows_affected": result.get("rows_affected", 0),
+                    "rules_metadata": result.get("rules_metadata", {})
+                }
+            elif step_type == PipelineStepType.TRANSFORM:
+                # Apply transformations to the dataset
+                result = await self.processing_service.transform_data(df)
+                metadata = {"transformations_applied": result.get("transformations_applied", [])}
+            elif step_type == PipelineStepType.ENRICH:
+                # Enrich data with external sources or derived fields
+                result = await self.processing_service.enrich_data(df)
+                metadata = {"enrichments_applied": result.get("enrichments_applied", [])}
+            elif step_type == PipelineStepType.LOAD:
+                # Load data to vector database
+                if not self.vector_service:
+                    from services.vector_service import VectorService
+                    self.vector_service = VectorService()
+                
+                result = await self.vector_service.load_dataset(dataset_id, df)
+                metadata = {
+                    "vectors_created": result.get("vectors_created", 0),
+                    "index_name": result.get("index_name", "")
+                }
             else:
-                raise ValueError(f"Unsupported step type: {step_type}")
+                return {"success": False, "error": f"Unsupported step type: {step_type}"}
                 
             # Update step status
             await self.pipeline_repo.update_pipeline_step_status(
-                step.id,
+                step["id"],
                 PipelineRunStatus.COMPLETED,
                 metadata
             )
             
-            return step
+            return {"success": True, "step_id": step["id"], "status": "completed"}
             
         except Exception as e:
-            await self.pipeline_repo.update_pipeline_step_status(
-                step.id,
-                PipelineRunStatus.FAILED,
-                {"error": str(e)}
-            )
-            raise
+            logger.error(f"Error running pipeline step {step_type}: {str(e)}")
+            if step and step.get("id"):
+                await self.pipeline_repo.update_pipeline_step_status(
+                    step["id"],
+                    PipelineRunStatus.FAILED,
+                    {"error": str(e)}
+                )
+            return {"success": False, "error": f"Failed to run pipeline step: {str(e)}"}
+            
+    async def transform_data(self, dataset_id: int) -> Dict[str, Any]:
+        """Transform data using defined transformations."""
+        try:
+            # Get dataset
+            dataset = await self.dataset_repo.get_dataset(dataset_id)
+            if not dataset:
+                return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
+            
+            # Run the transform step
+            return await self.run_pipeline_step(dataset_id, PipelineStepType.TRANSFORM)
+        except Exception as e:
+            logger.error(f"Error transforming data: {str(e)}")
+            return {"success": False, "error": f"Failed to transform data: {str(e)}"}
+    
+    async def enrich_data(self, dataset_id: int) -> Dict[str, Any]:
+        """Enrich data with external sources or derived fields."""
+        try:
+            # Get dataset
+            dataset = await self.dataset_repo.get_dataset(dataset_id)
+            if not dataset:
+                return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
+            
+            # Run the enrich step
+            return await self.run_pipeline_step(dataset_id, PipelineStepType.ENRICH)
+        except Exception as e:
+            logger.error(f"Error enriching data: {str(e)}")
+            return {"success": False, "error": f"Failed to enrich data: {str(e)}"}
+    
+    async def load_to_vector_db(self, dataset_id: int) -> Dict[str, Any]:
+        """Load data to vector database."""
+        try:
+            # Get dataset
+            dataset = await self.dataset_repo.get_dataset(dataset_id)
+            if not dataset:
+                return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
+            
+            # Run the load step
+            return await self.run_pipeline_step(dataset_id, PipelineStepType.LOAD)
+        except Exception as e:
+            logger.error(f"Error loading data to vector database: {str(e)}")
+            return {"success": False, "error": f"Failed to load data to vector database: {str(e)}"}
 
 pipeline_service = PipelineService()  # Will be initialized with dataset repo

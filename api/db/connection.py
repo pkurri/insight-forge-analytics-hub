@@ -1,46 +1,16 @@
 import asyncpg
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
 from contextlib import asynccontextmanager
 from api.config.settings import get_settings
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any, Tuple
 import os
+import json
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-# Global connection pools
-_sqlalchemy_engine = None
+# Global connection pool
 _pool: Optional[asyncpg.Pool] = None
-
-def get_sqlalchemy_engine():
-    """
-    Get or create the SQLAlchemy engine.
-    """
-    global _sqlalchemy_engine
-    if _sqlalchemy_engine is None:
-        DATABASE_URL = f"postgresql+asyncpg://{settings.DB_USER}:{settings.DB_PASSWORD}@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
-        _sqlalchemy_engine = create_async_engine(
-            DATABASE_URL,
-            echo=False,
-            future=True,
-            pool_size=20,               # Maximum connections in pool
-            max_overflow=10,            # Maximum overflow connections
-            pool_timeout=30,            # Connection timeout in seconds
-            pool_recycle=1800,          # Recycle connections after 30 minutes
-            pool_pre_ping=True          # Verify connections before use
-        )
-    return _sqlalchemy_engine
-
-# Create async session factory
-AsyncSessionLocal = sessionmaker(
-    bind=get_sqlalchemy_engine(),
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autoflush=False,
-    autocommit=False
-)
 
 async def init_db_pool():
     """Initialize the database connection pool."""
@@ -75,6 +45,26 @@ async def execute_query(query: str, *args, **kwargs):
     """Execute a query and return the results."""
     async with get_db_connection() as conn:
         return await conn.fetch(query, *args, **kwargs)
+        
+async def execute_many(query: str, args_list: List[Tuple]):
+    """Execute a query with multiple sets of parameters."""
+    async with get_db_connection() as conn:
+        return await conn.executemany(query, args_list)
+        
+async def execute_single(query: str, *args, **kwargs):
+    """Execute a query and return a single result."""
+    async with get_db_connection() as conn:
+        return await conn.fetchrow(query, *args, **kwargs)
+        
+async def execute_value(query: str, *args, **kwargs):
+    """Execute a query and return a single value."""
+    async with get_db_connection() as conn:
+        return await conn.fetchval(query, *args, **kwargs)
+        
+async def execute_command(query: str, *args, **kwargs):
+    """Execute a command (insert, update, delete) and return the status."""
+    async with get_db_connection() as conn:
+        return await conn.execute(query, *args, **kwargs)
 
 async def execute_transaction(queries: list):
     """Execute multiple queries in a transaction."""
@@ -105,27 +95,35 @@ async def get_db_pool() -> asyncpg.Pool:
                 max_inactive_connection_lifetime=1800.0  # Recycle connections after 30 minutes
             )
             logger.info("Database connection pool created successfully")
+            
+            # Set up JSON encoding/decoding for the pool
+            await setup_pool_codecs(_pool)
         except Exception as e:
             logger.error(f"Failed to create database connection pool: {str(e)}")
             raise
     return _pool
 
-@asynccontextmanager
-async def get_db_session():
-    """
-    Async context manager for DB session, use as:
-    async with get_db_session() as session:
-        ...
-    """
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception as e:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+async def setup_pool_codecs(pool):
+    """Set up JSON encoding/decoding for the pool."""
+    def _encode_jsonb(value):
+        return json.dumps(value)
+    
+    def _decode_jsonb(value):
+        return json.loads(value)
+    
+    await pool.set_type_codec(
+        'jsonb',
+        encoder=_encode_jsonb,
+        decoder=_decode_jsonb,
+        schema='pg_catalog'
+    )
+    
+    await pool.set_type_codec(
+        'json',
+        encoder=_encode_jsonb,
+        decoder=_decode_jsonb,
+        schema='pg_catalog'
+    )
 
 async def check_db_connection():
     """
@@ -146,13 +144,6 @@ async def get_connection_stats():
     Get statistics about the connection pools.
     """
     stats = {
-        "sqlalchemy": {
-            "status": "not_initialized" if _sqlalchemy_engine is None else "initialized",
-            "pool_size": _sqlalchemy_engine.pool.size() if _sqlalchemy_engine else 0,
-            "checkedin": _sqlalchemy_engine.pool.checkedin() if _sqlalchemy_engine else 0,
-            "checkedout": _sqlalchemy_engine.pool.checkedout() if _sqlalchemy_engine else 0,
-            "overflow": _sqlalchemy_engine.pool.overflow() if _sqlalchemy_engine else 0
-        },
         "asyncpg": {
             "status": "not_initialized" if _pool is None else "initialized",
             "min_size": _pool._minsize if _pool else 0,
@@ -172,16 +163,10 @@ async def close_db_pools():
     Close all database connection pools.
     Should be called during application shutdown.
     """
-    global _sqlalchemy_engine, _pool
+    global _pool
     
     # Close asyncpg pool
     if _pool is not None:
         await _pool.close()
         _pool = None
         logger.info("AsyncPG connection pool closed")
-    
-    # Close SQLAlchemy engine
-    if _sqlalchemy_engine is not None:
-        await _sqlalchemy_engine.dispose()
-        _sqlalchemy_engine = None
-        logger.info("SQLAlchemy engine closed")
