@@ -112,7 +112,8 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
     }
   ]);
   
-  const [, setDataSource] = useState<DataSource>('local');
+  const [dataSource, setDataSource] = useState<DataSource>('local');
+  const [fileType, setFileType] = useState<FileType>('csv');
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     url: '',
     method: 'GET',
@@ -148,6 +149,9 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
       else if (extension === 'json') setFileType('json');
       else if (extension === 'xlsx' || extension === 'xls') setFileType('excel');
       else if (extension === 'parquet') setFileType('parquet');
+      
+      // Set data source to local when a file is selected
+      setDataSource('local');
     }
   };
 
@@ -180,10 +184,22 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
     }
   };
 
-  // Handle file upload
+  // Handle file upload for all data sources (local file, API, database)
   const handleUpload = async () => {
-    if (!selectedFile || !name) {
-      setError('Please provide a name and select a file');
+    if (!name) {
+      setError('Please provide a name for the dataset');
+      return;
+    }
+    
+    // Validate input based on data source
+    if (dataSource === 'local' && !selectedFile) {
+      setError('Please select a file to upload');
+      return;
+    } else if (dataSource === 'api' && !apiConfig.url) {
+      setError('Please provide an API URL');
+      return;
+    } else if (dataSource === 'database' && (!dbConfig.host || !dbConfig.database || !dbConfig.username)) {
+      setError('Please provide all required database connection details');
       return;
     }
     
@@ -191,16 +207,57 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
       setStageLoading({...stageLoading, upload: true});
       setPipelineSteps(steps => updateStepStatus(steps, 0, 'processing'));
       
-      // Call API to upload the file
-      const uploadResponse = await api.pipeline.uploadData({
-        file: selectedFile,
-        name: name,
-        description: '',
-        fileType: fileType || 'csv'
-      });
+      let uploadResponse;
       
-      if (uploadResponse.success) {
-        setDatasetId(uploadResponse.dataset_id);
+      // Handle different data sources
+      if (dataSource === 'local') {
+        // Upload local file
+        uploadResponse = await api.pipeline.uploadData({
+          file: selectedFile,
+          name: name,
+          description: '',
+          fileType: fileType || 'csv'
+        });
+      } else if (dataSource === 'api') {
+        // Upload from API source
+        uploadResponse = await api.pipeline.uploadData({
+          name: name,
+          description: '',
+          fileType: 'json', // API data is typically JSON
+          apiConfig: {
+            url: apiConfig.url,
+            method: apiConfig.method,
+            headers: apiConfig.headers || {},
+            body: apiConfig.body || ''
+          }
+        });
+      } else if (dataSource === 'database') {
+        // Upload from database source
+        uploadResponse = await api.pipeline.uploadData({
+          name: name,
+          description: '',
+          fileType: 'csv', // Database data is typically exported as CSV
+          dbConfig: {
+            type: dbConfig.type,
+            host: dbConfig.host,
+            port: dbConfig.port,
+            database: dbConfig.database,
+            username: dbConfig.username,
+            password: dbConfig.password,
+            query: dbConfig.query || 'SELECT * FROM main_table LIMIT 1000'
+          }
+        });
+      }
+      
+      if (uploadResponse && uploadResponse.success) {
+        // Extract dataset_id from response
+        const datasetId = uploadResponse.data?.dataset_id || uploadResponse.dataset_id;
+        
+        if (!datasetId) {
+          throw new Error('No dataset ID returned from upload');
+        }
+        
+        setDatasetId(datasetId);
         setCompletedSteps(prev => [...new Set([...prev, 0])]);
         setCurrentStep(1);
         
@@ -213,21 +270,21 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
 
         toast({
           title: "Upload Successful",
-          description: "Your data has been uploaded successfully."
+          description: `Your data from ${dataSource} source has been uploaded successfully.`
         });
         
         // Automatically start validation
-        await handleValidateFile(uploadResponse.dataset_id);
+        await handleValidateFile(datasetId);
       } else {
         setPipelineSteps(steps => updateStepStatus(steps, 0, 'failed'));
-        throw new Error(uploadResponse.error || "Failed to upload file");
+        throw new Error((uploadResponse?.error || "Failed to upload data"));
       }
     } catch (error) {
       setPipelineSteps(steps => updateStepStatus(steps, 0, 'failed'));
-      setError(error instanceof Error ? error.message : 'Failed to upload file');
+      setError(error instanceof Error ? error.message : 'Failed to upload data');
       toast({
         title: "Upload Failed",
-        description: error instanceof Error ? error.message : 'Failed to upload file',
+        description: error instanceof Error ? error.message : 'Failed to upload data',
         variant: "destructive"
       });
     } finally {
