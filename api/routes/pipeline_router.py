@@ -511,38 +511,51 @@ async def run_pipeline_step(
 )
 async def extract_sample_data(
     file: UploadFile = File(...),
-    max_rows: str = Form('100')
+    max_rows: Optional[str] = Form(None)
 ):
     """Extract sample data from an uploaded file."""
     try:
+        # Set default max_rows if not provided or invalid
+        if max_rows is None:
+            max_rows_int = 100
+        else:
+            try:
+                # First try direct integer conversion
+                max_rows_int = int(max_rows)
+            except ValueError:
+                try:
+                    # If that fails, try float conversion and then to int
+                    max_rows_int = int(float(max_rows))
+                except (ValueError, TypeError):
+                    # If all conversions fail, use default
+                    max_rows_int = 100
+        
+        # Ensure max_rows is positive
+        max_rows_int = max(1, max_rows_int)
+        
         # Create a temporary file to store the uploaded file
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             # Copy the uploaded file to the temporary file
             shutil.copyfileobj(file.file, temp_file)
             temp_file_path = temp_file.name
-
-        # Ensure max_rows is an integer
-        try:
-            max_rows_int = int(max_rows)
-        except (ValueError, TypeError):
-            max_rows_int = 100  # Default to 100 if conversion fails
             
         # Determine file type from extension
         file_extension = os.path.splitext(file.filename)[1].lower()
         if file_extension == '.csv':
             file_type = FileType.CSV
-            df = pd.read_csv(temp_file_path, nrows=max_rows_int)
+            # Use explicit int for nrows to avoid any type issues
+            df = pd.read_csv(temp_file_path, nrows=int(max_rows_int))
         elif file_extension == '.json':
             file_type = FileType.JSON
             df = pd.read_json(temp_file_path)
-            df = df.head(max_rows_int)
+            df = df.head(int(max_rows_int))
         elif file_extension in ['.xlsx', '.xls']:
             file_type = FileType.EXCEL
-            df = pd.read_excel(temp_file_path, nrows=max_rows_int)
+            df = pd.read_excel(temp_file_path, nrows=int(max_rows_int))
         elif file_extension == '.parquet':
             file_type = FileType.PARQUET
             df = pd.read_parquet(temp_file_path)
-            df = df.head(max_rows_int)
+            df = df.head(int(max_rows_int))
         else:
             # Clean up the temporary file
             os.unlink(temp_file_path)
