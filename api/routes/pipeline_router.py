@@ -561,19 +561,55 @@ async def extract_sample_data(
             os.unlink(temp_file_path)
             return {"success": False, "error": f"Unsupported file type: {file_extension}"}
 
-        # Convert the sample data to a list of dictionaries
-        sample_data = df.to_dict(orient='records')
-        
-        # Get column information
-        columns = []
-        for col in df.columns:
-            dtype = str(df[col].dtype)
-            sample_values = df[col].dropna().head(5).tolist()
-            columns.append({
-                "name": col,
-                "type": dtype,
-                "sample_values": sample_values
-            })
+        # Handle data conversion safely
+        try:
+            # Convert the sample data to a list of dictionaries with safe handling of problematic values
+            # Replace NaN with None for JSON serialization
+            df = df.where(pd.notna(df), None)
+            
+            # Convert to records safely
+            sample_data = []
+            for _, row in df.iterrows():
+                record = {}
+                for col in df.columns:
+                    value = row[col]
+                    # Handle different types of values
+                    if pd.isna(value) or value is None:
+                        record[col] = None
+                    elif isinstance(value, (float, int, bool, str)):
+                        record[col] = value
+                    else:
+                        # Convert other types to string for safety
+                        record[col] = str(value)
+                sample_data.append(record)
+            
+            # Get column information safely
+            columns = []
+            for col in df.columns:
+                dtype = str(df[col].dtype)
+                
+                # Get sample values safely
+                sample_values = []
+                for val in df[col].head(5):
+                    if pd.isna(val) or val is None:
+                        sample_values.append(None)
+                    elif isinstance(val, (float, int, bool, str)):
+                        sample_values.append(val)
+                    else:
+                        # Convert other types to string
+                        sample_values.append(str(val))
+                
+                columns.append({
+                    "name": col,
+                    "type": dtype,
+                    "sample_values": sample_values
+                })
+        except Exception as e:
+            # If there's an error in data processing, log it and return a simplified version
+            print(f"Error processing dataframe: {str(e)}")
+            # Fallback to a simpler approach
+            sample_data = [{col: str(row[col]) for col in df.columns} for _, row in df.head(int(max_rows_int)).iterrows()]
+            columns = [{"name": col, "type": str(df[col].dtype), "sample_values": []} for col in df.columns]
 
         # Clean up the temporary file
         os.unlink(temp_file_path)
