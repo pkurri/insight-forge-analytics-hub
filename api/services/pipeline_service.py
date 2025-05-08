@@ -22,6 +22,11 @@ from services.validation_service import validation_service
 from services.cleaning_service import cleaning_service
 from services.profiling_service import profiling_service
 from services.business_rules import business_rules_service
+from services.data_processing_service import DataProcessingService
+from services.data_validation_service import DataValidationService
+from services.data_profiling_service import DataProfilingService
+from services.data_enrichment_service import data_enrichment_service
+from repositories.pipeline_repository import PipelineRepository
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -447,6 +452,7 @@ class PipelineService:
         self.validation_service = DataValidationService()
         self.profiling_service = DataProfilingService()
         self.business_rules_service = business_rules_service or business_rules_service
+        self.enrichment_service = data_enrichment_service
         self.vector_service = None  # Will be initialized on demand
     
     async def process_uploaded_file(
@@ -730,8 +736,17 @@ class PipelineService:
                 metadata = {"transformations_applied": result.get("transformations_applied", [])}
             elif step_type == PipelineStepType.ENRICH:
                 # Enrich data with external sources or derived fields
-                result = await self.processing_service.enrich_data(df)
-                metadata = {"enrichments_applied": result.get("enrichments_applied", [])}
+                enrichment_config = kwargs.get("enrichment_config", {})
+                result = await self.enrichment_service.enrich_data(df, enrichment_config)
+                metadata = {
+                    "enrichments_applied": result.get("enrichments_applied", []),
+                    "new_columns": result.get("new_columns", []),
+                    "rows_before": result.get("rows_before", len(df)),
+                    "rows_after": result.get("rows_after", len(df))
+                }
+                
+                # Update the dataframe with the enriched version
+                df = result.get("enriched_df", df)
             elif step_type == PipelineStepType.LOAD:
                 # Load data to vector database
                 if not self.vector_service:
@@ -787,8 +802,29 @@ class PipelineService:
             if not dataset:
                 return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
             
-            # Run the enrich step
-            return await self.run_pipeline_step(dataset_id, PipelineStepType.ENRICH)
+            # Get enrichment configuration from dataset metadata if available
+            metadata = await self.dataset_repo.get_dataset_metadata(dataset_id) or {}
+            enrichment_config = metadata.get("enrichment_config", {})
+            
+            # Run the enrich step with configuration
+            result = await self.run_pipeline_step(
+                dataset_id, 
+                PipelineStepType.ENRICH, 
+                enrichment_config=enrichment_config
+            )
+            
+            if result["success"]:
+                # Update dataset metadata with enrichment information
+                enrichment_info = {
+                    "enrichments_applied": result.get("enrichments_applied", []),
+                    "new_columns": result.get("new_columns", []),
+                    "enrichment_status": "completed"
+                }
+                
+                metadata["enrichment"] = enrichment_info
+                await self.dataset_repo.update_dataset_metadata(dataset_id, metadata)
+            
+            return result
         except Exception as e:
             logger.error(f"Error enriching data: {str(e)}")
             return {"success": False, "error": f"Failed to enrich data: {str(e)}"}
@@ -801,8 +837,27 @@ class PipelineService:
             if not dataset:
                 return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
             
+            # Initialize vector service if not already done
+            if not self.vector_service:
+                from services.vector_service import VectorService
+                self.vector_service = VectorService()
+            
             # Run the load step
-            return await self.run_pipeline_step(dataset_id, PipelineStepType.LOAD)
+            result = await self.run_pipeline_step(dataset_id, PipelineStepType.LOAD)
+            
+            if result["success"]:
+                # Update dataset metadata with vector information
+                vectors_info = {
+                    "vectors_created": result.get("vectors_created", 0),
+                    "index_name": result.get("index_name", ""),
+                    "vector_status": "indexed"
+                }
+                
+                metadata = await self.dataset_repo.get_dataset_metadata(dataset_id) or {}
+                metadata["vector_db"] = vectors_info
+                await self.dataset_repo.update_dataset_metadata(dataset_id, metadata)
+                
+            return result
         except Exception as e:
             logger.error(f"Error loading data to vector database: {str(e)}")
             return {"success": False, "error": f"Failed to load data to vector database: {str(e)}"}
