@@ -171,16 +171,26 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
     }));
   };
 
-  // Extract sample data for rule testing
-  const extractSampleData = async (file: File) => {
+  // Function to fetch sample data for business rules
+  const fetchSampleData = async (datasetId: string) => {
     try {
-      // Extract first 100 rows as sample data for rule testing
-      const response = await api.pipeline.extractSampleData(file);
+      // Call API to get sample data
+      const response = await api.pipeline.getSampleData(datasetId);
+      
       if (response.success && response.data) {
+        // Store sample data for business rules
         setSampleData(response.data.sample || []);
+        return response.data.sample;
       }
+      return [];
     } catch (error) {
-      console.error('Error extracting sample data:', error);
+      console.error('Error fetching sample data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch sample data for rule testing",
+        variant: "destructive"
+      });
+      return [];
     }
   };
 
@@ -212,12 +222,13 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
       // Handle different data sources
       if (dataSource === 'local') {
         // Upload local file
-        uploadResponse = await api.pipeline.uploadData({
-          file: selectedFile,
-          name: name,
-          description: '',
-          fileType: fileType || 'csv'
-        });
+        const formData = new FormData();
+        formData.append('file', selectedFile as File);
+        formData.append('name', name);
+        formData.append('description', '');
+        formData.append('fileType', fileType || 'csv');
+        
+        uploadResponse = await api.pipeline.uploadData(formData);
       } else if (dataSource === 'api') {
         // Upload from API source
         uploadResponse = await api.pipeline.uploadData({
@@ -319,9 +330,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
         });
 
         // Extract sample data for rule testing
-        if (selectedFile) {
-          await extractSampleData(selectedFile);
-        }
+        await fetchSampleData(datasetToValidate);
 
         toast({
           title: "Validation Successful",
@@ -615,20 +624,16 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
 
               {/* Business Rules Step */}
               {currentStep === 2 && (
-                <EnhancedBusinessRules
-                  datasetId={datasetId || ''}
-                  sampleData={sampleData}
-                  onRulesApplied={(ruleIds) => {
-                    setSelectedRules(ruleIds);
-                    handleBusinessRules(ruleIds);
-                  }}
-                  onComplete={() => {
-                    // This will be called when the business rules step is completed
-                    // Move to the next step if needed
-                  }}
-                />
+                <div className="space-y-4">
+                  <EnhancedBusinessRules 
+                    datasetId={datasetId || ''}
+                    sampleData={sampleData}
+                    onRulesApplied={handleBusinessRules}
+                    onComplete={() => setCurrentStep(3)}
+                  />
+                </div>
               )}
-
+              
               {/* Transform Step */}
               {currentStep === 3 && (
                 <div className="space-y-4">

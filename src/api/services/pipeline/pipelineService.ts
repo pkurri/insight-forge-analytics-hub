@@ -305,7 +305,7 @@ export const pipelineService = {
    * Validate data structure and integrity
    */
   validateData: async (datasetId: string): Promise<ApiResponse<any>> => {
-    const endpoint = `pipeline/${datasetId}/validate`;
+    const endpoint = `pipeline/step/${datasetId}/validate`;
     try {
       const response = await callApi(endpoint, {
         method: 'POST'
@@ -315,8 +315,28 @@ export const pipelineService = {
       console.error("Error validating data:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to validate data"
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
-  }
+  },
+
+  /**
+   * Get sample data from a dataset
+   */
+  getSampleData: async (datasetId: string, maxRows: number = 100): Promise<ApiResponse<any>> => {
+    const endpoint = `pipeline/sample/${datasetId}`;
+    try {
+      const response = await callApi(endpoint, {
+        method: 'GET',
+        params: { max_rows: maxRows }
+      });
+      return response;
+    } catch (error) {
+      console.error("Error getting sample data:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  },
 };

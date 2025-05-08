@@ -259,6 +259,32 @@ async def test_rules_on_sample(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error testing rules on sample data: {str(e)}")
 
+@router.post("/suggest/{dataset_id}", response_model=StandardResponse[Dict[str, Any]])
+async def suggest_business_rules(
+    dataset_id: str = Path(..., description="ID of the dataset to suggest rules for"),
+    sample_data: List[Dict[str, Any]] = Body(..., description="Sample data to analyze for rule suggestions"),
+    min_confidence: float = Query(0.7, ge=0.0, le=1.0, description="Minimum confidence threshold for suggestions"),
+    max_suggestions: int = Query(10, ge=1, le=50, description="Maximum number of suggestions to return"),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Suggest business rules based on sample data patterns.
+    
+    This endpoint analyzes sample data and suggests potential business rules
+    based on patterns, data types, and statistical analysis. The suggestions
+    can be used as a starting point for creating new rules.
+    """
+    try:
+        suggestions = await business_rules_service.suggest_rules_from_data(
+            dataset_id, 
+            sample_data, 
+            min_confidence, 
+            max_suggestions
+        )
+        return StandardResponse(success=True, data=suggestions)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error suggesting rules: {str(e)}")
+
 @router.get("/metrics/{dataset_id}", response_model=StandardResponse[Dict[str, Any]])
 async def get_rule_metrics(
     dataset_id: str = Path(..., description="ID of the dataset"),

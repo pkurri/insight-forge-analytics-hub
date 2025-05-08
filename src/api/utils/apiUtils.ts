@@ -9,6 +9,7 @@ const PYTHON_API_BASE_URL = process.env.NODE_ENV === 'production'
 
 interface ApiCallOptions extends RequestInit {
   onUploadProgress?: (progressEvent: ProgressEvent) => void;
+  params?: Record<string, string | number | boolean>;
 }
 
 /**
@@ -37,8 +38,23 @@ export const callApi = async (endpoint: string, options: ApiCallOptions = {}): P
     if (mergedOptions.body instanceof FormData) {
       delete (mergedOptions.headers as Record<string, string>)['Content-Type'];
     }
+    
+    // Handle query parameters
+    let url = `${PYTHON_API_BASE_URL}/${endpoint}`;
+    if (options.params) {
+      const queryParams = new URLSearchParams();
+      Object.entries(options.params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          queryParams.append(key, String(value));
+        }
+      });
+      const queryString = queryParams.toString();
+      if (queryString) {
+        url += `?${queryString}`;
+      }
+    }
 
-    const response = await fetch(`${PYTHON_API_BASE_URL}/${endpoint}`, mergedOptions);
+    const response = await fetch(url, mergedOptions);
     const data = await response.json();
 
     return {

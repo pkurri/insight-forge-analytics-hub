@@ -91,7 +91,7 @@ const businessRulesService = {
    * @returns {Promise<Object>} - API response
    */
   async applyRules(datasetId, ruleIds) {
-    return apiClient.post(`business-rules/apply/${datasetId}`, { rule_ids: ruleIds });
+    return apiClient.post(`pipeline/business-rules/${datasetId}`, ruleIds);
   },
 
   /**

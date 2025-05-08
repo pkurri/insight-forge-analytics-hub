@@ -17,12 +17,19 @@ export interface BusinessRule {
   model_generated?: boolean;
 }
 
+export interface RuleSuggestion extends Omit<BusinessRule, 'id'> {
+  confidence: number;
+  column?: string;
+  rule_type?: string;
+  sample_match_rate?: number;
+}
+
 export const businessRulesService = {
   /**
    * Get business rules for a dataset
    */
   getBusinessRules: async (datasetId: string): Promise<ApiResponse<BusinessRule[]>> => {
-    const endpoint = `datasets/${datasetId}/business-rules`;
+    const endpoint = `business-rules/${datasetId}`;
     
     try {
       const response = await callApi(endpoint);
@@ -41,25 +48,21 @@ export const businessRulesService = {
             id: 'br001',
             name: 'Price Range Rule',
             description: 'Product price must be between $0 and $10,000',
-            dataset_id: datasetId,
-            rule_type: 'range',
             condition: 'price >= 0 AND price <= 10000',
             severity: 'high',
+            message: 'Price must be between $0 and $10,000',
             active: true,
-            created_at: '2023-05-15T10:23:45Z',
-            updated_at: '2023-06-02T14:10:22Z'
+            lastUpdated: '2023-06-02T14:10:22Z'
           },
           {
             id: 'br002',
             name: 'Required Fields Rule',
             description: 'Name and category fields must not be empty',
-            dataset_id: datasetId,
-            rule_type: 'not_null',
             condition: 'name IS NOT NULL AND category IS NOT NULL',
-            severity: 'critical',
+            severity: 'high',
+            message: 'Name and category are required fields',
             active: true,
-            created_at: '2023-05-16T11:30:00Z',
-            updated_at: '2023-06-01T09:15:10Z'
+            lastUpdated: '2023-06-01T09:15:10Z'
           }
         ]
       };
@@ -76,7 +79,7 @@ export const businessRulesService = {
    * Save business rules for a dataset
    */
   saveBusinessRules: async (datasetId: string, rules: BusinessRule[]): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/business-rules`;
+    const endpoint = `business-rules/${datasetId}`;
     
     try {
       const response = await callApi(endpoint, {
@@ -111,7 +114,7 @@ export const businessRulesService = {
    * Update a business rule
    */
   updateBusinessRule: async (datasetId: string, ruleId: string, rule: Partial<BusinessRule>): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/business-rules/${ruleId}`;
+    const endpoint = `business-rules/${datasetId}/${ruleId}`;
     
     try {
       const response = await callApi(endpoint, {
@@ -146,7 +149,7 @@ export const businessRulesService = {
    * Delete a business rule
    */
   deleteBusinessRule: async (datasetId: string, ruleId: string): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/business-rules/${ruleId}`;
+    const endpoint = `business-rules/${datasetId}/${ruleId}`;
     
     try {
       const response = await callApi(endpoint, {
@@ -180,7 +183,7 @@ export const businessRulesService = {
    * Import business rules from JSON
    */
   importBusinessRules: async (datasetId: string, rulesJson: string): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/business-rules/import`;
+    const endpoint = `business-rules/${datasetId}/import`;
     
     try {
       // Parse JSON to validate it before sending
@@ -213,29 +216,78 @@ export const businessRulesService = {
       };
     }
   },
-
+  
   /**
-   * Export business rules to JSON
+   * Suggest business rules based on sample data
    */
-  exportBusinessRules: async (datasetId: string): Promise<ApiResponse<any>> => {
-    const endpoint = `datasets/${datasetId}/business-rules/export`;
+  suggestRules: async (datasetId: string, sampleData: Record<string, any>[]): Promise<ApiResponse<{ suggested_rules: RuleSuggestion[] }>> => {
+    const endpoint = `business-rules/suggest/${datasetId}`;
+    
+    try {
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(sampleData),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      return response;
+    } catch (error) {
+      console.error('Error suggesting business rules:', error);
+      return {
+        success: false,
+        error: 'Failed to generate rule suggestions. Please try again.'
+      };
+    }
+  },
+  
+  /**
+   * Export business rules for a dataset
+   */
+  exportBusinessRules: async (datasetId: string): Promise<ApiResponse<{ rules: BusinessRule[], export_time: string }>> => {
+    const endpoint = `business-rules/${datasetId}/export`;
     
     try {
       const response = await callApi(endpoint);
       if (response.success) {
-        return response;
+        return {
+          success: true,
+          data: {
+            rules: response.data,
+            export_time: new Date().toISOString()
+          }
+        };
       }
       
-      // Get rules and format them for export
-      const rulesResponse = await businessRulesService.getBusinessRules(datasetId);
-      if (!rulesResponse.success) {
-        throw new Error("Failed to fetch rules for export");
-      }
+      // Fallback to mock data if API fails
+      console.log(`Falling back to mock data for: ${endpoint}`);
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       return {
         success: true,
         data: {
-          rules: rulesResponse.data,
+          rules: [
+            {
+              id: 'br001',
+              name: 'Price Range Rule',
+              description: 'Product price must be between $0 and $10,000',
+              condition: 'price >= 0 AND price <= 10000',
+              severity: 'high',
+              message: 'Price must be between $0 and $10,000',
+              active: true,
+              lastUpdated: '2023-06-02T14:10:22Z'
+            },
+            {
+              id: 'br002',
+              name: 'Required Fields Rule',
+              description: 'Name and category fields must not be empty',
+              condition: 'name IS NOT NULL AND category IS NOT NULL',
+              severity: 'high',
+              message: 'Name and category are required fields',
+              active: true,
+              lastUpdated: '2023-06-01T09:15:10Z'
+            }
+          ],
           export_time: new Date().toISOString()
         }
       };

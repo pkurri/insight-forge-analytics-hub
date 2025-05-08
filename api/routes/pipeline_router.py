@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, UploadFile, Form, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, UploadFile, Form, Query, Body, Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import tempfile
@@ -6,10 +6,11 @@ import os
 import shutil
 import json
 import pandas as pd
+import logging
 
 from models.dataset import PipelineRun, PipelineStep, PipelineRunStatus, PipelineStepType, DatasetCreate, DatasetStatus, SourceType, FileType
 from repositories.pipeline_repository import PipelineRepository
-from repositories.dataset_repository import DatasetRepository
+from repositories.dataset_repository import DatasetRepository, dataset_repository
 from services.pipeline_service import pipeline_service
 from routes.auth_router import get_current_user_or_api_key
 from services.file_service import process_uploaded_file
@@ -439,13 +440,105 @@ async def apply_business_rules(
     dataset_id: int,
     rule_ids: List[str] = Body(...)
 ):
-    """Apply business rules to a dataset."""
-    result = await pipeline_service.apply_business_rules(str(dataset_id), rule_ids)
-    return result
+    """Apply business rules to a dataset.
+    
+    This endpoint applies selected business rules to a dataset and returns the results.
+    It integrates with the business_rules_service to apply the rules and update the dataset.
+    
+    Args:
+        dataset_id: ID of the dataset to apply rules to
+        rule_ids: List of rule IDs to apply
+        
+    Returns:
+        Dictionary with results of applying rules
+    """
+    try:
+        # Get dataset data
+        data = await dataset_repository.get_dataset_data(dataset_id)
+        if not data:
+            return {"success": False, "error": f"Dataset {dataset_id} not found or empty"}
+        
+        # Apply business rules using the business rules service
+        from services.business_rules import business_rules_service
+        result = await business_rules_service.apply_rules_to_dataset(str(dataset_id), data, rule_ids)
+        
+        # Update pipeline metadata with applied rules
+        if result.get("success", False):
+            # Update dataset metadata
+            dataset = await dataset_repository.get_dataset(dataset_id)
+            if dataset:
+                metadata = dataset.get("metadata", {}) or {}
+                applied_rules = metadata.get("applied_rules", []) or []
+                applied_rules.extend(rule_ids)
+                metadata["applied_rules"] = list(set(applied_rules))  # Remove duplicates
+                await dataset_repository.update_dataset_metadata(dataset_id, metadata)
+        
+        # Also update pipeline service records
+        await pipeline_service.apply_business_rules(str(dataset_id), rule_ids)
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error applying business rules: {str(e)}")
+        return {"success": False, "error": f"Failed to apply business rules: {str(e)}"}
+
+@router.get("/pipeline/sample/{dataset_id}", response_model=Dict[str, Any])
+async def get_sample_data(
+    dataset_id: int,
+    max_rows: int = Query(100, ge=1, le=1000, description="Maximum number of rows to extract")
+):
+    """
+    Get sample data from a dataset for preview and rule testing.
+    
+    This endpoint extracts a sample of data from the dataset for use in rule testing
+    and data preview. It returns the sample data along with column metadata.
+    """
+    try:
+        # Get dataset metadata
+        dataset = await dataset_repository.get_dataset(dataset_id)
+        if not dataset:
+            return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
+        
+        # Get sample data
+        data = await dataset_repository.get_dataset_data(dataset_id, limit=max_rows)
+        if not data:
+            return {"success": False, "error": "No data available for this dataset"}
+        
+        # Extract column metadata
+        if data and len(data) > 0:
+            first_row = data[0]
+            columns = []
+            for col_name, value in first_row.items():
+                col_type = "string"
+                if isinstance(value, (int, float)):
+                    col_type = "number"
+                elif isinstance(value, bool):
+                    col_type = "boolean"
+                elif isinstance(value, (list, dict)):
+                    col_type = "object"
+                
+                columns.append({
+                    "name": col_name,
+                    "type": col_type,
+                    "sample": value
+                })
+        
+        return {
+            "success": True,
+            "data": {
+                "sample_data": data,
+                "columns": columns,
+                "total_rows": len(data),
+                "dataset_id": str(dataset_id)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting sample data: {str(e)}")
+        return {"success": False, "error": f"Failed to get sample data: {str(e)}"}
 
 @router.post("/pipeline/transform/{dataset_id}", response_model=Dict[str, Any])
 async def transform_data(
-    dataset_id: int
+    dataset_id: int,
+    transform_config: Dict[str, Any] = Body({})
 ):
     """Transform data using defined transformations."""
     result = await pipeline_service.transform_data(dataset_id)
@@ -467,32 +560,7 @@ async def load_to_vector_db(
     result = await pipeline_service.load_to_vector_db(dataset_id)
     return result
 
-@router.get("/pipeline/sample/{dataset_id}", response_model=Dict[str, Any])
-async def get_sample_data(
-    dataset_id: int,
-    max_rows: int = 100
-):
-    """Get a sample of data from a dataset for preview and rule testing."""
-    try:
-        # Get dataset
-        dataset = await dataset_repo.get_dataset(dataset_id)
-        if not dataset:
-            return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
-        
-        # Extract sample data
-        file_path = dataset.source_info.get("file_path")
-        if not file_path or not os.path.exists(file_path):
-            return {"success": False, "error": "Dataset file not found"}
-        
-        result = await pipeline_service.extract_sample_data(
-            file_path,
-            dataset.file_type,
-            max_rows
-        )
-        
-        return result
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+# Removed duplicate get_sample_data function - using the implementation at lines 483-535 instead
 
 @router.post("/pipeline/step/{dataset_id}/{step_type}", response_model=Dict[str, Any])
 async def run_pipeline_step(

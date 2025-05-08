@@ -21,7 +21,7 @@ from models.pipeline import PipelineStepType, PipelineRunStatus
 from services.validation_service import validation_service
 from services.cleaning_service import cleaning_service
 from services.profiling_service import profiling_service
-from services.business_rules_service import business_rules_service
+from services.business_rules import business_rules_service
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -468,7 +468,7 @@ class PipelineService:
         self.processing_service = DataProcessingService()
         self.validation_service = DataValidationService()
         self.profiling_service = DataProfilingService()
-        self.business_rules_service = business_rules_service
+        self.business_rules_service = business_rules_service or business_rules_service
         self.vector_service = None  # Will be initialized on demand
     
     async def process_uploaded_file(
@@ -654,7 +654,7 @@ class PipelineService:
                 "error": f"Failed to extract sample data: {str(e)}"
             }
     
-    async def apply_business_rules(self, dataset_id: str, rule_ids: List[str]) -> Dict[str, Any]:
+    async def apply_business_rules(self, dataset_id: str, rule_ids: List[str]):
         """
         Apply business rules to a dataset.
         
@@ -666,109 +666,87 @@ class PipelineService:
             Dictionary with results of applying rules
         """
         try:
-            # Get dataset metadata
-            dataset = await self.dataset_repo.get_dataset(dataset_id)
+            # Get dataset
+            dataset = await self.dataset_repo.get_dataset(int(dataset_id))
             if not dataset:
-                return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
-                
-            # Load dataset
-            df = await self.processing_service.load_dataset(dataset_id)
+                return {"success": False, "error": f"Dataset {dataset_id} not found"}
             
-            # Get the latest pipeline run or create a new one
-            pipeline_run = await self.pipeline_repo.get_latest_pipeline_run(dataset_id)
-            if not pipeline_run:
-                pipeline_run = await self.pipeline_repo.create_pipeline_run(dataset_id)
+            # Create a new pipeline run
+            run_id = await self.pipeline_repo.create_pipeline_run(int(dataset_id))
             
-            # Create business rules step
-            business_rules_step = await self.pipeline_repo.create_pipeline_step(
-                pipeline_run["id"],
-                PipelineStepType.BUSINESS_RULES,
-                PipelineRunStatus.PROCESSING
-            )
+            # Create a new pipeline step
+            step_id = await self.pipeline_repo.create_pipeline_step(run_id, PipelineStepType.BUSINESS_RULES)
+            
+            # Update step status to processing
+            await self.pipeline_repo.update_pipeline_step_status(step_id, "processing")
+            
+            # Load dataset data
+            data = await self.dataset_repo.get_dataset_data(int(dataset_id))
             
             # Apply business rules
-            result = await self.business_rules_service.apply_rules_to_dataset(
-                dataset_id, df.to_dict(orient='records'), rule_ids
-            )
+            from services.business_rules.executors import apply_rules_to_dataset
+            result = await apply_rules_to_dataset(dataset_id, data, rule_ids)
             
-            # Update step status
             if result.get("success", False):
-                await self.pipeline_repo.update_pipeline_step_status(
-                    business_rules_step["id"],
-                    PipelineRunStatus.COMPLETED,
-                    {
-                        "rules_applied": len(rule_ids),
-                        "rows_affected": result.get("rows_affected", 0),
-                        "rules_metadata": result.get("rules_metadata", {})
-                    }
-                )
+                # Update step status to completed
+                await self.pipeline_repo.update_pipeline_step_status(step_id, "completed")
+                
+                # Update dataset metadata with applied rules
+                metadata = dataset.get("metadata", {}) or {}
+                applied_rules = metadata.get("applied_rules", []) or []
+                applied_rules.extend(rule_ids)
+                metadata["applied_rules"] = list(set(applied_rules))  # Remove duplicates
+                await self.dataset_repo.update_dataset_metadata(int(dataset_id), metadata)
+                
+                return {"success": True, "data": result}
             else:
-                await self.pipeline_repo.update_pipeline_step_status(
-                    business_rules_step["id"],
-                    PipelineRunStatus.FAILED,
-                    {"error": result.get("error", "Unknown error applying business rules")}
-                )
-            
-            # Update dataset metadata with applied rules
-            await self.dataset_repo.update_dataset(
-                dataset_id, 
-                {"applied_rule_ids": rule_ids, "last_rule_application": datetime.now().isoformat()}
-            )
-            
-            return {"success": True, "data": result}
-            
+                # Update step status to failed
+                await self.pipeline_repo.update_pipeline_step_status(step_id, "failed", result.get("error", "Unknown error"))
+                return result
         except Exception as e:
-            logger.error(f"Error applying business rules: {str(e)}")
-            return {"success": False, "error": f"Failed to apply business rules: {str(e)}"}
+            # Update step status to failed
+            if 'step_id' in locals():
+                await self.pipeline_repo.update_pipeline_step_status(step_id, "failed", str(e))
+            
+            return {"success": False, "error": str(e)}
     
     async def run_pipeline_step(
         self,
         dataset_id: int,
         step_type: PipelineStepType
-    ) -> Dict[str, Any]:
+    ):
         """Run a specific pipeline step on a dataset."""
         try:
             # Get dataset
             dataset = await self.dataset_repo.get_dataset(dataset_id)
             if not dataset:
-                return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
+                return {"success": False, "error": f"Dataset {dataset_id} not found"}
                 
-            # Get latest pipeline run
-            pipeline_run = await self.pipeline_repo.get_latest_pipeline_run(dataset_id)
-            if not pipeline_run:
-                pipeline_run = await self.pipeline_repo.create_pipeline_run(dataset_id)
-                
-            # Create and start step
-            step = await self.pipeline_repo.create_pipeline_step(
-                pipeline_run["id"],
-                step_type,
-                PipelineRunStatus.PROCESSING
-            )
+            # Create a new pipeline run
+            run_id = await self.pipeline_repo.create_pipeline_run(dataset_id)
             
-            # Load dataset
-            df = await self.processing_service.load_dataset(dataset_id)
+            # Create a new pipeline step
+            step_id = await self.pipeline_repo.create_pipeline_step(run_id, step_type)
             
-            # Run step based on type
-            if step_type == PipelineStepType.CLEAN:
-                result = await self.processing_service.clean_data(df)
-                metadata = {"rows_cleaned": len(df) - len(result)}
-            elif step_type == PipelineStepType.VALIDATE:
+            # Update step status to processing
+            await self.pipeline_repo.update_pipeline_step_status(step_id, "processing")
+            
+            # Load dataset data
+            data = await self.dataset_repo.get_dataset_data(dataset_id)
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(data)
+            
+            # Run the step
+            result = None
+            if step_type == PipelineStepType.VALIDATE:
                 result = await self.validation_service.validate_data(df)
-                metadata = result
+            elif step_type == PipelineStepType.CLEAN:
+                result = await self.cleaning_service.clean_data(df)
             elif step_type == PipelineStepType.PROFILE:
                 result = await self.profiling_service.profile_data(df)
-                metadata = result
-            elif step_type == PipelineStepType.BUSINESS_RULES:
-                # Get active rules for dataset
-                rules = await self.business_rules_service.get_rules_for_dataset(dataset_id)
-                rule_ids = [rule["id"] for rule in rules]
-                result = await self.business_rules_service.apply_rules_to_dataset(dataset_id, df.to_dict(orient='records'), rule_ids)
-                metadata = {
-                    "rules_applied": len(rule_ids),
-                    "rows_affected": result.get("rows_affected", 0),
-                    "rules_metadata": result.get("rules_metadata", {})
-                }
             elif step_type == PipelineStepType.TRANSFORM:
+                result = await self.transform_data(dataset_id)
                 # Apply transformations to the dataset
                 result = await self.processing_service.transform_data(df)
                 metadata = {"transformations_applied": result.get("transformations_applied", [])}
