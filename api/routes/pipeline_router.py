@@ -511,7 +511,7 @@ async def run_pipeline_step(
 )
 async def extract_sample_data(
     file: UploadFile = File(...),
-    max_rows: int = Form(100)
+    max_rows: str = Form('100')
 ):
     """Extract sample data from an uploaded file."""
     try:
@@ -521,22 +521,28 @@ async def extract_sample_data(
             shutil.copyfileobj(file.file, temp_file)
             temp_file_path = temp_file.name
 
+        # Ensure max_rows is an integer
+        try:
+            max_rows_int = int(max_rows)
+        except (ValueError, TypeError):
+            max_rows_int = 100  # Default to 100 if conversion fails
+            
         # Determine file type from extension
         file_extension = os.path.splitext(file.filename)[1].lower()
         if file_extension == '.csv':
             file_type = FileType.CSV
-            df = pd.read_csv(temp_file_path, nrows=max_rows)
+            df = pd.read_csv(temp_file_path, nrows=max_rows_int)
         elif file_extension == '.json':
             file_type = FileType.JSON
             df = pd.read_json(temp_file_path)
-            df = df.head(max_rows)
+            df = df.head(max_rows_int)
         elif file_extension in ['.xlsx', '.xls']:
             file_type = FileType.EXCEL
-            df = pd.read_excel(temp_file_path, nrows=max_rows)
+            df = pd.read_excel(temp_file_path, nrows=max_rows_int)
         elif file_extension == '.parquet':
             file_type = FileType.PARQUET
             df = pd.read_parquet(temp_file_path)
-            df = df.head(max_rows)
+            df = df.head(max_rows_int)
         else:
             # Clean up the temporary file
             os.unlink(temp_file_path)
