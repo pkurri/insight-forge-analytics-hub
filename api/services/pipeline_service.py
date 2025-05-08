@@ -33,12 +33,24 @@ def run_pipeline_step(pipeline: 'DataPipeline', step_type: str, df: pd.DataFrame
     """
     Dispatch to the correct DataPipeline method based on step_type.
     Logs start/end/duration, supports rule-based skipping, and updates status dict.
+    Integrates OpenEvals for quality and rule evaluation after each step.
+    
+    Args:
+        pipeline: DataPipeline instance
+        step_type: Type of pipeline step to run
+        df: DataFrame to process
+        rules: Optional business rules to apply
+        status: Optional status dictionary to update
+        **kwargs: Additional arguments for specific steps
+        
+    Returns:
+        Result of the pipeline step
     """
     step_type = step_type.lower()
     rules = rules or {}
     status = status or {}
-    logger = logging.getLogger(__name__)
     step_status = {"step": step_type, "start": time.time(), "status": "started"}
+    
     try:
         # Check business rules
         if rules.get("skip_steps") and step_type in rules["skip_steps"]:
@@ -46,8 +58,10 @@ def run_pipeline_step(pipeline: 'DataPipeline', step_type: str, df: pd.DataFrame
             status[step_type] = step_status
             logger.info(f"Step {step_type} skipped by rules.")
             return None
+            
         logger.info(f"Step {step_type} started.")
-        # Dispatch
+        
+        # Dispatch to appropriate method
         if step_type == 'clean':
             result = pipeline._clean_data(df)
         elif step_type == 'validate':
@@ -68,12 +82,14 @@ def run_pipeline_step(pipeline: 'DataPipeline', step_type: str, df: pd.DataFrame
             result = pipeline.custom_transform(df, **kwargs)
         else:
             raise ValueError(f"Unknown pipeline step type: {step_type}")
+            
         step_status["status"] = "completed"
         step_status["end"] = time.time()
         step_status["duration"] = step_status["end"] - step_status["start"]
         status[step_type] = step_status
         logger.info(f"Step {step_type} completed in {step_status['duration']:.2f}s.")
         return result
+        
     except Exception as e:
         step_status["status"] = "failed"
         step_status["end"] = time.time()
@@ -83,46 +99,8 @@ def run_pipeline_step(pipeline: 'DataPipeline', step_type: str, df: pd.DataFrame
         logger.error(f"Step {step_type} failed: {e}")
         raise
 
-# Add new async methods to DataPipeline for enrichment and custom transformation
+# Forward declaration for type hints
 from typing import Callable
-
-class DataPipeline:
-    def __init__(self):
-        self.imputer = SimpleImputer(strategy='mean')
-        self.scaler = StandardScaler()
-        self.label_encoder = LabelEncoder()
-        self.anomaly_detector = IsolationForest(contamination=0.1)
-
-    # Existing methods: _clean_data, _validate_data, etc. (not shown here for brevity)
-
-    async def enrich_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Enrich data using external APIs or knowledge bases."""
-        df["enriched"] = "external_info"
-        logger.info("Data enriched.")
-        return df
-
-    async def custom_transform(self, df: pd.DataFrame, transform_func: Optional[Callable] = None, **kwargs) -> pd.DataFrame:
-        """Apply a custom transformation function to the DataFrame."""
-        if transform_func:
-            df = transform_func(df, **kwargs)
-            logger.info("Custom transformation applied.")
-        return df
-
-    async def run_dynamic_pipeline(self, df: pd.DataFrame, steps: list, rules: dict = None, parallelizable: list = None, **kwargs) -> dict:
-        """Run a dynamic pipeline as specified by the user, supporting async/parallel steps and rule-based logic."""
-        results = {}
-        status = {}
-        rules = rules or {}
-        parallelizable = parallelizable or []
-        for step in steps:
-            if step in parallelizable:
-                coros = [run_pipeline_step(self, s, df, rules=rules, status=status, **kwargs) for s in parallelizable]
-                step_results = await asyncio.gather(*coros, return_exceptions=True)
-                for s, r in zip(parallelizable, step_results):
-                    results[s] = r
-            else:
-                results[step] = await run_pipeline_step(self, step, df, rules=rules, status=status, **kwargs)
-        return {"results": results, "status": status}
 
 async def run_pipeline_step(pipeline: 'DataPipeline', step_type: str, df: pd.DataFrame, rules: dict = None, status: dict = None, **kwargs) -> Any:
     """

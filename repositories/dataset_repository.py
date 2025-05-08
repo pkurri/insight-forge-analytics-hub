@@ -1,9 +1,17 @@
+import warnings
 from typing import Optional, Dict, Any
 from datetime import datetime
 from models.dataset import Dataset, DatasetCreate
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
+
+# Display deprecation warning
+warnings.warn(
+    "This module is deprecated. Use api.repositories.dataset_repository instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 class DatasetRepository:
     def __init__(self, session: AsyncSession):

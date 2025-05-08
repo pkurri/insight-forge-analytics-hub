@@ -2,10 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Filter, PlusCircle, RefreshCw, Sparkles, Check, X, Upload, Download, FileText, AlertCircle, Lightbulb } from 'lucide-react';
+import { Loader2, Filter, Check, Download, Lightbulb } from 'lucide-react';
 import { api } from '@/api/api';
 import type { BusinessRule, RuleSuggestion } from '@/api/services/businessRules/businessRulesService';
 
@@ -17,10 +16,12 @@ import RuleStatusIndicator from './RuleStatusIndicator';
 
 interface EnhancedBusinessRulesProps {
   datasetId: string;
-  sampleData?: any[];
+  sampleData?: Record<string, unknown>[];
   onRulesApplied?: (ruleIds: string[]) => void;
   onComplete?: () => void;
 }
+
+type RuleStatus = 'idle' | 'pending' | 'processing' | 'success' | 'failed' | 'warning';
 
 const EnhancedBusinessRules: React.FC<EnhancedBusinessRulesProps> = ({ 
   datasetId, 
@@ -35,8 +36,13 @@ const EnhancedBusinessRules: React.FC<EnhancedBusinessRulesProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [showRuleBuilder, setShowRuleBuilder] = useState(false);
-  const [impactAnalysis, setImpactAnalysis] = useState<any>(null);
-  const [ruleStatus, setRuleStatus] = useState<'idle' | 'pending' | 'processing' | 'success' | 'failed' | 'warning'>('idle');
+  const [impactAnalysis, setImpactAnalysis] = useState<{
+    totalRecords: number;
+    passingRecords: number;
+    failingRecords: number;
+    impactPercentage: number;
+  } | null>(null);
+  const [ruleStatus, setRuleStatus] = useState<RuleStatus>('idle');
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [suggestedRules, setSuggestedRules] = useState<RuleSuggestion[]>([]);
 
@@ -146,6 +152,22 @@ const EnhancedBusinessRules: React.FC<EnhancedBusinessRulesProps> = ({
 
   // Add a suggested rule to the selected rules
   const handleAddSuggestedRule = (suggestion: RuleSuggestion) => {
+    // Check if a similar rule already exists based on name or condition
+    const isDuplicate = ruleObjects.some(
+      rule => 
+        rule.name.toLowerCase() === suggestion.name.toLowerCase() ||
+        rule.condition === suggestion.condition
+    );
+
+    if (isDuplicate) {
+      toast({
+        title: 'Duplicate Rule',
+        description: `A similar rule already exists in your selection.`,
+        variant: 'destructive'
+      });
+      return;
+    }
+
     // Convert suggestion to a proper rule with ID
     const newRule: BusinessRule = {
       ...suggestion,
@@ -155,6 +177,11 @@ const EnhancedBusinessRules: React.FC<EnhancedBusinessRulesProps> = ({
     
     setRuleObjects(prev => [...prev, newRule]);
     setSelectedRules(prev => [...prev, newRule.id]);
+    
+    // Analyze the impact of the new rule if sample data is available
+    if (sampleData && sampleData.length > 0) {
+      analyzeRuleImpact([...selectedRules, newRule.id]);
+    }
     
     toast({
       title: 'Suggestion Added',
@@ -178,42 +205,50 @@ const EnhancedBusinessRules: React.FC<EnhancedBusinessRulesProps> = ({
     setStatusMessage('Applying business rules to dataset...');
     
     try {
-      // Simulate applying rules to the dataset
-      // In a real implementation, this would call the backend API
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Call the actual API to apply the rules
+      const response = await api.pipeline.applyBusinessRules(datasetId, selectedRules);
       
-      setRuleStatus('success');
-      setStatusMessage(`Successfully applied ${selectedRules.length} rules to the dataset.`);
-      
-      toast({
-        title: 'Rules Applied',
-        description: `Successfully applied ${selectedRules.length} rules to the dataset.`,
-      });
-      
-      // Call the onRulesApplied callback if provided
-      if (onRulesApplied) {
-        onRulesApplied(selectedRules);
+      if (response.success) {
+        setRuleStatus('success');
+        setStatusMessage(`Successfully applied ${selectedRules.length} rules to the dataset.`);
+        
+        toast({
+          title: 'Rules Applied',
+          description: `Successfully applied ${selectedRules.length} rules to the dataset.`,
+        });
+        
+        // Call the onRulesApplied callback if provided
+        if (onRulesApplied) {
+          onRulesApplied(selectedRules);
+        }
+        
+        // Call the onComplete callback if provided
+        if (onComplete) {
+          onComplete();
+        }
+      } else {
+        setRuleStatus('failed');
+        setStatusMessage(response.error || 'Failed to apply business rules.');
+        
+        toast({
+          title: 'Error',
+          description: response.error || 'Failed to apply business rules.',
+          variant: 'destructive',
+        });
       }
-      
-      // Call the onComplete callback if provided
-      if (onComplete) {
-        onComplete();
-      }
-    } catch (error) {
+    } catch (_) {
       setRuleStatus('failed');
-      setStatusMessage('Error applying rules. Please try again.');
+      setStatusMessage('An error occurred while applying business rules.');
       
       toast({
         title: 'Error',
-        description: 'Failed to apply business rules',
+        description: 'Failed to apply business rules. Please try again.',
         variant: 'destructive',
       });
     } finally {
       setIsApplying(false);
     }
   };
-
-  // Export selected rules to JSON
   const handleExportRules = () => {
     const rulesToExport = ruleObjects.filter(rule => selectedRules.includes(rule.id));
     const dataStr = JSON.stringify(rulesToExport, null, 2);

@@ -48,7 +48,7 @@ interface PipelineUploadFormProps {
  * Handles the data pipeline process including file upload, validation,
  * business rule application, transformation, enrichment, and loading.
  */
-const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplete }) => {
+const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
   // State variables
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [name, setName] = useState<string>('');
@@ -56,8 +56,8 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
-  const [selectedRules, setSelectedRules] = useState<string[]>([]);
-  const [sampleData, setSampleData] = useState<any[]>([]);
+  const [selectedRules] = useState<string[]>([]);
+  const [sampleData, setSampleData] = useState<Record<string, unknown>[]>([]);
   const [stageLoading, setStageLoading] = useState({
     upload: false,
     validate: false,
@@ -231,38 +231,40 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
         uploadResponse = await api.pipeline.uploadData(formData);
       } else if (dataSource === 'api') {
         // Upload from API source
-        uploadResponse = await api.pipeline.uploadData({
-          name: name,
-          description: '',
-          fileType: 'json', // API data is typically JSON
-          apiConfig: {
-            url: apiConfig.url,
-            method: apiConfig.method,
-            headers: apiConfig.headers || {},
-            body: apiConfig.body || ''
-          }
-        });
+        const apiFormData = new FormData();
+        apiFormData.append('name', name);
+        apiFormData.append('description', '');
+        apiFormData.append('file_type', 'json'); // API data is typically JSON
+        apiFormData.append('api_config', JSON.stringify({
+          url: apiConfig.url,
+          method: apiConfig.method,
+          headers: apiConfig.headers || {},
+          body: apiConfig.body || ''
+        }));
+        uploadResponse = await api.pipeline.uploadData(apiFormData);
       } else if (dataSource === 'database') {
         // Upload from database source
-        uploadResponse = await api.pipeline.uploadData({
-          name: name,
-          description: '',
-          fileType: 'csv', // Database data is typically exported as CSV
-          dbConfig: {
-            type: dbConfig.type,
-            host: dbConfig.host,
-            port: dbConfig.port,
-            database: dbConfig.database,
-            username: dbConfig.username,
-            password: dbConfig.password,
-            query: dbConfig.query || 'SELECT * FROM main_table LIMIT 1000'
-          }
-        });
+        const dbFormData = new FormData();
+        dbFormData.append('name', name);
+        dbFormData.append('description', '');
+        dbFormData.append('file_type', 'csv'); // Database data is typically exported as CSV
+        dbFormData.append('db_config', JSON.stringify({
+          type: dbConfig.type,
+          host: dbConfig.host,
+          port: dbConfig.port,
+          database: dbConfig.database,
+          username: dbConfig.username,
+          password: dbConfig.password,
+          query: dbConfig.query || 'SELECT * FROM main_table LIMIT 1000'
+        }));
+        uploadResponse = await api.pipeline.uploadData(dbFormData);
       }
       
       if (uploadResponse && uploadResponse.success) {
         // Extract dataset_id from response
-        const datasetId = uploadResponse.data?.dataset_id || uploadResponse.dataset_id;
+        // Using type assertion since the API response structure may vary
+        const datasetId = uploadResponse.data?.dataset_id || 
+          (uploadResponse as { dataset_id?: string }).dataset_id;
         
         if (!datasetId) {
           throw new Error('No dataset ID returned from upload');
@@ -394,7 +396,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
           variant: "destructive"
         });
       }
-    } catch (error) {
+    } catch {
       setPipelineSteps(steps => updateStepStatus(steps, 2, 'failed'));
       toast({
         title: "Error",
@@ -590,7 +592,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = ({ onUploadComplet
                           <label htmlFor="db-type" className="block text-sm font-medium mb-1">Database Type</label>
                           <Select 
                             value={dbConfig.type} 
-                            onValueChange={(value) => handleDbConfigChange('type', value as any)}
+                            onValueChange={(value: string) => handleDbConfigChange('type', value)}
                           >
                             <SelectTrigger id="db-type">
                               <SelectValue placeholder="Select database type" />
