@@ -18,8 +18,35 @@ export interface Dataset {
   columnCount: number;
   createdAt: string;
   updatedAt: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   embedding?: number[];
+}
+
+export interface Insight {
+  id: string;
+  title: string;
+  description: string;
+  type: 'data_quality' | 'feature_engineering' | 'anomaly' | 'correlation';
+  confidence: number;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface InsightResponse {
+  success: boolean;
+  insights: Insight[];
+}
+
+export interface InsightGenerationOptions {
+  use_agent?: boolean;
+  insight_types?: string[];
+  max_insights?: number;
+}
+
+export interface TaskProgress {
+  progress: number;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  error?: string;
 }
 
 export const datasetService = {
@@ -49,6 +76,37 @@ export const datasetService = {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to fetch dataset details'
+      };
+    }
+  },
+  
+  /**
+   * Get insights for a specific dataset
+   */
+  getInsights: async (datasetId: string): Promise<ApiResponse<InsightResponse>> => {
+    try {
+      const response = await callApi<InsightResponse>(`datasets/${datasetId}/insights`);
+      return response;
+    } catch (error) {
+      console.error('Error fetching dataset insights:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch dataset insights'
+      };
+    }
+  },
+  
+  /**
+   * Generate new insights for a dataset
+   */
+  generateInsights: async (datasetId: string, options: InsightGenerationOptions = {}): Promise<ApiResponse<{task_id: string}>> => {
+    try {
+      return await callApi<{task_id: string}>(`datasets/${datasetId}/generate-insights`, 'POST', options);
+    } catch (error) {
+      console.error('Error generating insights:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to generate insights'
       };
     }
   },

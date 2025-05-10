@@ -1,15 +1,14 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { SendHorizontal, Bot, RefreshCw, Search, AlertCircle, Sparkles, Brain } from 'lucide-react';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar } from '@/components/ui/avatar';
+import { Send } from 'lucide-react';
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
 import { Separator } from '@/components/ui/separator';
 // import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useToast } from '@/hooks/use-toast';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 /**
@@ -121,18 +120,95 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
     setIsProcessing(true);
     
     try {
-      // Send question to Python backend via API
-      // This triggers the AI-powered vector search and response generation
-      toast({
-        title: "AI Chat Unavailable",
-        description: "AI-powered chat is not currently supported due to missing backend integration.",
-        variant: "destructive"
+      // Show thinking indicator
+      const thinkingMessage: Message = {
+        id: `thinking-${Date.now()}`,
+        type: 'system',
+        content: 'Thinking...',
+        metadata: { isThinking: true },
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, thinkingMessage]);
+      
+      // Send question to backend API
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: input,
+          dataset_id: activeDataset,
+          use_agent: true, // Enable agentic capabilities
+          history: messages.slice(-5).map(m => ({ role: m.type, content: m.content })) // Include conversation history
+        }),
       });
-      return;
-      // Previous implementation called pythonApi.askQuestion, which is no longer available.
-      // Uncomment and implement the below once backend is available:
-      // const response = await pythonApi.askQuestion(input, activeDataset);
-      // if (response.success && response.data) { ... }
+      
+      // Remove thinking message
+      setMessages(prev => prev.filter(m => !m.metadata?.isThinking));
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.success) {
+          // Add AI response
+          const aiMessage: Message = {
+            id: `ai-${Date.now()}`,
+            type: 'assistant',
+            content: data.text || data.response || 'I found some information that might help.',
+            metadata: {
+              confidence: data.confidence || 0.8,
+              sources: data.sources || [],
+              processing_time: data.processing_time,
+              tokens_used: data.tokens_used,
+              embedding_count: data.context_count || 0,
+              used_agent: data.used_agent
+            },
+            timestamp: new Date()
+          };
+          
+          setMessages(prev => [...prev, aiMessage]);
+          
+          // If we have context, add a system message with context information
+          if (data.context && data.context.length > 0) {
+            const contextMessage: Message = {
+              id: `context-${Date.now()}`,
+              type: 'system',
+              content: `Found ${data.context.length} relevant pieces of information in the dataset.`,
+              metadata: {
+                context_count: data.context.length,
+                context_sample: data.context.slice(0, 2).map((c: any) => ({ text: c.text.substring(0, 100) + '...', similarity: c.similarity }))
+              },
+              timestamp: new Date()
+            };
+            
+            setMessages(prev => [...prev, contextMessage]);
+          }
+        } else {
+          // Handle error in response
+          const errorMessage: Message = {
+            id: `error-${Date.now()}`,
+            type: 'system',
+            content: data.error || 'Sorry, I encountered an issue while processing your request.',
+            metadata: { isError: true },
+            timestamp: new Date()
+          };
+          
+          setMessages(prev => [...prev, errorMessage]);
+        }
+      } else {
+        // Handle HTTP error
+        const errorMessage: Message = {
+          id: `error-${Date.now()}`,
+          type: 'system',
+          content: 'Sorry, there was a problem connecting to the AI service.',
+          metadata: { isError: true },
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, errorMessage]);
+      }
     } catch (error) {
       // Handle exception
       const errorMessage: Message = {

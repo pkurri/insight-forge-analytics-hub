@@ -84,4 +84,5 @@ const DatasetSelector: React.FC<DatasetSelectorProps> = ({
   );
 };
 
-export default DatasetSelector;
+export { DatasetSelector };
+export type { Dataset };

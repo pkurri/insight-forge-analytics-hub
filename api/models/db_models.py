@@ -3,8 +3,27 @@ from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from datetime import datetime
 from .dataset import DatasetStatus, FileType, PipelineRunStatus, BusinessRuleSeverity
+from .suggestion import SuggestionType, SuggestionStatus
 
 Base = declarative_base()
+
+
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True, nullable=False)
+    email = Column(String, unique=True, nullable=False)
+    full_name = Column(String, nullable=True)
+    hashed_password = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+    is_admin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    datasets = relationship("Dataset", back_populates="user")
+    suggestions = relationship("Suggestion", back_populates="user")
 
 class Dataset(Base):
     __tablename__ = 'datasets'
@@ -30,6 +49,7 @@ class Dataset(Base):
     pipeline_runs = relationship("PipelineRun", back_populates="dataset", cascade="all, delete-orphan")
     business_rules = relationship("BusinessRule", back_populates="dataset", cascade="all, delete-orphan")
     embeddings = relationship("DatasetEmbedding", back_populates="dataset", uselist=False, cascade="all, delete-orphan")
+    suggestions = relationship("Suggestion", back_populates="dataset", cascade="all, delete-orphan")
 
 class DatasetColumn(Base):
     __tablename__ = 'dataset_columns'
@@ -101,3 +121,25 @@ class BusinessRule(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     dataset = relationship("Dataset", back_populates="business_rules")
+
+
+class Suggestion(Base):
+    __tablename__ = 'suggestions'
+
+    id = Column(Integer, primary_key=True)
+    dataset_id = Column(Integer, ForeignKey('datasets.id'))
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # User who selected the suggestion
+    type = Column(SQLEnum(SuggestionType), nullable=False)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    content = Column(JSONB, nullable=False)  # Flexible JSON content based on suggestion type
+    status = Column(SQLEnum(SuggestionStatus), default=SuggestionStatus.GENERATED)
+    confidence_score = Column(Float, default=0.0)
+    metadata = Column(JSONB, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    selected_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    dataset = relationship("Dataset", back_populates="suggestions")
+    user = relationship("User", back_populates="suggestions")

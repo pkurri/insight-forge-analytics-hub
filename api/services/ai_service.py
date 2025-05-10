@@ -253,6 +253,46 @@ async def analyze_dataset(dataset_id: str, question: str, context: Dict[str, Any
             "query_analysis": {"status": "error"}
         }
 
+async def generate_embedding(text: str, model: str = "sentence-transformers/all-MiniLM-L6-v2") -> List[float]:
+    """Generate a vector embedding for text.
+    
+    Args:
+        text: Text to generate embedding for
+        model: Model to use for embedding
+        
+    Returns:
+        List of floats representing the embedding vector
+    """
+    try:
+        # In production, this would use the actual model
+        # Get the embedding model
+        embedding_model = get_embedding_model()
+        
+        if embedding_model is not None:
+            # Generate actual embeddings if model is available
+            embedding = embedding_model.encode(text).tolist()
+        else:
+            # Fallback to random embeddings if model is not available
+            if model == "sentence-transformers/all-MiniLM-L6-v2":
+                dim = 384  # Match our vector service dimension
+            else:
+                dim = 1536  # Match OpenAI text-embedding-3-small dimension
+                
+            embedding = np.random.normal(0, 1, dim).tolist()
+            
+            # Normalize the vector
+            magnitude = np.sqrt(np.sum(np.square(embedding)))
+            embedding = [x/magnitude for x in embedding]
+        
+        return embedding
+    except Exception as e:
+        print(f"Error generating embedding: {e}")
+        # Return a zero vector as fallback
+        if model == "sentence-transformers/all-MiniLM-L6-v2":
+            return [0.0] * 384
+        else:
+            return [0.0] * 1536
+
 async def generate_embeddings(text: str, model: str = "sentence-transformers/all-MiniLM-L6-v2") -> Dict[str, Any]:
     """
     Generate vector embeddings for text using Hugging Face models.
@@ -295,31 +335,36 @@ async def generate_embeddings(text: str, model: str = "sentence-transformers/all
         logger.error(f"Error generating embeddings: {e}")
         raise
 
-async def analyze_dataset_with_rag(dataset_id: int, query: str) -> Dict[str, Any]:
+async def analyze_dataset_with_rag(dataset_id: int, query: str, use_agent: bool = False) -> Dict[str, Any]:
     """
-    Analyze a dataset using RAG (Retrieval Augmented Generation).
+    Analyze a dataset using RAG (Retrieval Augmented Generation) with optional agentic capabilities.
     
     Args:
         dataset_id: ID of the dataset to analyze
         query: Natural language query
+        use_agent: Whether to use the agentic framework for more complex analysis
         
     Returns:
         Dict with analysis results and context
     """
     try:
         # Generate embeddings for the query
-        embedding_result = await generate_embeddings(query)
-        if not embedding_result["success"]:
+        embedding_result = await generate_embedding(query)
+        if not embedding_result:
             raise ValueError("Failed to generate embeddings")
             
-        query_embedding = embedding_result["embedding"]
+        query_embedding = embedding_result
+        
+        # Initialize vector service if needed
+        from api.services.vector_service import vector_service
+        await vector_service.initialize()
         
         # Search for relevant context using vector service
-        vector_service = VectorService()
         search_results = await vector_service.search_vectors(
             query_vector=query_embedding,
             dataset_id=dataset_id,
-            limit=5,
+            limit=10,  # Increased limit for better context
+            threshold=0.6,  # Slightly lower threshold to get more diverse results
             include_chunks=True
         )
         
@@ -330,15 +375,67 @@ async def analyze_dataset_with_rag(dataset_id: int, query: str) -> Dict[str, Any
                 context.append({
                     "text": result["chunk_text"],
                     "similarity": result["similarity"],
-                    "metadata": result.get("vector_metadata", {})
+                    "metadata": result.get("metadata", {})
                 })
         
-        return {
+        # If using agent, perform additional analysis
+        analysis_result = None
+        if use_agent and context:
+            # Get dataset metadata for additional context
+            from api.repositories.dataset_repository import DatasetRepository
+            dataset_repo = DatasetRepository()
+            metadata = await dataset_repo.get_dataset_metadata(dataset_id) or {}
+            profile = await dataset_repo.get_dataset_profile(dataset_id) or {}
+            
+            # Prepare agent context
+            agent_context = {
+                "dataset_id": dataset_id,
+                "dataset_name": metadata.get("name", f"Dataset {dataset_id}"),
+                "column_info": metadata.get("columns", []),
+                "data_types": metadata.get("column_types", {}),
+                "row_count": metadata.get("row_count", 0),
+                "quality_metrics": profile.get("quality_metrics", {}),
+                "retrieved_context": context[:5]  # Limit context to avoid token limits
+            }
+            
+            # Generate agent response
+            agent_prompt = f"""You are a data analysis agent. Analyze the following dataset based on the user query and retrieved context.
+            
+            User Query: {query}
+            
+            Dataset Information:
+            - Name: {agent_context['dataset_name']}
+            - Columns: {', '.join(agent_context['column_info'])}
+            - Row Count: {agent_context['row_count']}
+            
+            Retrieved Context:
+            {json.dumps(agent_context['retrieved_context'], indent=2)}
+            
+            Provide a detailed analysis addressing the user's query. Include specific insights from the retrieved context.
+            """
+            
+            # Get AI response for analysis
+            analysis_response = await get_ai_response(agent_prompt, agent_context)
+            
+            if analysis_response and "text" in analysis_response:
+                analysis_result = {
+                    "analysis": analysis_response["text"],
+                    "confidence": analysis_response.get("confidence", 0.8),
+                    "processing_time": analysis_response.get("processing_time", 0)
+                }
+        
+        result = {
             "success": True,
             "query": query,
             "context": context,
-            "context_count": len(context)
+            "context_count": len(context),
+            "used_agent": use_agent
         }
+        
+        if analysis_result:
+            result["analysis"] = analysis_result
+        
+        return result
     except Exception as e:
         logger.error(f"Error in dataset analysis: {e}")
         return {

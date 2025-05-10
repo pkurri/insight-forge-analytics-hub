@@ -88,6 +88,9 @@ class PipelineStepType(str, Enum):
     TRANSFORM = "transform"
     ENRICH = "enrich"
     LOAD = "load"
+    SUGGESTIONS = "suggestions"
+    BUSINESS_RULES = "business_rules"
+    ANALYZE = "analyze"
 
 class PipelineRunStatus(str, Enum):
     PENDING = "pending"

@@ -1,16 +1,42 @@
+// Core AI services
 import { modelService } from './services/ai/modelService';
 import { embeddingService } from './services/ai/embeddingService';
 import { aiAgentService } from './services/ai/aiAgentService';
 import { businessRulesService } from './services/businessRules/businessRulesService';
 import { aiService } from './services/aiService';
+
+// Analytics and monitoring services
 import { analyticsService } from './services/analyticsService';
 import { monitoringService } from './services/monitoringService';
+
+// Data validation and processing services
 import { validationService } from './services/validationService';
+import { datasetService } from './services/datasets/datasetService';
+import { taskService } from './services/tasks/taskService';
+import { pipelineService } from './services/pipeline/pipelineService';
+import { datasourceService } from './services/datasource/datasourceService';
+
+// Export all services for use throughout the application
+export { 
+  modelService, 
+  embeddingService, 
+  aiAgentService, 
+  businessRulesService, 
+  aiService, 
+  analyticsService, 
+  monitoringService, 
+  validationService, 
+  datasetService, 
+  taskService,
+  pipelineService,
+  datasourceService
+};
 
 /**
  * API Response interface
+ * Generic interface used for all API responses
  */
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -19,6 +45,7 @@ export interface ApiResponse<T = any> {
 
 /**
  * Dataset interface
+ * Basic dataset information returned by the API
  */
 export interface Dataset {
   id: string;
@@ -37,10 +64,13 @@ export interface Dataset {
  * @param data Request data
  * @returns Promise with API response
  */
-export async function callApi<T = any>(
+/**
+ * Core API utility function used by all services
+ */
+export async function callApi<T = unknown>(
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
-  data?: any
+  data?: unknown
 ): Promise<ApiResponse<T>> {
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
   const url = `${apiUrl}/${endpoint.startsWith('/') ? endpoint.substring(1) : endpoint}`;
@@ -126,6 +156,25 @@ const datasets = {
   },
   
   /**
+   * Get insights for a specific dataset
+   * @param id Dataset ID
+   * @returns Promise with insights
+   */
+  getInsights: async (id: string): Promise<ApiResponse<{ insights: Array<Record<string, unknown>> }>> => {
+    return callApi<{ insights: Array<Record<string, unknown>> }>(`datasets/${id}/insights`);
+  },
+  
+  /**
+   * Generate new insights for a dataset
+   * @param id Dataset ID
+   * @param options Generation options
+   * @returns Promise with task ID
+   */
+  generateInsights: async (id: string, options: Record<string, unknown> = {}): Promise<ApiResponse<{task_id: string}>> => {
+    return callApi<{task_id: string}>(`datasets/${id}/generate-insights`, 'POST', options);
+  },
+  
+  /**
    * Upload a dataset
    * @param file Dataset file
    * @param name Dataset name
@@ -200,9 +249,9 @@ const getAiAssistantResponse = async (
     dataset_id?: string;
     model_id?: string;
     agent_type?: string;
-    context?: any;
+    context?: Record<string, unknown>;
   }
-): Promise<ApiResponse> => {
+): Promise<ApiResponse<{ response: string; sources?: Array<Record<string, unknown>> }>> => {
   const request = {
     query,
     modelId: options?.model_id,
@@ -217,9 +266,6 @@ const getAiAssistantResponse = async (
 /**
  * Export API functions
  */
-import { pipelineService } from './services/pipeline/pipelineService';
-import { datasourceService } from './services/datasource/datasourceService';
-import { datasetService } from './services/datasets/datasetService';
 
 export const api = {
   aiService,
@@ -240,7 +286,8 @@ export const api = {
   agents: aiAgentService,
   pipeline: pipelineService,
   datasource: datasourceService,
-  dataset: datasetService,
+  datasetService,
+  taskService,
   businessRules: businessRulesService,
   
   // Dashboard API
