@@ -7,6 +7,7 @@ import Index from './pages/Index';
 import Dashboard from './pages/Dashboard';
 import Analytics from './pages/Analytics';
 import Pipeline from './pages/Pipeline';
+import PipelineTest from './pages/PipelineTest';
 import Monitoring from './pages/Monitoring';
 import Alerts from './pages/Alerts';
 import Logs from './pages/Logs';
@@ -76,6 +77,16 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <Pipeline />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/pipeline-test"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <PipelineTest />
                 </Layout>
               </ProtectedRoute>
             }

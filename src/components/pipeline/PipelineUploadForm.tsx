@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/api/api';
 import PipelineStep, { StepStatus } from './PipelineStep';
+import PipelineNavigation from './PipelineNavigation';
 
 // Define types
 type DataSource = 'local' | 'api' | 'database';
@@ -194,6 +195,60 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
     }
   };
 
+  // Navigate to a specific step without triggering API calls if step is already completed
+  const handleNavigate = useCallback((step: number) => {
+    // Only allow navigation to completed steps or the current step + 1
+    if (completedSteps.includes(step) || step === currentStep || step === currentStep + 1) {
+      setCurrentStep(step);
+      
+      // Update the active step in the UI
+      setPipelineSteps(steps => {
+        let newSteps = [...steps];
+        // Reset all steps to their proper status
+        newSteps = newSteps.map((step, idx) => {
+          if (completedSteps.includes(idx)) {
+            return { ...step, status: 'completed' as StepStatus };
+          } else if (idx === currentStep) {
+            return { ...step, status: 'processing' as StepStatus };
+          } else {
+            return { ...step, status: 'pending' as StepStatus };
+          }
+        });
+        return newSteps;
+      });
+    }
+  }, [completedSteps, currentStep]);
+  
+  // Handle continue button - only trigger API calls if the step hasn't been completed
+  const handleContinue = useCallback(async () => {
+    // If the next step is already completed, just navigate to it
+    if (completedSteps.includes(currentStep + 1)) {
+      handleNavigate(currentStep + 1);
+      return;
+    }
+    
+    // Otherwise, trigger the appropriate API call based on the current step
+    switch (currentStep) {
+      case 0: // Upload step
+        await handleUpload();
+        break;
+      case 1: // Validation step
+        await handleValidateFile();
+        break;
+      case 2: // Business Rules step
+        // This is handled by the EnhancedBusinessRules component
+        break;
+      case 3: // Transform step
+        await handleTransform();
+        break;
+      case 4: // Enrich step
+        await handleEnrichData();
+        break;
+      default:
+        break;
+    }
+  }, [currentStep, completedSteps]);
+  
   // Handle file upload for all data sources (local file, API, database)
   const handleUpload = async () => {
     if (!name) {
@@ -631,7 +686,10 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
                     datasetId={datasetId || ''}
                     sampleData={sampleData}
                     onRulesApplied={handleBusinessRules}
-                    onComplete={() => setCurrentStep(3)}
+                    onComplete={() => {
+                      setCompletedSteps(prev => [...new Set([...prev, 2])]);
+                      setCurrentStep(3);
+                    }}
                   />
                 </div>
               )}
@@ -675,6 +733,16 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
                 </div>
               )}
               </div>
+              
+              {/* Navigation Controls */}
+              <PipelineNavigation
+                currentStep={currentStep}
+                completedSteps={completedSteps}
+                totalSteps={pipelineSteps.length}
+                onNavigate={handleNavigate}
+                isLoading={Object.values(stageLoading).some(loading => loading)}
+                onContinue={handleContinue}
+              />
             </div>
           </div>
         </CardContent>
