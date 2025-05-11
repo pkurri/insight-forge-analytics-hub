@@ -321,6 +321,46 @@ export const pipelineService = {
   },
 
   /**
+   * Transform data using defined transformations
+   */
+  transformData: async (datasetId: string, config?: any): Promise<ApiResponse<any>> => {
+    const endpoint = `pipeline/step/${datasetId}/transform`;
+    try {
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: config ? JSON.stringify(config) : undefined
+      });
+      return response;
+    } catch (error) {
+      console.error("Error transforming data:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  },
+
+  /**
+   * Enrich data with external sources or derived fields
+   */
+  enrichData: async (datasetId: string, config?: any): Promise<ApiResponse<any>> => {
+    const endpoint = `pipeline/step/${datasetId}/enrich`;
+    try {
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: config ? JSON.stringify(config) : undefined
+      });
+      return response;
+    } catch (error) {
+      console.error("Error enriching data:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  },
+
+  /**
    * Get sample data from a dataset
    */
   getSampleData: async (datasetId: string, maxRows: number = 100): Promise<ApiResponse<any>> => {

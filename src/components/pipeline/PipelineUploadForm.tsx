@@ -359,71 +359,93 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
 
   // Handle transform step
   const handleTransform = useCallback(async () => {
+    if (!datasetId) {
+      setError('No dataset available to transform');
+      return;
+    }
+    
     try {
       setStageLoading({...stageLoading, transform: true});
       setPipelineSteps(steps => updateStepStatus(steps, 3, 'processing'));
       
-      // Simulate transform operation (replace with actual API call)
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Call API to transform the data
+      const transformResponse = await api.pipeline.transformData(datasetId);
       
-      // Update step status
-      setCompletedSteps(prev => [...new Set([...prev, 3])]);
-      setCurrentStep(4);
-      setPipelineSteps(steps => {
-        let newSteps = [...steps];
-        newSteps = updateStepStatus(newSteps, 3, 'completed');
-        return updateStepStatus(newSteps, 4, 'processing');
-      });
-      
-      toast({
-        title: "Transform Complete",
-        description: "Data transformation completed successfully."
-      });
+      if (transformResponse.success) {
+        // Update step status
+        setCompletedSteps(prev => [...new Set([...prev, 3])]);
+        setCurrentStep(4);
+        setPipelineSteps(steps => {
+          let newSteps = [...steps];
+          newSteps = updateStepStatus(newSteps, 3, 'completed');
+          return updateStepStatus(newSteps, 4, 'processing');
+        });
+        
+        toast({
+          title: "Transform Complete",
+          description: "Data transformation completed successfully."
+        });
+      } else {
+        setPipelineSteps(steps => updateStepStatus(steps, 3, 'failed'));
+        throw new Error(transformResponse.error || "Failed to transform data");
+      }
     } catch (error) {
       setPipelineSteps(steps => updateStepStatus(steps, 3, 'failed'));
+      setError(error instanceof Error ? error.message : 'Failed to transform data');
       toast({
-        title: "Error",
+        title: "Transform Failed",
         description: error instanceof Error ? error.message : "Failed to transform data.",
         variant: "destructive"
       });
     } finally {
       setStageLoading({...stageLoading, transform: false});
     }
-  }, [setCompletedSteps, setCurrentStep, setPipelineSteps, setStageLoading, stageLoading, toast]);
+  }, [datasetId, setCompletedSteps, setCurrentStep, setError, setPipelineSteps, setStageLoading, stageLoading, toast]);
   
   // Handle enrich data step
   const handleEnrichData = useCallback(async () => {
+    if (!datasetId) {
+      setError('No dataset available to enrich');
+      return;
+    }
+    
     try {
       setStageLoading({...stageLoading, enrich: true});
       setPipelineSteps(steps => updateStepStatus(steps, 4, 'processing'));
       
-      // Simulate enrichment operation (replace with actual API call)
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Call API to enrich the data
+      const enrichResponse = await api.pipeline.enrichData(datasetId);
       
-      // Update step status
-      setCompletedSteps(prev => [...new Set([...prev, 4])]);
-      setCurrentStep(5);
-      setPipelineSteps(steps => {
-        let newSteps = [...steps];
-        newSteps = updateStepStatus(newSteps, 4, 'completed');
-        return updateStepStatus(newSteps, 5, 'processing');
-      });
-      
-      toast({
-        title: "Enrichment Complete",
-        description: "Data enrichment completed successfully."
-      });
+      if (enrichResponse.success) {
+        // Update step status
+        setCompletedSteps(prev => [...new Set([...prev, 4])]);
+        setCurrentStep(5);
+        setPipelineSteps(steps => {
+          let newSteps = [...steps];
+          newSteps = updateStepStatus(newSteps, 4, 'completed');
+          return updateStepStatus(newSteps, 5, 'processing');
+        });
+        
+        toast({
+          title: "Enrichment Complete",
+          description: "Data enrichment completed successfully."
+        });
+      } else {
+        setPipelineSteps(steps => updateStepStatus(steps, 4, 'failed'));
+        throw new Error(enrichResponse.error || "Failed to enrich data");
+      }
     } catch (error) {
       setPipelineSteps(steps => updateStepStatus(steps, 4, 'failed'));
+      setError(error instanceof Error ? error.message : 'Failed to enrich data');
       toast({
-        title: "Error",
+        title: "Enrichment Failed",
         description: error instanceof Error ? error.message : "Failed to enrich data.",
         variant: "destructive"
       });
     } finally {
       setStageLoading({...stageLoading, enrich: false});
     }
-  }, [setCompletedSteps, setCurrentStep, setPipelineSteps, setStageLoading, stageLoading, toast]);
+  }, [datasetId, setCompletedSteps, setCurrentStep, setError, setPipelineSteps, setStageLoading, stageLoading, toast]);
 
   // Navigate to a specific step without triggering API calls if step is already completed
   const handleNavigate = useCallback((step: number) => {
