@@ -20,7 +20,8 @@ from api.services.pipeline_stages.data_loader import DataLoaderService
 from api.services.pipeline_stages.data_transformer import DataTransformerService
 from api.services.pipeline_stages.vector_embedder import VectorEmbedderService
 from api.services.ai_service import analyze_dataset_with_rag
-from models.pipeline import PipelineStep, PipelineStatus
+from api.services.data_validation_service import DataValidationService
+from models.pipeline import PipelineStep, PipelineStatus, PipelineStepType, PipelineRunStatus
 from models.dataset import DatasetStatus, FileType
 from config.settings import get_settings
 
@@ -527,6 +528,104 @@ class PipelineService:
                 "success": False,
                 "error": error_message
             }
+            
+    async def run_pipeline_step(self, dataset_id: int, step_type: PipelineStepType) -> Dict[str, Any]:
+        """
+        Run a specific pipeline step on a dataset.
+        
+        Args:
+            dataset_id: ID of the dataset to process
+            step_type: Type of pipeline step to run
+            
+        Returns:
+            Dictionary with the results of the step execution
+        """
+        try:
+            # Get dataset
+            dataset = await self.dataset_repository.get_dataset(dataset_id)
+            if not dataset:
+                return {"success": False, "error": "Dataset not found"}
+                
+            # Create or get pipeline run
+            pipeline_run = await self.pipeline_repository.get_or_create_pipeline_run(dataset_id)
+            
+            # Create step if it doesn't exist
+            step = await self.pipeline_repository.get_or_create_pipeline_step(
+                pipeline_run_id=pipeline_run.id,
+                step_name=step_type,
+                status=PipelineRunStatus.RUNNING
+            )
+            
+            # Load dataset
+            df = await self.data_loader_service.load_dataset(dataset)
+            
+            result = {"success": True, "step_id": step.id}
+            
+            # Execute step based on type
+            if step_type == PipelineStepType.VALIDATE:
+                # Use the DataValidationService for validation
+                validation_service = DataValidationService()
+                validation_results = await validation_service.validate_data(df)
+                result.update({"validation_results": validation_results})
+                
+                # Update step status
+                await self.pipeline_repository.update_pipeline_step(step.id, {
+                    "status": PipelineRunStatus.COMPLETED,
+                    "metadata": validation_results
+                })
+            elif step_type == PipelineStepType.TRANSFORM:
+                # Handle transformation step
+                transform_results = await self.data_transformer_service.transform_data(df)
+                result.update({"transform_results": transform_results})
+                
+                # Update step status
+                await self.pipeline_repository.update_pipeline_step(step.id, {
+                    "status": PipelineRunStatus.COMPLETED,
+                    "metadata": transform_results
+                })
+            elif step_type == PipelineStepType.ENRICH:
+                # Handle enrichment step
+                enrich_results = await self.data_transformer_service.enrich_data(df)
+                result.update({"enrich_results": enrich_results})
+                
+                # Update step status
+                await self.pipeline_repository.update_pipeline_step(step.id, {
+                    "status": PipelineRunStatus.COMPLETED,
+                    "metadata": enrich_results
+                })
+            elif step_type == PipelineStepType.LOAD:
+                # Handle load step
+                load_results = await self.vector_embedder_service.embed_and_store(df, dataset_id)
+                result.update({"load_results": load_results})
+                
+                # Update step status
+                await self.pipeline_repository.update_pipeline_step(step.id, {
+                    "status": PipelineRunStatus.COMPLETED,
+                    "metadata": load_results
+                })
+            else:
+                # Unknown step type
+                error_message = f"Unknown pipeline step type: {step_type}"
+                await self.pipeline_repository.update_pipeline_step(step.id, {
+                    "status": PipelineRunStatus.FAILED,
+                    "error": error_message
+                })
+                return {"success": False, "error": error_message}
+            
+            return result
+            
+        except Exception as e:
+            error_message = f"Error executing pipeline step {step_type}: {str(e)}"
+            logger.error(error_message, exc_info=True)
+            
+            # Update step status if it exists
+            if "step" in locals():
+                await self.pipeline_repository.update_pipeline_step(step.id, {
+                    "status": PipelineRunStatus.FAILED,
+                    "error": error_message
+                })
+                
+            return {"success": False, "error": error_message}
 
 # Create a singleton instance of the pipeline service
 pipeline_service = PipelineService()
