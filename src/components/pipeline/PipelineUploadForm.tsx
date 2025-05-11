@@ -2,13 +2,12 @@ import React, { useState, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, UploadCloud, CheckCircle2, XCircle, AlertCircle, Info, Sparkles, HardDrive, Filter } from 'lucide-react';
+import { Loader2, UploadCloud, CheckCircle2, XCircle, AlertCircle, Info, Sparkles, HardDrive, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 import EnhancedBusinessRules from './EnhancedBusinessRules';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/api/api';
 import PipelineStep, { StepStatus } from './PipelineStep';
-import PipelineNavigation from './PipelineNavigation';
 
 // Define types
 type DataSource = 'local' | 'api' | 'database';
@@ -172,8 +171,10 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
     }));
   };
 
+
+
   // Function to fetch sample data for business rules
-  const fetchSampleData = async (datasetId: string) => {
+  const fetchSampleData = useCallback(async (datasetId: string) => {
     try {
       // Call API to get sample data
       const response = await api.pipeline.getSampleData(datasetId);
@@ -193,64 +194,60 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
       });
       return [];
     }
-  };
+  }, [toast]);
 
-  // Navigate to a specific step without triggering API calls if step is already completed
-  const handleNavigate = useCallback((step: number) => {
-    // Only allow navigation to completed steps or the current step + 1
-    if (completedSteps.includes(step) || step === currentStep || step === currentStep + 1) {
-      setCurrentStep(step);
-      
-      // Update the active step in the UI
-      setPipelineSteps(steps => {
-        let newSteps = [...steps];
-        // Reset all steps to their proper status
-        newSteps = newSteps.map((step, idx) => {
-          if (completedSteps.includes(idx)) {
-            return { ...step, status: 'completed' as StepStatus };
-          } else if (idx === currentStep) {
-            return { ...step, status: 'processing' as StepStatus };
-          } else {
-            return { ...step, status: 'pending' as StepStatus };
-          }
-        });
-        return newSteps;
-      });
-    }
-  }, [completedSteps, currentStep]);
-  
-  // Handle continue button - only trigger API calls if the step hasn't been completed
-  const handleContinue = useCallback(async () => {
-    // If the next step is already completed, just navigate to it
-    if (completedSteps.includes(currentStep + 1)) {
-      handleNavigate(currentStep + 1);
+  // Handle file validation
+  const handleValidateFile = useCallback(async (uploadedDatasetId?: string) => {
+    const datasetToValidate = uploadedDatasetId || datasetId;
+    
+    if (!datasetToValidate) {
+      setError('No dataset available to validate');
       return;
     }
     
-    // Otherwise, trigger the appropriate API call based on the current step
-    switch (currentStep) {
-      case 0: // Upload step
-        await handleUpload();
-        break;
-      case 1: // Validation step
-        await handleValidateFile();
-        break;
-      case 2: // Business Rules step
-        // This is handled by the EnhancedBusinessRules component
-        break;
-      case 3: // Transform step
-        await handleTransform();
-        break;
-      case 4: // Enrich step
-        await handleEnrichData();
-        break;
-      default:
-        break;
+    try {
+      setStageLoading({...stageLoading, validate: true});
+      setPipelineSteps(steps => updateStepStatus(steps, 1, 'processing'));
+      
+      // Call API to validate the file
+      const validationResponse = await api.pipeline.validateData(datasetToValidate);
+      
+      if (validationResponse.success) {
+        setCompletedSteps(prev => [...new Set([...prev, 1])]);
+        setCurrentStep(2);
+        // Update validation step to completed and set next step as active
+        setPipelineSteps(steps => {
+          let newSteps = [...steps];
+          newSteps = updateStepStatus(newSteps, 1, 'completed');
+          return updateStepStatus(newSteps, 2, 'processing');
+        });
+
+        // Extract sample data for rule testing
+        await fetchSampleData(datasetToValidate);
+
+        toast({
+          title: "Validation Successful",
+          description: "Your data has been validated successfully."
+        });
+      } else {
+        setPipelineSteps(steps => updateStepStatus(steps, 1, 'failed'));
+        throw new Error(validationResponse.error || "Failed to start validation");
+      }
+    } catch (error) {
+      setPipelineSteps(steps => updateStepStatus(steps, 1, 'failed'));
+      setError(error instanceof Error ? error.message : 'Failed to validate file');
+      toast({
+        title: "Validation Failed",
+        description: error instanceof Error ? error.message : 'Failed to validate file',
+        variant: "destructive"
+      });
+    } finally {
+      setStageLoading({...stageLoading, validate: false});
     }
-  }, [currentStep, completedSteps]);
-  
+  }, [datasetId, fetchSampleData, setCompletedSteps, setCurrentStep, setError, setPipelineSteps, setStageLoading, stageLoading, toast]);
+
   // Handle file upload for all data sources (local file, API, database)
-  const handleUpload = async () => {
+  const handleUpload = useCallback(async () => {
     if (!name) {
       setError('Please provide a name for the dataset');
       return;
@@ -358,58 +355,130 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
     } finally {
       setStageLoading({...stageLoading, upload: false});
     }
-  };
-  
-  // Handle file validation
-  const handleValidateFile = async (uploadedDatasetId?: string) => {
-    const datasetToValidate = uploadedDatasetId || datasetId;
-    
-    if (!datasetToValidate) {
-      setError('No dataset available to validate');
-      return;
-    }
-    
+  }, [apiConfig, dataSource, dbConfig, fileType, handleValidateFile, name, selectedFile, setCompletedSteps, setCurrentStep, setDatasetId, setError, setPipelineSteps, setStageLoading, stageLoading, toast]);
+
+  // Handle transform step
+  const handleTransform = useCallback(async () => {
     try {
-      setStageLoading({...stageLoading, validate: true});
-      setPipelineSteps(steps => updateStepStatus(steps, 1, 'processing'));
+      setStageLoading({...stageLoading, transform: true});
+      setPipelineSteps(steps => updateStepStatus(steps, 3, 'processing'));
       
-      // Call API to validate the file
-      const validationResponse = await api.pipeline.validateData(datasetToValidate);
+      // Simulate transform operation (replace with actual API call)
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      if (validationResponse.success) {
-        setCompletedSteps(prev => [...new Set([...prev, 1])]);
-        setCurrentStep(2);
-        // Update validation step to completed and set next step as active
-        setPipelineSteps(steps => {
-          let newSteps = [...steps];
-          newSteps = updateStepStatus(newSteps, 1, 'completed');
-          return updateStepStatus(newSteps, 2, 'processing');
-        });
-
-        // Extract sample data for rule testing
-        await fetchSampleData(datasetToValidate);
-
-        toast({
-          title: "Validation Successful",
-          description: "Your data has been validated successfully."
-        });
-      } else {
-        setPipelineSteps(steps => updateStepStatus(steps, 1, 'failed'));
-        throw new Error(validationResponse.error || "Failed to start validation");
-      }
-    } catch (error) {
-      setPipelineSteps(steps => updateStepStatus(steps, 1, 'failed'));
-      setError(error instanceof Error ? error.message : 'Failed to validate file');
+      // Update step status
+      setCompletedSteps(prev => [...new Set([...prev, 3])]);
+      setCurrentStep(4);
+      setPipelineSteps(steps => {
+        let newSteps = [...steps];
+        newSteps = updateStepStatus(newSteps, 3, 'completed');
+        return updateStepStatus(newSteps, 4, 'processing');
+      });
+      
       toast({
-        title: "Validation Failed",
-        description: error instanceof Error ? error.message : 'Failed to validate file',
+        title: "Transform Complete",
+        description: "Data transformation completed successfully."
+      });
+    } catch (error) {
+      setPipelineSteps(steps => updateStepStatus(steps, 3, 'failed'));
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to transform data.",
         variant: "destructive"
       });
     } finally {
-      setStageLoading({...stageLoading, validate: false});
+      setStageLoading({...stageLoading, transform: false});
     }
-  };
+  }, [setCompletedSteps, setCurrentStep, setPipelineSteps, setStageLoading, stageLoading, toast]);
+  
+  // Handle enrich data step
+  const handleEnrichData = useCallback(async () => {
+    try {
+      setStageLoading({...stageLoading, enrich: true});
+      setPipelineSteps(steps => updateStepStatus(steps, 4, 'processing'));
+      
+      // Simulate enrichment operation (replace with actual API call)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Update step status
+      setCompletedSteps(prev => [...new Set([...prev, 4])]);
+      setCurrentStep(5);
+      setPipelineSteps(steps => {
+        let newSteps = [...steps];
+        newSteps = updateStepStatus(newSteps, 4, 'completed');
+        return updateStepStatus(newSteps, 5, 'processing');
+      });
+      
+      toast({
+        title: "Enrichment Complete",
+        description: "Data enrichment completed successfully."
+      });
+    } catch (error) {
+      setPipelineSteps(steps => updateStepStatus(steps, 4, 'failed'));
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to enrich data.",
+        variant: "destructive"
+      });
+    } finally {
+      setStageLoading({...stageLoading, enrich: false});
+    }
+  }, [setCompletedSteps, setCurrentStep, setPipelineSteps, setStageLoading, stageLoading, toast]);
 
+  // Navigate to a specific step without triggering API calls if step is already completed
+  const handleNavigate = useCallback((step: number) => {
+    // Only allow navigation to completed steps or the current step + 1
+    if (completedSteps.includes(step) || step === currentStep || step === currentStep + 1) {
+      setCurrentStep(step);
+      
+      // Update the active step in the UI
+      setPipelineSteps(steps => {
+        let newSteps = [...steps];
+        // Reset all steps to their proper status
+        newSteps = newSteps.map((step, idx) => {
+          if (completedSteps.includes(idx)) {
+            return { ...step, status: 'completed' as StepStatus };
+          } else if (idx === currentStep) {
+            return { ...step, status: 'processing' as StepStatus };
+          } else {
+            return { ...step, status: 'pending' as StepStatus };
+          }
+        });
+        return newSteps;
+      });
+    }
+  }, [completedSteps, currentStep, setCurrentStep, setPipelineSteps]);
+
+  // Handle continue button - only trigger API calls if the step hasn't been completed
+  const handleContinue = useCallback(async () => {
+    // If the next step is already completed, just navigate to it
+    if (completedSteps.includes(currentStep + 1)) {
+      handleNavigate(currentStep + 1);
+      return;
+    }
+    
+    // Otherwise, trigger the appropriate API call based on the current step
+    switch (currentStep) {
+      case 0: // Upload step
+        await handleUpload();
+        break;
+      case 1: // Validation step
+        await handleValidateFile();
+        break;
+      case 2: // Business Rules step
+        // This is handled by the EnhancedBusinessRules component
+        break;
+      case 3: // Transform step
+        await handleTransform();
+        break;
+      case 4: // Enrich step
+        await handleEnrichData();
+        break;
+      default:
+        break;
+    }
+  }, [currentStep, completedSteps, handleNavigate, handleUpload, handleValidateFile, handleTransform, handleEnrichData]);
+  
   // Handle business rules application
   const handleBusinessRules = async (appliedRuleIds?: string[]) => {
     setStageLoading({...stageLoading, rules: true});
@@ -562,7 +631,8 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
                         )}
                       </div>
                       
-                      <div className="flex justify-end">
+                      <div className="flex justify-between">
+                        <div></div> {/* Empty div for spacing */}
                         <button
                           className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
                           onClick={handleUpload}
@@ -734,15 +804,28 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
               )}
               </div>
               
-              {/* Navigation Controls */}
-              <PipelineNavigation
-                currentStep={currentStep}
-                completedSteps={completedSteps}
-                totalSteps={pipelineSteps.length}
-                onNavigate={handleNavigate}
-                isLoading={Object.values(stageLoading).some(loading => loading)}
-                onContinue={handleContinue}
-              />
+              {/* Only show navigation controls after the first step */}
+              {currentStep > 0 && (
+                <div className="flex justify-between mt-6">
+                  <button
+                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => handleNavigate(currentStep - 1)}
+                    disabled={currentStep === 0 || Object.values(stageLoading).some(loading => loading)}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Back
+                  </button>
+                  
+                  <button
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleContinue}
+                    disabled={currentStep === pipelineSteps.length - 1 || Object.values(stageLoading).some(loading => loading)}
+                  >
+                    {Object.values(stageLoading).some(loading => loading) ? 'Processing...' : 'Continue'}
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>

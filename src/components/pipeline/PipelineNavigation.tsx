@@ -1,5 +1,4 @@
 import React from 'react';
-import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface PipelineNavigationProps {
@@ -11,11 +10,6 @@ interface PipelineNavigationProps {
   onContinue?: () => Promise<void>;
 }
 
-/**
- * PipelineNavigation Component
- * 
- * Handles navigation between pipeline steps without triggering unnecessary API calls
- */
 const PipelineNavigation: React.FC<PipelineNavigationProps> = ({
   currentStep,
   completedSteps,
@@ -24,24 +18,19 @@ const PipelineNavigation: React.FC<PipelineNavigationProps> = ({
   isLoading,
   onContinue
 }) => {
-  // Handle going back to previous step
   const handleBack = () => {
     if (currentStep > 0) {
       onNavigate(currentStep - 1);
     }
   };
 
-  // Handle going to next step
-  const handleNext = () => {
-    // If the next step is already completed, just navigate to it
+  const handleNext = async () => {
     if (completedSteps.includes(currentStep + 1)) {
       onNavigate(currentStep + 1);
     } else if (currentStep < totalSteps - 1) {
-      // If there's a continue handler (for API calls), use it
       if (onContinue) {
-        onContinue();
+        await onContinue();
       } else {
-        // Otherwise just navigate to the next step
         onNavigate(currentStep + 1);
       }
     }
@@ -49,24 +38,23 @@ const PipelineNavigation: React.FC<PipelineNavigationProps> = ({
 
   return (
     <div className="flex justify-between mt-6">
-      <Button
-        variant="outline"
+      <button
+        className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         onClick={handleBack}
         disabled={currentStep === 0 || isLoading}
-        className="flex items-center gap-2"
       >
         <ChevronLeft className="h-4 w-4" />
         Back
-      </Button>
+      </button>
       
-      <Button
+      <button
+        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         onClick={handleNext}
         disabled={currentStep === totalSteps - 1 || isLoading}
-        className="flex items-center gap-2"
       >
         {isLoading ? 'Processing...' : 'Continue'}
         <ChevronRight className="h-4 w-4" />
-      </Button>
+      </button>
     </div>
   );
 };
