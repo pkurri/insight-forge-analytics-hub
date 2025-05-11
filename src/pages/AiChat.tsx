@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import ChatInterface from '@/components/ai/ChatInterface';
+import { ChatInterface } from '@/components/ai/ChatInterface';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DatasetProvider } from '@/hooks/useDatasetContext';
 import { api } from '@/api/api';

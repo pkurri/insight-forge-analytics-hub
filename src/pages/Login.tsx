@@ -1,42 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import Cookies from 'js-cookie';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
+import { authService } from '@/api/services/auth/authService';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const router = useRouter();
+  const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
-    // Check if already authenticated
-    const isAuthenticated = Cookies.get('isAuthenticated');
-    if (isAuthenticated === 'true') {
-      router.push('/dashboard');
+    // Check if already authenticated using authService
+    if (authService.isAuthenticated()) {
+      // Navigate to dashboard if authenticated
+      navigate('/dashboard');
     }
-  }, [router]);
+  }, [navigate]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     // Check for admin/admin credentials
     if (username === 'admin' && password === 'admin') {
-      // Store authentication state in cookies
-      Cookies.set('isAuthenticated', 'true', { expires: 7 }); // Expires in 7 days
-      Cookies.set('user', JSON.stringify({
+      // Store authentication token in localStorage via authService
+      localStorage.setItem('auth_token', 'mock-token-for-admin');
+      localStorage.setItem('user_data', JSON.stringify({
+        id: '1',
         username: 'admin',
-        role: 'admin',
-        is_admin: true
-      }), { expires: 7 });
+        role: 'admin'
+      }));
+      
+      toast({
+        title: 'Login successful',
+        description: 'Welcome to Data Forge Analytics!'
+      });
       
       // Redirect to dashboard
-      router.push('/dashboard');
+      navigate('/dashboard');
     } else {
       setError('Invalid username or password');
     }

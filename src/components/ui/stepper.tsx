@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils/utils';
 import { CircleCheckBig, CircleDashed, Check } from 'lucide-react';
 
 interface StepProps {

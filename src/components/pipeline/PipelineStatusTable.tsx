@@ -7,7 +7,7 @@ import { Loader2, Play, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, A
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils/utils';
 
 interface PipelineJob {
   id: string;

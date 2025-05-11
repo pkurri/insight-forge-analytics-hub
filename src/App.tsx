@@ -23,9 +23,11 @@ interface ProtectedRouteProps {
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const location = useLocation();
-  const isAuthenticated = authService.isAuthenticated();
+  // Use a React state to track authentication status
+  const [isAuthenticated] = React.useState(authService.isAuthenticated());
 
   if (!isAuthenticated) {
+    // Use replace prop to prevent adding to history stack
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

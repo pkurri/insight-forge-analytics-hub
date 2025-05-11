@@ -1,152 +1,95 @@
-import React from 'react';
-import { FileUp, CheckCircle2, Activity, Play, Info, Sparkles, HardDrive, Filter, ArrowRight, Loader2, Circle, XCircle, RefreshCw } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import React, { useState } from 'react';
+import { 
+  Sparkles, HardDrive, Filter, ChevronDown, ChevronUp,
+  Database, ClipboardCheck, Wand2, BarChart3
+} from 'lucide-react';
+import { cn } from '@/utils/utils';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/hooks/use-toast';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
-type StageStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
 
 interface StageProps {
   icon: React.ReactNode;
   title: string;
   description: string;
-  status: StageStatus;
-  stepId?: number;
-  onRunStep?: (stepId: number) => void;
-  isRunning?: boolean;
-  onClick?: () => void;
-  isActive?: boolean;
   details?: string;
+  sampleData?: Record<string, unknown>;
+  expanded?: boolean;
 }
 
 const Stage: React.FC<StageProps> = ({ 
   icon, 
   title, 
   description, 
-  status, 
-  stepId,
-  onRunStep,
-  isRunning = false,
-  onClick,
-  isActive = false,
-  details
+  details,
+  sampleData,
+  expanded = false
 }) => {
-  const getStatusColor = (status: StageStatus) => {
-    switch (status) {
-      case 'completed':
-        return 'bg-green-500';
-      case 'processing':
-        return 'bg-blue-500';
-      case 'failed':
-        return 'bg-red-500';
-      default:
-        return 'bg-gray-300';
-    }
-  };
+  const [isExpanded, setIsExpanded] = useState(expanded);
+  
 
-  const getStatusIcon = (status: StageStatus) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle2 className="h-5 w-5 text-green-500" />;
-      case 'processing':
-        return <Activity className="h-5 w-5 text-blue-500" />;
-      case 'failed':
-        return <XCircle className="h-5 w-5 text-red-500" />;
-      default:
-        return <Circle className="h-5 w-5 text-gray-300" />;
-    }
-  };
 
-  const getStepButton = () => {
-    if (status === 'completed') {
-      return (
-        <Button size="sm" variant="outline" className="pointer-events-none opacity-50">
-          <CheckCircle2 className="h-4 w-4 mr-1 text-green-500" />
-          Completed
-        </Button>
-      );
-    } else if (status === 'failed') {
-      return (
-        <Button
-          size="sm"
-          variant="outline"
-          className="border-red-200 text-red-700 hover:bg-red-50"
-          onClick={() => onRunStep && stepId && onRunStep(stepId)}
-          disabled={isRunning}
-        >
-          {isRunning ? (
-            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-1" />
-          )}
-          {isRunning ? 'Running...' : 'Retry'}
-        </Button>
-      );
-    } else if (status === 'processing') {
-      return (
-        <Button size="sm" variant="outline" className="pointer-events-none">
-          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-          Processing...
-        </Button>
-      );
-    } else {
-      return (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => onRunStep && stepId && onRunStep(stepId)}
-          disabled={isRunning}
-        >
-          {isRunning ? (
-            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-          ) : (
-            <Play className="h-4 w-4 mr-1" />
-          )}
-          {isRunning ? 'Running...' : 'Run'}
-        </Button>
-      );
-    }
-  };
+
 
   return (
-    <div 
-      onClick={onClick}
-      className={cn(
-        "flex items-start p-4 rounded-lg border transition-all", 
-        onClick && "cursor-pointer hover:shadow-md",
-        isActive ? "bg-accent shadow-sm border-primary" : 
-        status === 'completed' ? "bg-muted/30" : 
-        status === 'failed' ? "bg-red-50" : 
-        "bg-background"
-      )}
+    <Collapsible
+      open={isExpanded}
+      onOpenChange={setIsExpanded}
+      className="rounded-lg border border-blue-200 transition-all mb-4 overflow-hidden shadow-sm hover:shadow-md bg-white hover:bg-blue-50/30"
     >
-      <div className={cn("flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full", getStatusColor(status))}>
-        {getStatusIcon(status)}
-      </div>
-      <div className="ml-4 flex-1">
-        <div className="flex justify-between items-start">
-          <div>
+      <div 
+        className="flex items-center p-4 cursor-pointer transition-colors duration-200 hover:bg-blue-50/50"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className={cn(
+          "flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full bg-white shadow-sm border border-blue-300 text-blue-600 transition-transform duration-300",
+          isExpanded && "transform scale-110 bg-blue-50"
+        )}>
+          {icon}
+        </div>
+        <div className="ml-4 flex-1">
+          <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
-              <h3 className="font-medium">{title}</h3>
-              {isActive && <Badge variant="outline" className="ml-1">Current</Badge>}
-              {status === 'completed' && <Badge className="ml-1 bg-green-500">Completed</Badge>}
-              {status === 'processing' && <Badge variant="outline" className="ml-1 animate-pulse">Processing</Badge>}
-              {status === 'failed' && <Badge variant="destructive" className="ml-1">Failed</Badge>}
+              <h3 className="font-semibold text-lg">{title}</h3>
             </div>
-            <p className="text-sm text-muted-foreground mt-1">{description}</p>
-            {details && isActive && <p className="text-xs text-muted-foreground mt-2 bg-muted/50 p-2 rounded">{details}</p>}
+            <div className="flex items-center gap-2">
+              <CollapsibleTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+              </CollapsibleTrigger>
+            </div>
           </div>
-          {stepId && onRunStep && (
-            <div className="ml-4">
-              {getStepButton()}
-            </div>
-          )}
+          <p className="text-sm text-muted-foreground">{description}</p>
         </div>
       </div>
-    </div>
+      <CollapsibleContent>
+        <div className="p-4 bg-white/80 border-t animate-fadeIn">
+          <div className="text-sm space-y-3">
+            <h4 className="font-medium text-primary">Step Details</h4>
+            <p className="text-muted-foreground">{details || "This step is part of the data processing pipeline."}</p>
+            
+            {/* Sample Data Visualization */}
+            {sampleData && (
+              <div className="mt-3 pt-3 border-t animate-slide-up">
+                <h5 className="font-medium text-sm mb-2">Sample Data</h5>
+                <div className="bg-slate-50 p-2 rounded border border-blue-100 text-xs font-mono overflow-x-auto shadow-inner">
+                  {typeof sampleData === 'object' ? (
+                    <pre>{JSON.stringify(sampleData, null, 2)}</pre>
+                  ) : (
+                    <div>{String(sampleData)}</div>
+                  )}
+                </div>
+              </div>
+            )}
+            
+
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 };
 
@@ -154,145 +97,151 @@ interface StageDefinition {
   icon: React.ReactNode;
   title: string;
   description: string;
-  status: StageStatus;
-  stepId?: number;
-  isLast?: boolean;
   details?: string;
+  sampleData?: Record<string, unknown>;
 }
 
 interface PipelineStagesProps {
-  currentStage?: number;
-  stages?: StageDefinition[];
-  onStageUpdate?: () => void;
+  customStages?: StageDefinition[];
+  expandedStage?: number;
 }
 
 const PipelineStages: React.FC<PipelineStagesProps> = ({ 
-  currentStage = 0, 
-  stages: customStages,
-  onStageUpdate 
+  customStages,
+  expandedStage = -1
 }) => {
-  const { toast } = useToast();
-  const [runningSteps, setRunningSteps] = React.useState<Set<number>>(new Set());
-
-  const handleRunStep = async (stepId: number) => {
-    try {
-      setRunningSteps(prev => new Set(prev).add(stepId));
-      
-      // Mock API call for now
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      const response = { success: true };
-      
-      if (response.success) {
-        toast({
-          title: "Step started",
-          description: "The pipeline step has been initiated successfully.",
-        });
-        onStageUpdate?.();
-      } else {
-        throw new Error("Failed to start pipeline step");
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to start pipeline step",
-        variant: "destructive",
-      });
-    } finally {
-      setRunningSteps(prev => {
-        const next = new Set(prev);
-        next.delete(stepId);
-        return next;
-      });
-    }
+  
+  // Sample data for each pipeline stage
+  const sampleUploadData = {
+    filename: "sales_data_2024.csv",
+    size: "1.2MB",
+    rows: 5000,
+    columns: 12,
+    preview: [
+      { id: 1, product: "Widget A", sales: 1200, region: "North" },
+      { id: 2, product: "Widget B", sales: 950, region: "South" }
+    ]
   };
 
+  const sampleValidateData = {
+    schema_validation: "PASSED",
+    data_types: {
+      id: "integer",
+      product: "string",
+      sales: "number",
+      region: "string"
+    },
+    missing_values: 12,
+    duplicates: 0
+  };
+
+  const sampleBusinessRulesData: Record<string, unknown> = {
+    rules: [
+      { rule: "sales >= 0", passed: true },
+      { rule: "region in ['North', 'South', 'East', 'West']", passed: true },
+      { rule: "product != null", passed: true }
+    ]
+  };
+
+  const sampleTransformData = {
+    operations: [
+      "Normalized region names",
+      "Converted sales to USD",
+      "Added timestamp column"
+    ],
+    rows_affected: 4850
+  };
+
+  const sampleEnrichData = {
+    derived_fields: [
+      "sales_category",
+      "performance_score",
+      "growth_rate"
+    ],
+    external_data: "Market trends from API"
+  };
+
+  const sampleLoadData = {
+    destination: "analytics_db",
+    tables: ["sales_fact", "product_dim", "region_dim"],
+    status: "SUCCESS",
+    rows_loaded: 4998
+  };
+
+  // Enhanced default pipeline stages with better icons and descriptions
   const defaultStages: StageDefinition[] = [
     {
-      icon: <FileUp size={18} />,
+      icon: <Database className="h-5 w-5 text-blue-600" />,
       title: "Upload",
       description: "Upload data from various sources",
-      status: "pending",
-      details: "Upload your data from a local file, API, or database connection"
+      details: "This step represents data ingestion into the pipeline. In a real implementation, this would handle data uploads from local files, APIs, or database connections. Supported formats would include CSV, JSON, Excel, and SQL databases.",
+      sampleData: sampleUploadData
     },
     {
-      icon: <CheckCircle2 size={18} />,
+      icon: <ClipboardCheck className="h-5 w-5 text-emerald-600" />,
       title: "Validate",
       description: "Ensure data meets schema requirements",
-      status: "pending",
-      details: "Verify data schema, types, and basic integrity checks"
+      details: "This step represents data validation to ensure datasets meet required schema and quality standards. In a real implementation, this would check data types, required fields, value ranges, and perform basic quality assessments.",
+      sampleData: sampleValidateData
     },
     {
-      icon: <Filter size={18} />,
+      icon: <Filter className="h-5 w-5 text-amber-600" />,
       title: "Business Rules",
       description: "Apply business logic and validation",
-      status: "pending",
-      details: "Apply custom business rules and data quality constraints"
+      details: "This step represents applying business rules to transform raw data into business-ready information. In a real implementation, this would apply domain-specific logic, validation rules, and conditional transformations.",
+      sampleData: sampleBusinessRulesData
     },
     {
-      icon: <Sparkles size={18} />,
+      icon: <Wand2 className="h-5 w-5 text-purple-600" />,
       title: "Transform",
       description: "Clean and transform data",
-      status: "pending",
-      details: "Transform data structure and format for analysis"
+      details: "This step represents data transformation processes. In a real implementation, this would handle cleaning, normalizing, and restructuring data, including handling missing values, removing duplicates, and standardizing formats.",
+      sampleData: sampleTransformData
     },
     {
-      icon: <Info size={18} />,
+      icon: <Sparkles className="h-5 w-5 text-yellow-600" />,
       title: "Enrich",
       description: "Add derived fields and insights",
-      status: "pending",
-      details: "Add derived fields, external data, and enrich your dataset"
+      details: "This step represents data enrichment processes. In a real implementation, this would add value to datasets by incorporating derived fields, calculated metrics, external data sources, and AI-powered enhancements.",
+      sampleData: sampleEnrichData
     },
     {
-      icon: <HardDrive size={18} />,
+      icon: <HardDrive className="h-5 w-5 text-indigo-600" />,
       title: "Load",
       description: "Save processed data to destination",
-      status: "pending",
-      isLast: true,
-      details: "Load processed data to your target destination"
+      details: "This step represents the final data loading process. In a real implementation, this would load processed data into target destinations such as data warehouses, analytics databases, or visualization tools.",
+      sampleData: sampleLoadData
     }
   ];
   
   const stages = customStages || defaultStages;
-  
-  // Update status based on current stage
-  const stagesWithStatus = stages.map((stage, index) => ({
-    ...stage,
-    status: index < currentStage ? 'completed' as StageStatus : 
-           index === currentStage ? 'in-progress' as StageStatus : 'pending' as StageStatus
-  }));
-
-  // Calculate overall progress percentage
-  const calculateProgress = () => {
-    const totalSteps = stagesWithStatus.length;
-    const completedSteps = stagesWithStatus.filter(step => step.status === 'completed').length;
-    return (completedSteps / totalSteps) * 100;
-  };
 
   return (
-    <Card className="shadow-sm border-muted">
-      <CardHeader className="pb-3">
-        <div className="flex justify-between items-center">
-          <CardTitle>Pipeline Progress</CardTitle>
-          <Badge className={calculateProgress() === 100 ? "bg-green-500" : ""}>
-            {Math.round(calculateProgress())}% Complete
-          </Badge>
+    <Card className="shadow-md border-muted overflow-hidden hover:shadow-lg transition-shadow duration-300">
+      <CardHeader className="pb-3 bg-gradient-to-r from-blue-50 to-blue-100 border-b">
+        <div className="flex items-center">
+          <div>
+            <CardTitle className="text-xl flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-primary" />
+              Pipeline Workflow
+            </CardTitle>
+            <CardDescription className="mt-1">
+              Visual representation of the data processing pipeline flow
+            </CardDescription>
+          </div>
         </div>
-        <Progress value={calculateProgress()} className="h-2 mt-2" />
       </CardHeader>
-      <CardContent>
-        <div className="space-y-3">
-          {stagesWithStatus.map((stage, idx) => (
+      <CardContent className="p-4">
+        <div className="space-y-1 animate-slide-up">
+          {stages.map((stage, idx) => (
             <Stage 
               key={idx} 
               icon={stage.icon} 
               title={stage.title} 
               description={stage.description} 
-              status={stage.status} 
-              stepId={stage.stepId}
-              onRunStep={stage.stepId ? handleRunStep : undefined}
-              isRunning={stage.stepId ? runningSteps.has(stage.stepId) : false}
-              isActive={idx === currentStage}
               details={stage.details}
+              sampleData={stage.sampleData}
+              expanded={idx === expandedStage}
             />
           ))}
         </div>

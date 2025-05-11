@@ -22,6 +22,36 @@ export interface RuleSuggestion extends Omit<BusinessRule, 'id'> {
   column?: string;
   rule_type?: string;
   sample_match_rate?: number;
+  source?: string; // Source of the rule (huggingface, pydantic, greater_expressions, etc.)
+}
+
+export type RuleGenerationEngine = 'ai_default' | 'huggingface' | 'pydantic' | 'great_expectations' | 'greater_expressions';
+
+export interface ColumnMetadata {
+  name: string;
+  type: string;
+  stats: {
+    min?: number;
+    max?: number;
+    mean?: number;
+    std?: number;
+    null_count?: number;
+    total_count?: number;
+    unique_count?: number;
+    common_values?: string[];
+    max_length?: number;
+    pattern?: string;
+    [key: string]: any;
+  };
+}
+
+export interface GenerateRulesOptions {
+  engine: RuleGenerationEngine;
+  modelType?: string;
+  columnMeta: {
+    columns: ColumnMetadata[];
+    dataset_info?: Record<string, any>;
+  };
 }
 
 export const businessRulesService = {
@@ -237,6 +267,64 @@ export const businessRulesService = {
       return {
         success: false,
         error: 'Failed to generate rule suggestions. Please try again.'
+      };
+    }
+  },
+  
+  /**
+   * Update rule suggestions after generation
+   */
+  updateSuggestions: async (datasetId: string, suggestions: RuleSuggestion[]): Promise<ApiResponse<{ updated_suggestions: RuleSuggestion[] }>> => {
+    const endpoint = `business-rules/update-suggestions/${datasetId}`;
+    
+    try {
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ suggestions }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Error updating rule suggestions:', error);
+      return {
+        success: false,
+        error: 'Failed to update rule suggestions'
+      };
+    }
+  },
+  
+  /**
+   * Test business rules against sample data
+   */
+  testRulesOnSample: async (datasetId: string, sampleData: Record<string, any>[], rules: BusinessRule[]): Promise<ApiResponse<{ 
+    passing_records: number;
+    failing_records: number;
+    failures_by_rule: Record<string, number>;
+    impact_percentage: number;
+  }>> => {
+    const endpoint = `business-rules/test/${datasetId}`;
+    
+    try {
+      const response = await callApi(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({
+          sample_data: sampleData,
+          rules: rules
+        }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Error testing rules on sample data:', error);
+      return {
+        success: false,
+        error: 'Failed to test rules on sample data'
       };
     }
   },
