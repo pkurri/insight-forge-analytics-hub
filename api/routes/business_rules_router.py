@@ -101,9 +101,10 @@ async def create_rule(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating rule: {str(e)}")
 
-@router.post("/batch", response_model=StandardResponse[List[BusinessRule]])
+@router.post("/batch/{dataset_id}", response_model=StandardResponse[List[BusinessRule]])
 async def create_rules(
-    rules_data: List[Dict[str, Any]],
+    dataset_id: str = Path(..., description="ID of the dataset"),
+    rules_data: List[Dict[str, Any]] = Body(..., description="List of business rules to create"),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
@@ -118,6 +119,10 @@ async def create_rules(
         
         for rule_data in rules_data:
             try:
+                # Add dataset_id to each rule if not already present
+                if "dataset_id" not in rule_data:
+                    rule_data["dataset_id"] = dataset_id
+                    
                 created_rule = await business_rules_service.create_rule(rule_data)
                 created_rules.append(created_rule)
             except ValueError as e:
@@ -133,7 +138,8 @@ async def create_rules(
             "failed_rules": failed_rules,
             "total_submitted": len(rules_data),
             "total_created": len(created_rules),
-            "total_failed": len(failed_rules)
+            "total_failed": len(failed_rules),
+            "dataset_id": dataset_id
         }
         
         # Consider the operation successful if at least one rule was created

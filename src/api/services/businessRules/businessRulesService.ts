@@ -1,5 +1,26 @@
+import { BusinessRule } from '../../../types/businessRules';
+import { ApiResponse } from '../../../types/api';
 import { callApi } from '../../utils/apiUtils';
-import { ApiResponse } from '../../api';
+
+// Response type for business rule operations
+interface BusinessRuleResponse {
+  message: string;
+  rules_saved?: number;
+  applied?: boolean;
+  applyError?: string;
+  id?: string;
+  [key: string]: any; // For other properties that might be returned
+}
+
+// Response type for batch rule operations
+interface BatchRuleResponse {
+  created_rules: BusinessRule[];
+  failed_rules?: Array<{rule_data: any; error: string}>;
+  total_submitted?: number;
+  total_created?: number;
+  total_failed?: number;
+  message?: string;
+}
 
 /**
  * Business Rules Service - Handles business rule operations
@@ -108,16 +129,56 @@ export const businessRulesService = {
   /**
    * Save business rules for a dataset
    */
-  saveBusinessRules: async (datasetId: string, rules: BusinessRule[]): Promise<ApiResponse<any>> => {
-    const endpoint = `business-rules/${datasetId}`;
+  saveBusinessRules: async (datasetId: string, rules: BusinessRule[]): Promise<ApiResponse<BusinessRuleResponse>> => {
+    // Use the batch endpoint if multiple rules are provided
+    const isBatch = rules.length > 1;
+    const endpoint = isBatch ? `business-rules/batch/${datasetId}` : `business-rules/${datasetId}`;
     
     try {
-      const response = await callApi(endpoint, {
+      const response = await callApi<BatchRuleResponse | BusinessRule>(endpoint, {
         method: 'POST',
-        body: JSON.stringify({ rules })
+        body: isBatch 
+          ? JSON.stringify(rules) // For batch endpoint, send array directly
+          : JSON.stringify({ rules }) // For single endpoint, wrap in rules object
       });
+      
       if (response.success) {
-        return response;
+        // Apply the rules to the dataset using the pipeline service
+        if (response.success) {
+          // Extract rule IDs based on response type
+          const ruleIds = isBatch 
+            ? (response.data as BatchRuleResponse).created_rules.map((rule: BusinessRule) => rule.id)
+            : [(response.data as BusinessRule).id];
+            
+          // Call the pipeline service to apply the rules to the dataset
+          const applyResponse = await callApi<{success: boolean; message: string}>(
+`pipeline/${datasetId}/business-rules`, {
+            method: 'POST',
+            body: JSON.stringify({ rule_ids: ruleIds })
+          });
+          
+          if (applyResponse.success) {
+            return {
+              success: true,
+              data: {
+                ...response.data,
+                applied: true,
+                message: `${rules.length} business rules saved and applied successfully`,
+              } as BusinessRuleResponse
+            };
+          } else {
+            return {
+              success: true,
+              data: {
+                ...response.data,
+                applied: false,
+                message: `${rules.length} business rules saved but not applied`,
+                applyError: applyResponse.error
+              } as BusinessRuleResponse
+            };
+          }
+        }
+        return response as ApiResponse<BusinessRuleResponse>;
       }
       
       // Mock successful response
@@ -128,8 +189,9 @@ export const businessRulesService = {
         success: true,
         data: {
           message: `${rules.length} business rules saved successfully`,
-          rules_saved: rules.length
-        }
+          rules_saved: rules.length,
+          applied: true
+        } as BusinessRuleResponse
       };
     } catch (error) {
       console.error("Error saving business rules:", error);

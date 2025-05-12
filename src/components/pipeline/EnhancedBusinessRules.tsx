@@ -392,40 +392,143 @@ const EnhancedBusinessRules: React.FC<EnhancedBusinessRulesProps> = ({
     return ruleObjects.filter(rule => selectedRules.includes(rule.id));
   };
 
-  // Apply selected rules to the dataset
-  const handleApplyRules = async () => {
-    if (selectedRules.length === 0) {
+      
+      setSuggestedRules(prev => [...prev, ...generatedRules]);
+      setActiveTab('suggestions'); // Switch to suggestions tab
+      
       toast({
-        title: 'No Rules Selected',
-        description: 'Please select at least one rule to apply.',
+        title: 'Rules Generated',
+        description: `Successfully generated ${generatedRules.length} rules using ${selectedEngine}.`,
+      });
+    } else {
+      toast({
+        title: 'Generation Failed',
+        description: response.error || `Failed to generate rules using ${selectedEngine}.`,
         variant: 'destructive',
       });
-      return;
     }
+  } catch (err) {
+    console.error(`Error generating rules with ${selectedEngine}:`, err);
+    toast({
+      title: 'Error',
+      description: `Failed to generate rules using ${selectedEngine}.`,
+      variant: 'destructive',
+    });
+  } finally {
+    setIsGenerating(false);
+    setStatusMessage('');
+  }
+};
+
+// Handle adding a suggested rule
+const handleAddSuggestedRule = (suggestion: RuleSuggestion) => {
+  // Check if rule already exists
+  const isDuplicate = ruleObjects.some(
+    rule => 
+      rule.name.toLowerCase() === suggestion.name.toLowerCase() ||
+      rule.condition === suggestion.condition
+  );
+  
+  if (isDuplicate) {
+    toast({
+      title: 'Duplicate Rule',
+      description: 'This rule or a similar rule already exists in your selection.',
+      variant: 'destructive',
+    });
+    return;
+  }
+  
+  // Create a new rule from the suggestion
+  const newRule: BusinessRule = {
+    id: `rule-${Date.now()}`, // Generate a temporary ID
+    name: suggestion.name,
+    description: suggestion.description || '',
+    condition: suggestion.condition,
+    severity: suggestion.severity,
+    message: suggestion.message,
+    active: true,
+    confidence: suggestion.confidence,
+    model_generated: suggestion.model_generated || false
+  };
+  
+  // Add to rule objects and selected rules
+  setRuleObjects(prev => [...prev, newRule]);
+  setSelectedRules(prev => [...prev, newRule.id]);
+  
+  // Analyze impact if sample data is available
+  if (sampleData && sampleData.length > 0) {
+    analyzeRuleImpact([...selectedRules, newRule.id]);
+  }
+  
+  toast({
+    title: 'Rule Added',
+    description: `Added "${suggestion.name}" to your selected rules.`,
+  });
+};
+
+// Handle rule export
+const handleExportRules = () => {
+  const rulesToExport = ruleObjects.filter(rule => selectedRules.includes(rule.id));
+  const dataStr = JSON.stringify(rulesToExport, null, 2);
+  const blob = new Blob([dataStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `business_rules_${datasetId}_${new Date().toISOString().split('T')[0]}.json`;
+  link.click();
+  
+  toast({
+    title: 'Rules Exported',
+    description: `Exported ${rulesToExport.length} rules to JSON file.`,
+  });
+};
+
+// Get selected rule objects
+const getSelectedRuleObjects = () => {
+  return ruleObjects.filter(rule => selectedRules.includes(rule.id));
+};
+
+// Apply selected rules to the dataset
+const handleApplyRules = async () => {
+  if (selectedRules.length === 0) {
+    toast({
+      title: 'No Rules Selected',
+      description: 'Please select at least one business rule to apply.',
+      variant: 'destructive',
+    });
+    return;
+  }
+  
+  setIsApplying(true);
+  setRuleStatus('processing');
+  setStatusMessage('Applying business rules...');
+  
+  try {
+    // Get the selected rule objects
+    const rulesToApply = ruleObjects.filter(rule => selectedRules.includes(rule.id));
     
-    setIsApplying(true);
-    setRuleStatus('processing');
-    setStatusMessage('Applying business rules...');
+    // Call the enhanced API to save and apply the rules
+    const response = await api.businessRules.saveBusinessRules(datasetId, rulesToApply);
     
-    try {
-      // Get the selected rule objects
-      const rulesToApply = ruleObjects.filter(rule => selectedRules.includes(rule.id));
-      
-      // Call the API to apply the rules
-      const response = await api.businessRules.saveBusinessRules(datasetId, rulesToApply);
-      
-      if (response.success) {
+    if (response.success) {
+      // Check if rules were both saved and applied
+      if (response.data.applied) {
         setRuleStatus('success');
-        setStatusMessage('Business rules applied successfully!');
+        setStatusMessage('Business rules saved and applied successfully!');
         
         toast({
           title: 'Rules Applied',
-          description: `Successfully applied ${rulesToApply.length} business rules.`,
+          description: `Successfully saved and applied ${rulesToApply.length} business rules.`,
         });
         
-        // Notify parent component
+        // Notify parent component with the rule IDs
         if (onRulesApplied) {
-          onRulesApplied(selectedRules);
+          // If we have created_rules from batch endpoint, use those IDs
+          const appliedRuleIds = response.data.created_rules 
+            ? response.data.created_rules.map((rule: any) => rule.id)
+            : selectedRules;
+            
+          onRulesApplied(appliedRuleIds);
         }
         
         // Move to the next step if onComplete is provided
@@ -435,17 +538,17 @@ const EnhancedBusinessRules: React.FC<EnhancedBusinessRulesProps> = ({
           }, 1500);
         }
       } else {
-        setRuleStatus('failed');
-        setStatusMessage('Failed to apply business rules.');
+        // Rules were saved but not applied
+        setRuleStatus('warning');
+        setStatusMessage('Business rules saved but could not be applied. You can try applying them again.');
         
         toast({
-          title: 'Error',
-          description: response.error || 'Failed to apply business rules.',
-          variant: 'destructive',
+          title: 'Rules Saved',
+          description: `Rules were saved but could not be applied: ${response.data.applyError || 'Unknown error'}`,
+          variant: 'warning',
         });
       }
-    } catch (err) {
-      console.error('Error applying business rules:', err);
+    } else {
       setRuleStatus('failed');
       setStatusMessage('Failed to apply business rules.');
       
