@@ -58,6 +58,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [selectedRules] = useState<string[]>([]);
   const [sampleData, setSampleData] = useState<Record<string, unknown>[]>([]);
+  const [pipelineCompleted, setPipelineCompleted] = useState<boolean>(false);
   const [stageLoading, setStageLoading] = useState({
     upload: false,
     validate: false,
@@ -446,6 +447,51 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
       setStageLoading({...stageLoading, enrich: false});
     }
   }, [datasetId, setCompletedSteps, setCurrentStep, setError, setPipelineSteps, setStageLoading, stageLoading, toast]);
+  
+  // Handle load to vector database step
+  const handleLoadData = useCallback(async () => {
+    if (!datasetId) {
+      setError('No dataset available to load to vector database');
+      return;
+    }
+    
+    try {
+      setStageLoading({...stageLoading, load: true});
+      setPipelineSteps(steps => updateStepStatus(steps, 5, 'processing'));
+      
+      // Call API to load the data to vector database
+      const loadResponse = await api.pipeline.loadData(datasetId);
+      
+      if (loadResponse.success) {
+        // Update step status
+        setCompletedSteps(prev => [...new Set([...prev, 5])]);
+        setPipelineSteps(steps => updateStepStatus(steps, 5, 'completed'));
+        
+        // Show success toast with longer duration
+        toast({
+          title: "Pipeline Complete",
+          description: "Data has been successfully loaded to the vector database. Your data is now ready for analysis!",
+          duration: 5000
+        });
+        
+        // Set pipeline completion state
+        setPipelineCompleted(true);
+      } else {
+        setPipelineSteps(steps => updateStepStatus(steps, 5, 'failed'));
+        throw new Error(loadResponse.error || "Failed to load data to vector database");
+      }
+    } catch (error) {
+      setPipelineSteps(steps => updateStepStatus(steps, 5, 'failed'));
+      setError(error instanceof Error ? error.message : 'Failed to load data to vector database');
+      toast({
+        title: "Vector Database Load Failed",
+        description: error instanceof Error ? error.message : "Failed to load data to vector database.",
+        variant: "destructive"
+      });
+    } finally {
+      setStageLoading({...stageLoading, load: false});
+    }
+  }, [datasetId, setCompletedSteps, setError, setPipelineSteps, setStageLoading, stageLoading, toast, setPipelineCompleted]);
 
   // Navigate to a specific step without triggering API calls if step is already completed
   const handleNavigate = useCallback((step: number) => {
@@ -496,11 +542,50 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
       case 4: // Enrich step
         await handleEnrichData();
         break;
+      case 5: // Load to Vector Database step
+        await handleLoadData();
+        break;
       default:
         break;
     }
-  }, [currentStep, completedSteps, handleNavigate, handleUpload, handleValidateFile, handleTransform, handleEnrichData]);
+  }, [currentStep, completedSteps, handleNavigate, handleUpload, handleValidateFile, handleTransform, handleEnrichData, handleLoadData]);
   
+  // Reset pipeline process for a new dataset
+  const resetPipeline = useCallback(() => {
+    // Reset all state variables
+    setSelectedFile(null);
+    setName('');
+    setError(null);
+    setDatasetId(null);
+    setCurrentStep(0);
+    setCompletedSteps([]);
+    setSampleData([]);
+    setPipelineCompleted(false);
+    setStageLoading({
+      upload: false,
+      validate: false,
+      rules: false,
+      transform: false,
+      enrich: false,
+      load: false
+    });
+    
+    // Reset pipeline steps
+    setPipelineSteps(steps => 
+      steps.map(step => ({
+        ...step,
+        status: 'pending'
+      }))
+    );
+    
+    toast({
+      title: "New Pipeline Started",
+      description: "You can now upload a new dataset to process.",
+      variant: "default"
+    });
+  }, [setSelectedFile, setName, setError, setDatasetId, setCurrentStep, setCompletedSteps, 
+      setSampleData, setPipelineCompleted, setStageLoading, setPipelineSteps, toast]);
+
   // Handle business rules application
   const handleBusinessRules = async (appliedRuleIds?: string[]) => {
     setStageLoading({...stageLoading, rules: true});
@@ -561,6 +646,21 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
         <CardHeader>
           <CardTitle>Data Pipeline</CardTitle>
           <CardDescription>Upload, validate, transform, and load your data</CardDescription>
+          {pipelineCompleted && (
+            <div className="mt-2 flex items-center">
+              <Badge variant="success" className="bg-green-100 text-green-800 hover:bg-green-200 mr-2">
+                Pipeline Complete
+              </Badge>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="ml-auto" 
+                onClick={resetPipeline}
+              >
+                <span className="mr-1">+</span> Start New Pipeline
+              </Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
@@ -815,13 +915,56 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
               {/* Load Step */}
               {currentStep === 5 && (
                 <div className="space-y-4">
-                  <Alert>
-                    <HardDrive className="h-4 w-4" />
-                    <AlertTitle>Load Data</AlertTitle>
-                    <AlertDescription>
-                      Save processed data to your target destination.
-                    </AlertDescription>
-                  </Alert>
+                  {pipelineCompleted ? (
+                    <div className="space-y-4">
+                      <Alert className="bg-green-50 border-green-200">
+                        <CheckCircle2 className="h-5 w-5 text-green-600" />
+                        <AlertTitle>Pipeline Complete</AlertTitle>
+                        <AlertDescription>
+                          Your data has been successfully processed and loaded to the vector database.
+                        </AlertDescription>
+                      </Alert>
+                      
+                      <Card className="bg-blue-50/30">
+                        <CardHeader>
+                          <CardTitle className="text-lg">Pipeline Summary</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="font-medium">Dataset ID:</span>
+                              <span className="font-mono bg-white px-2 py-0.5 rounded border">{datasetId}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="font-medium">Dataset Name:</span>
+                              <span>{name}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="font-medium">Completed Steps:</span>
+                              <span>{completedSteps.length} of {pipelineSteps.length}</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      
+                      <div className="flex justify-center">
+                        <Button 
+                          onClick={resetPipeline}
+                          className="bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                          <span className="mr-2">+</span> Start New Pipeline
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Alert>
+                      <HardDrive className="h-4 w-4" />
+                      <AlertTitle>Load Data to Vector Database</AlertTitle>
+                      <AlertDescription>
+                        Loading your processed data to the vector database for semantic search and RAG capabilities.
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </div>
               )}
               </div>
@@ -841,7 +984,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
                   <button
                     className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handleContinue}
-                    disabled={currentStep === pipelineSteps.length - 1 || Object.values(stageLoading).some(loading => loading)}
+                    disabled={currentStep === pipelineSteps.length - 1 || Object.values(stageLoading).some(loading => loading) || pipelineCompleted}
                   >
                     {Object.values(stageLoading).some(loading => loading) ? 'Processing...' : 'Continue'}
                     <ChevronRight className="h-4 w-4" />
