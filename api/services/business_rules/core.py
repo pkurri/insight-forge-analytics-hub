@@ -148,7 +148,7 @@ class BusinessRulesService:
             # Update cache
             dataset_id = rule_data["dataset_id"]
             await self.invalidate_cache(dataset_id)
-
+            
             return rule
         except ValueError as e:
             # Re-raise validation errors
@@ -156,6 +156,55 @@ class BusinessRulesService:
         except Exception as e:
             logger.error(f"Error creating rule: {str(e)}")
             raise ValueError(f"Failed to create rule: {str(e)}")
+            
+    async def create_rules(self, dataset_id: str, rules_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Create multiple business rules in a batch operation.
+        
+        Args:
+            dataset_id: ID of the dataset to associate with the rules
+            rules_data: List of dictionaries containing rule data
+            
+        Returns:
+            Dict containing information about created rules and any failures
+        """
+        created_rules = []
+        failed_rules = []
+        
+        for rule_data in rules_data:
+            try:
+                # Ensure dataset_id is set for each rule
+                if "dataset_id" not in rule_data:
+                    rule_data["dataset_id"] = dataset_id
+                
+                # Create the rule
+                result = await self.create_rule(rule_data)
+                created_rules.append(result)
+            except ValueError as e:
+                # Track failed rules with their errors
+                failed_rules.append({
+                    "rule_data": rule_data,
+                    "error": str(e)
+                })
+            except Exception as e:
+                logger.error(f"Error creating rule in batch: {str(e)}")
+                failed_rules.append({
+                    "rule_data": rule_data,
+                    "error": str(e)
+                })
+        
+        # Invalidate cache for this dataset to ensure fresh data
+        await self.invalidate_cache(dataset_id)
+        
+        return {
+            "success": len(created_rules) > 0,
+            "created_rules": created_rules,
+            "failed_rules": failed_rules,
+            "total_submitted": len(rules_data),
+            "total_created": len(created_rules),
+            "total_failed": len(failed_rules),
+            "dataset_id": dataset_id
+        }
             
     async def update_rule(self, rule_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
         """
