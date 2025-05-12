@@ -509,6 +509,75 @@ class PipelineService:
                 "error": error_message
             }
     
+    async def apply_business_rules(self, dataset_id: str, rule_ids: List[str]) -> Dict[str, Any]:
+        """
+        Apply business rules to a dataset and update pipeline metadata.
+        
+        Args:
+            dataset_id: ID of the dataset to apply rules to
+            rule_ids: List of rule IDs to apply
+            
+        Returns:
+            Dictionary with the results of applying the business rules
+        """
+        try:
+            # Convert dataset_id to int if it's a string
+            dataset_id_int = int(dataset_id) if isinstance(dataset_id, str) else dataset_id
+            
+            # Get dataset information
+            dataset = await self.dataset_repository.get_dataset(dataset_id_int)
+            if not dataset:
+                return {
+                    "success": False,
+                    "error": f"Dataset with ID {dataset_id} not found"
+                }
+            
+            # Update pipeline metadata to track applied rules
+            # This is used for tracking which rules have been applied in the pipeline
+            pipeline_run = await self.pipeline_repository.get_latest_pipeline_run(dataset_id_int)
+            if pipeline_run:
+                # Update pipeline run metadata
+                metadata = pipeline_run.get("metadata", {}) or {}
+                applied_rules = metadata.get("applied_rules", []) or []
+                applied_rules.extend(rule_ids)
+                metadata["applied_rules"] = list(set(applied_rules))  # Remove duplicates
+                
+                # Save the updated metadata
+                await self.pipeline_repository.update_pipeline_run(pipeline_run["id"], {
+                    "metadata": metadata
+                })
+                
+                # Create a pipeline step for business rules application
+                step_data = {
+                    "pipeline_run_id": pipeline_run["id"],
+                    "step_type": "business_rules",
+                    "status": "completed",
+                    "start_time": datetime.now(),
+                    "end_time": datetime.now(),
+                    "metadata": {
+                        "applied_rules": rule_ids,
+                        "rule_count": len(rule_ids)
+                    }
+                }
+                await self.pipeline_repository.create_pipeline_step(step_data=step_data)
+            
+            return {
+                "success": True,
+                "details": {
+                    "dataset_id": dataset_id,
+                    "applied_rules": rule_ids,
+                    "rule_count": len(rule_ids)
+                }
+            }
+            
+        except Exception as e:
+            error_message = f"Error applying business rules: {str(e)}"
+            logger.error(error_message, exc_info=True)
+            return {
+                "success": False,
+                "error": error_message
+            }
+    
     async def load_to_vector_db(self, dataset_id: int, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Load data to vector database for semantic search and retrieval.

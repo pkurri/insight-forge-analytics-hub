@@ -49,30 +49,82 @@ class PipelineRepository:
         run_data['steps'] = [PipelineStep(**dict(step)) for step in steps_result]
         
         return PipelineRun(**run_data)
+    
+    async def get_latest_pipeline_run(self, dataset_id: int) -> Optional[Dict[str, Any]]:
+        """Get the latest pipeline run for a dataset."""
+        query = """
+        SELECT * FROM pipeline_runs 
+        WHERE dataset_id = $1 
+        ORDER BY start_time DESC 
+        LIMIT 1
+        """
+        result = await execute_query(query, dataset_id)
+        return dict(result[0]) if result else None
 
     async def create_pipeline_step(
         self,
-        pipeline_run_id: int,
-        step_name: PipelineStepType,
-        status: PipelineRunStatus
+        pipeline_run_id: int = None,
+        step_name: PipelineStepType = None,
+        status: PipelineRunStatus = None,
+        step_data: Dict[str, Any] = None
     ) -> PipelineStep:
-        """Create a new pipeline step."""
-        query = """
-        INSERT INTO pipeline_steps (
-            pipeline_run_id, step_type, status, start_time, pipeline_metadata
-        ) VALUES ($1, $2, $3, $4, $5)
-        RETURNING *
-        """
+        """Create a new pipeline step.
         
-        now = datetime.utcnow()
-        result = await execute_query(
-            query,
-            pipeline_run_id,
-            step_name,
-            status,
-            now,
-            json.dumps({})
-        )
+        This method supports two parameter formats:
+        1. Individual parameters: pipeline_run_id, step_name, status
+        2. Dictionary format: step_data with all required fields
+        
+        Args:
+            pipeline_run_id: ID of the pipeline run
+            step_name: Type of the pipeline step
+            status: Status of the pipeline step
+            step_data: Dictionary with all step data (alternative to individual parameters)
+            
+        Returns:
+            Created pipeline step
+        """
+        # Handle both parameter formats
+        if step_data is not None:
+            # Dictionary format
+            query = """
+            INSERT INTO pipeline_steps (
+                pipeline_run_id, step_type, status, start_time, end_time, step_metadata
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+            """
+            
+            # Convert metadata to JSON string if it's a dict
+            metadata = step_data.get('metadata', {})
+            if isinstance(metadata, dict):
+                metadata = json.dumps(metadata)
+            
+            result = await execute_query(
+                query,
+                step_data['pipeline_run_id'],
+                step_data['step_type'],
+                step_data['status'],
+                step_data.get('start_time', datetime.utcnow()),
+                step_data.get('end_time'),
+                metadata
+            )
+        else:
+            # Individual parameters format
+            query = """
+            INSERT INTO pipeline_steps (
+                pipeline_run_id, step_type, status, start_time, pipeline_metadata
+            ) VALUES ($1, $2, $3, $4, $5)
+            RETURNING *
+            """
+            
+            now = datetime.utcnow()
+            result = await execute_query(
+                query,
+                pipeline_run_id,
+                step_name,
+                status,
+                now,
+                json.dumps({})
+            )
         
         return PipelineStep(**dict(result[0]))
 
