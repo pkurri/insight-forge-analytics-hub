@@ -91,7 +91,7 @@ const businessRulesService = {
    * @returns {Promise<Object>} - API response
    */
   async applyRules(datasetId, ruleIds) {
-    return apiClient.post(`pipeline/business-rules/${datasetId}`, ruleIds);
+    return apiClient.post(`pipeline/business-rules/${datasetId}`, { rule_ids: ruleIds });
   },
 
   /**
@@ -166,6 +166,17 @@ const businessRulesService = {
     return apiClient.get(`business-rules/extract-sample/${datasetId}`, {
       max_rows: maxRows
     });
+  },
+
+  /**
+   * Save and apply multiple business rules to a dataset
+   * 
+   * @param {string} datasetId - The dataset ID
+   * @param {Array<Object>} rules - Array of business rule objects to save and apply
+   * @returns {Promise<Object>} - API response with created rules and application status
+   */
+  async saveBusinessRules(datasetId, rules) {
+    return apiClient.post(`business-rules/batch/${datasetId}`, { rules });
   }
 };
 

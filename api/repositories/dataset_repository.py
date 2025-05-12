@@ -3,6 +3,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 import json
+import os
 from api.config.redis_config import get_redis_client
 from api.services.analytics_service import (
     process_dataset,
@@ -28,6 +29,7 @@ class DatasetRepository:
         """Initialize the repository with Redis connection."""
         self.redis = get_redis_client()
         self.cache_ttl = 3600  # Cache TTL in seconds
+        self.data_cache = {}  # In-memory cache for dataset data
         
     async def _get_cache_key(self, key_type: str, key_id: str) -> str:
         """Generate cache key."""
@@ -224,3 +226,174 @@ class DatasetRepository:
         query = "DELETE FROM datasets WHERE id = $1 RETURNING id"
         result = await execute_query(query, dataset_id)
         return bool(result)
+    
+    async def get_dataset_data(self, dataset_id: int) -> List[Dict[str, Any]]:
+        """Get dataset data from in-memory cache or database."""
+        # Check if data is in memory cache
+        cache_key = f"data:{dataset_id}"
+        if cache_key in self.data_cache:
+            return self.data_cache[cache_key]
+        
+        # If not in cache, try to load from database or file
+        # This is a placeholder for actual database retrieval
+        # In our new approach, we'll load from file instead
+        return None
+    
+    async def get_transformed_data(self, dataset_id: int) -> List[Dict[str, Any]]:
+        """Get transformed dataset data from in-memory cache."""
+        cache_key = f"transformed_data:{dataset_id}"
+        if cache_key in self.data_cache:
+            return self.data_cache[cache_key]
+        return None
+    
+    async def get_enriched_data(self, dataset_id: int) -> List[Dict[str, Any]]:
+        """Get enriched dataset data from in-memory cache."""
+        cache_key = f"enriched_data:{dataset_id}"
+        if cache_key in self.data_cache:
+            return self.data_cache[cache_key]
+        return None
+    
+    async def save_transformed_data(self, dataset_id: int, data: List[Dict[str, Any]]) -> bool:
+        """Save transformed dataset data to in-memory cache."""
+        cache_key = f"transformed_data:{dataset_id}"
+        self.data_cache[cache_key] = data
+        
+        # Also save to a file in the temp directory for persistence
+        dataset = await self.get_dataset(dataset_id)
+        if dataset and hasattr(dataset, 'metadata') and dataset.metadata:
+            metadata = dataset.metadata if isinstance(dataset.metadata, dict) else {}
+            file_path = metadata.get('file_path')
+            
+            if file_path:
+                # Create a transformed data file path
+                dir_path = os.path.dirname(file_path)
+                file_name = os.path.basename(file_path)
+                name, ext = os.path.splitext(file_name)
+                transformed_file_path = os.path.join(dir_path, f"{name}_transformed{ext}")
+                
+                # Save the data to the file
+                try:
+                    if ext.lower() == '.csv':
+                        pd.DataFrame(data).to_csv(transformed_file_path, index=False)
+                    elif ext.lower() in ['.xlsx', '.xls']:
+                        pd.DataFrame(data).to_excel(transformed_file_path, index=False)
+                    elif ext.lower() == '.json':
+                        with open(transformed_file_path, 'w') as f:
+                            json.dump(data, f)
+                    
+                    # Update metadata with transformed file path
+                    metadata['transformed_file_path'] = transformed_file_path
+                    await self.update_dataset_metadata(dataset_id, metadata)
+                    return True
+                except Exception as e:
+                    print(f"Error saving transformed data to file: {str(e)}")
+        
+        return False
+    
+    async def save_enriched_data(self, dataset_id: int, data: List[Dict[str, Any]]) -> bool:
+        """Save enriched dataset data to in-memory cache."""
+        cache_key = f"enriched_data:{dataset_id}"
+        self.data_cache[cache_key] = data
+        
+        # Also save to a file in the temp directory for persistence
+        dataset = await self.get_dataset(dataset_id)
+        if dataset and hasattr(dataset, 'metadata') and dataset.metadata:
+            metadata = dataset.metadata if isinstance(dataset.metadata, dict) else {}
+            file_path = metadata.get('file_path')
+            
+            if file_path:
+                # Create an enriched data file path
+                dir_path = os.path.dirname(file_path)
+                file_name = os.path.basename(file_path)
+                name, ext = os.path.splitext(file_name)
+                enriched_file_path = os.path.join(dir_path, f"{name}_enriched{ext}")
+                
+                # Save the data to the file
+                try:
+                    if ext.lower() == '.csv':
+                        pd.DataFrame(data).to_csv(enriched_file_path, index=False)
+                    elif ext.lower() in ['.xlsx', '.xls']:
+                        pd.DataFrame(data).to_excel(enriched_file_path, index=False)
+                    elif ext.lower() == '.json':
+                        with open(enriched_file_path, 'w') as f:
+                            json.dump(data, f)
+                    
+                    # Update metadata with enriched file path
+                    metadata['enriched_file_path'] = enriched_file_path
+                    await self.update_dataset_metadata(dataset_id, metadata)
+                    return True
+                except Exception as e:
+                    print(f"Error saving enriched data to file: {str(e)}")
+        
+        return False
+    
+    async def get_embeddings(self, dataset_id: int) -> List[Dict[str, Any]]:
+        """Get embeddings for a dataset from in-memory cache."""
+        cache_key = f"embeddings:{dataset_id}"
+        if cache_key in self.data_cache:
+            return self.data_cache[cache_key]
+        return None
+    
+    async def save_embeddings(self, dataset_id: int, embeddings: List[Dict[str, Any]]) -> bool:
+        """Save embeddings for a dataset to in-memory cache."""
+        cache_key = f"embeddings:{dataset_id}"
+        self.data_cache[cache_key] = embeddings
+        
+        # Also save to a file in the temp directory for persistence
+        dataset = await self.get_dataset(dataset_id)
+        if dataset and hasattr(dataset, 'metadata') and dataset.metadata:
+            metadata = dataset.metadata if isinstance(dataset.metadata, dict) else {}
+            file_path = metadata.get('file_path')
+            
+            if file_path:
+                # Create an embeddings file path
+                dir_path = os.path.dirname(file_path)
+                file_name = os.path.basename(file_path)
+                name, ext = os.path.splitext(file_name)
+                embeddings_file_path = os.path.join(dir_path, f"{name}_embeddings.json")
+                
+                # Save the embeddings to the file
+                try:
+                    with open(embeddings_file_path, 'w') as f:
+                        json.dump(embeddings, f)
+                    
+                    # Update metadata with embeddings file path
+                    metadata['embeddings_file_path'] = embeddings_file_path
+                    await self.update_dataset_metadata(dataset_id, metadata)
+                    return True
+                except Exception as e:
+                    print(f"Error saving embeddings to file: {str(e)}")
+        
+        return False
+    
+    async def save_insights(self, dataset_id: int, insights: List[Dict[str, Any]]) -> bool:
+        """Save insights for a dataset."""
+        cache_key = f"insights:{dataset_id}"
+        self.data_cache[cache_key] = insights
+        
+        # Also save to a file in the temp directory for persistence
+        dataset = await self.get_dataset(dataset_id)
+        if dataset and hasattr(dataset, 'metadata') and dataset.metadata:
+            metadata = dataset.metadata if isinstance(dataset.metadata, dict) else {}
+            file_path = metadata.get('file_path')
+            
+            if file_path:
+                # Create an insights file path
+                dir_path = os.path.dirname(file_path)
+                file_name = os.path.basename(file_path)
+                name, ext = os.path.splitext(file_name)
+                insights_file_path = os.path.join(dir_path, f"{name}_insights.json")
+                
+                # Save the insights to the file
+                try:
+                    with open(insights_file_path, 'w') as f:
+                        json.dump(insights, f)
+                    
+                    # Update metadata with insights file path
+                    metadata['insights_file_path'] = insights_file_path
+                    await self.update_dataset_metadata(dataset_id, metadata)
+                    return True
+                except Exception as e:
+                    print(f"Error saving insights to file: {str(e)}")
+        
+        return False

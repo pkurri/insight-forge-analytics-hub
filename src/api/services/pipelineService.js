@@ -42,7 +42,7 @@ const pipelineService = {
    * @returns {Promise<Object>} - API response
    */
   async applyBusinessRules(datasetId, ruleIds) {
-    return apiClient.post(`pipeline/business-rules/${datasetId}`, ruleIds);
+    return apiClient.post(`pipeline/business-rules/${datasetId}`, { rule_ids: ruleIds });
   },
 
   /**

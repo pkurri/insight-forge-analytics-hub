@@ -855,4 +855,4 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   );
 };
 
-export { ChatInterface };
+export { ChatInterface, ChatSuggestion };

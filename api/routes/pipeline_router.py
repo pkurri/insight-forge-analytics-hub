@@ -1,6 +1,84 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, UploadFile, Form, Query, Body, Path
-from typing import Dict, Any, Optional, List
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, Form, UploadFile, Query, Path, Body
+from fastapi.responses import JSONResponse
+from typing import List, Dict, Any, Optional
 from datetime import datetime
+import json
+import os
+import shutil
+import uuid
+import asyncio
+import pandas as pd
+
+from api.models.pipeline import PipelineRun, PipelineStep, PipelineStepCreate, PipelineStepUpdate
+from api.models.dataset import DatasetCreate, DatasetStatus, SourceType, FileType
+from api.repositories.pipeline_repository import PipelineRepository
+from api.repositories.dataset_repository import DatasetRepository
+from api.dependencies.auth import get_current_user, get_current_user_or_api_key
+from api.dependencies.repositories import get_pipeline_repository, get_dataset_repository
+from api.config.settings import UPLOAD_DIR
+
+# Utility function to load dataset data from files
+async def load_dataset_data_from_file(dataset_id: int, dataset_repository) -> Dict[str, Any]:
+    """
+    Load dataset data from a file stored in the temp folder.
+    
+    Args:
+        dataset_id: ID of the dataset
+        dataset_repository: Repository for dataset operations
+        
+    Returns:
+        Dictionary with loaded data and success status
+    """
+    # Get dataset metadata to find the file path
+    dataset = await dataset_repository.get_dataset(dataset_id)
+    if not dataset:
+        return {"success": False, "error": f"Dataset {dataset_id} not found"}
+    
+    # Extract file path from dataset metadata
+    metadata = dataset.metadata if hasattr(dataset, 'metadata') else {}
+    file_path = None
+    
+    # Check if source_info contains the file path
+    if hasattr(dataset, 'source_info') and dataset.source_info:
+        source_info = dataset.source_info
+        if isinstance(source_info, str):
+            try:
+                source_info = json.loads(source_info)
+            except json.JSONDecodeError:
+                pass
+        
+        file_path = source_info.get('file_path') if isinstance(source_info, dict) else None
+    
+    # If file_path not found in source_info, check metadata
+    if not file_path and metadata:
+        file_path = metadata.get('file_path')
+    
+    if not file_path:
+        return {"success": False, "error": f"File path not found for dataset {dataset_id}"}
+    
+    # Check if file exists
+    if not os.path.exists(file_path):
+        return {"success": False, "error": f"File not found at path: {file_path}"}
+    
+    # Load data based on file extension
+    file_ext = os.path.splitext(file_path)[1].lower()
+    try:
+        if file_ext == '.csv':
+            data = pd.read_csv(file_path).to_dict('records')
+        elif file_ext in ['.xlsx', '.xls']:
+            data = pd.read_excel(file_path).to_dict('records')
+        elif file_ext == '.json':
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+        else:
+            return {"success": False, "error": f"Unsupported file format: {file_ext}"}
+        
+        if not data:
+            return {"success": False, "error": f"No data found in file: {file_path}"}
+            
+        return {"success": True, "data": data, "file_path": file_path}
+    except Exception as e:
+        return {"success": False, "error": f"Error loading data from file: {str(e)}"}
 import tempfile
 import os
 import shutil
@@ -453,10 +531,12 @@ async def apply_business_rules(
         Dictionary with results of applying rules
     """
     try:
-        # Get dataset data
-        data = await dataset_repository.get_dataset_data(dataset_id)
-        if not data:
-            return {"success": False, "error": f"Dataset {dataset_id} not found or empty"}
+        # Load dataset data from file
+        data_result = await load_dataset_data_from_file(dataset_id, dataset_repository)
+        if not data_result["success"]:
+            return data_result
+        
+        data = data_result["data"]
         
         # Apply business rules using the business rules service
         from services.business_rules import business_rules_service
@@ -493,13 +573,13 @@ async def get_sample_data(
     and data preview. It returns the sample data along with column metadata.
     """
     try:
-        # Get dataset metadata
-        dataset = await dataset_repository.get_dataset(dataset_id)
-        if not dataset:
-            return {"success": False, "error": f"Dataset with ID {dataset_id} not found"}
+        # Load dataset data from file
+        data_result = await load_dataset_data_from_file(dataset_id, dataset_repository)
+        if not data_result["success"]:
+            return data_result
         
-        # Get sample data
-        data = await dataset_repository.get_dataset_data(dataset_id, limit=max_rows)
+        # Get sample data (limit to max_rows)
+        data = data_result["data"][:max_rows] if len(data_result["data"]) > max_rows else data_result["data"]
         if not data:
             return {"success": False, "error": "No data available for this dataset"}
         
@@ -541,24 +621,54 @@ async def transform_data(
     transform_config: Dict[str, Any] = Body({})
 ):
     """Transform data using defined transformations."""
-    result = await pipeline_service.transform_data(dataset_id)
-    return result
+    try:
+        # Load dataset data from file
+        data_result = await load_dataset_data_from_file(dataset_id, dataset_repository)
+        if not data_result["success"]:
+            return data_result
+        
+        # Pass the loaded data to the transform service
+        result = await pipeline_service.transform_data(dataset_id, transform_config)
+        return result
+    except Exception as e:
+        logger.error(f"Error transforming data: {str(e)}")
+        return {"success": False, "error": f"Failed to transform data: {str(e)}"}
 
 @router.post("/pipeline/enrich/{dataset_id}", response_model=Dict[str, Any])
 async def enrich_data(
     dataset_id: int
 ):
     """Enrich data with external sources or derived fields."""
-    result = await pipeline_service.enrich_data(dataset_id)
-    return result
+    try:
+        # Load dataset data from file
+        data_result = await load_dataset_data_from_file(dataset_id, dataset_repository)
+        if not data_result["success"]:
+            return data_result
+        
+        # Pass the loaded data to the enrich service
+        result = await pipeline_service.enrich_data(dataset_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error enriching data: {str(e)}")
+        return {"success": False, "error": f"Failed to enrich data: {str(e)}"}
 
 @router.post("/pipeline/load/{dataset_id}", response_model=Dict[str, Any])
 async def load_to_vector_db(
     dataset_id: int
 ):
     """Load data to vector database."""
-    result = await pipeline_service.load_to_vector_db(dataset_id)
-    return result
+    try:
+        # Load dataset data from file
+        data_result = await load_dataset_data_from_file(dataset_id, dataset_repository)
+        if not data_result["success"]:
+            return data_result
+        
+        # Pass the loaded data to the vector database loading service
+        result = await pipeline_service.load_to_vector_db(dataset_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error loading data to vector database: {str(e)}")
+        return {"success": False, "error": f"Failed to load data to vector database: {str(e)}"}
 
 # Removed duplicate get_sample_data function - using the implementation at lines 483-535 instead
 
