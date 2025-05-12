@@ -39,27 +39,27 @@ const PipelineNavigation: React.FC<PipelineNavigationProps> = ({
   return (
     <div className="flex justify-between mt-6">
       <button
-        className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 flex items-center"
+        className="px-3 py-1.5 bg-gray-200 text-gray-800 text-sm rounded hover:bg-gray-300 flex items-center"
         onClick={handleBack}
         disabled={currentStep === 0 || isLoading}
       >
-        <ChevronLeft className="mr-2 h-4 w-4" />
+        <ChevronLeft className="mr-1 h-3.5 w-3.5" />
         Back
       </button>
       
       <button
-        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
+        className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 flex items-center"
         onClick={handleNext}
         disabled={currentStep === totalSteps - 1 || isLoading}
       >
         {isLoading ? (
           <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
             Processing...
           </>
         ) : (
           <>
-            <ChevronRight className="mr-2 h-4 w-4" />
+            <ChevronRight className="mr-1 h-3.5 w-3.5" />
             Continue
           </>
         )}

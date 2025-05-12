@@ -101,6 +101,53 @@ async def create_rule(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating rule: {str(e)}")
 
+@router.post("/batch", response_model=StandardResponse[List[BusinessRule]])
+async def create_rules(
+    rules_data: List[Dict[str, Any]],
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Create multiple business rules in a single request.
+    
+    This endpoint allows for bulk creation of business rules, which is more efficient
+    than making multiple individual requests when creating several rules at once.
+    """
+    try:
+        created_rules = []
+        failed_rules = []
+        
+        for rule_data in rules_data:
+            try:
+                created_rule = await business_rules_service.create_rule(rule_data)
+                created_rules.append(created_rule)
+            except ValueError as e:
+                # Track failed rules with their errors
+                failed_rules.append({
+                    "rule_data": rule_data,
+                    "error": str(e)
+                })
+        
+        # Return information about successful and failed creations
+        result = {
+            "created_rules": created_rules,
+            "failed_rules": failed_rules,
+            "total_submitted": len(rules_data),
+            "total_created": len(created_rules),
+            "total_failed": len(failed_rules)
+        }
+        
+        # Consider the operation successful if at least one rule was created
+        success = len(created_rules) > 0
+        
+        return StandardResponse(
+            success=success,
+            data=result,
+            error=None if success else "Some or all rules failed to create"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating rules: {str(e)}")
+
+
 @router.put("/{rule_id}", response_model=StandardResponse[BusinessRule])
 async def update_rule(
     rule_id: str = Path(..., description="ID of the rule to update"),
