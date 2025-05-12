@@ -68,14 +68,14 @@ const pipelineService = {
   },
 
   /**
-   * Load data to destination in the pipeline
+   * Load data to vector database in the pipeline
    * 
    * @param {string} datasetId - The dataset ID
-   * @param {Object} loadConfig - Load configuration
+   * @param {Object} loadConfig - Load configuration with options like chunk_size and overlap
    * @returns {Promise<Object>} - API response
    */
   async loadData(datasetId, loadConfig = {}) {
-    return apiClient.post(`pipeline/load/${datasetId}`, loadConfig);
+    return apiClient.post(`pipeline/load_data/${datasetId}`, loadConfig);
   },
 
   /**

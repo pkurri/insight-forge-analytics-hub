@@ -254,6 +254,161 @@ class PipelineService:
             return {"success": True, "data": data, "file_path": file_path}
         except Exception as e:
             return {"success": False, "error": f"Error loading data from file: {str(e)}"}
+            
+    async def enrich_data(self, dataset_id: int, config: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Enrich dataset with additional data and features.
+        
+        Args:
+            dataset_id: ID of the dataset to enrich
+            config: Configuration for enrichment
+            
+        Returns:
+            Dictionary with enrichment results
+        """
+        try:
+            # Get dataset information
+            dataset = await self.dataset_repository.get_dataset(dataset_id)
+            if not dataset:
+                return {"success": False, "error": f"Dataset {dataset_id} not found"}
+                
+            # Load transformed data if available
+            transformed_data = await self.dataset_repository.get_transformed_data(dataset_id)
+            if not transformed_data:
+                # Try to load from file
+                data_result = await self.load_dataset_data_from_file(dataset_id)
+                if not data_result["success"]:
+                    return {"success": False, "error": f"Failed to load dataset data: {data_result['error']}"}
+                transformed_data = data_result["data"]
+                
+            # Apply enrichment logic
+            enriched_data = []
+            for record in transformed_data:
+                # Add derived fields based on existing data
+                enriched_record = dict(record)
+                
+                # Example enrichment: calculate total if quantity and price exist
+                if "quantity" in record and "price" in record:
+                    try:
+                        enriched_record["total"] = float(record["quantity"]) * float(record["price"])
+                    except (ValueError, TypeError):
+                        pass
+                        
+                # Example: add timestamp for processing
+                enriched_record["enriched_at"] = datetime.now().isoformat()
+                
+                # Add to enriched data
+                enriched_data.append(enriched_record)
+                
+            # Save enriched data
+            file_path = await self.dataset_repository.save_enriched_data(dataset_id, enriched_data)
+            
+            # Update dataset metadata
+            metadata = {"enriched": True, "enriched_at": datetime.now().isoformat(), "enriched_file_path": file_path}
+            await self.dataset_repository.update_dataset_metadata(dataset_id, metadata)
+            
+            return {
+                "success": True,
+                "message": f"Successfully enriched {len(enriched_data)} records",
+                "file_path": file_path
+            }
+            
+        except Exception as e:
+            logger.error(f"Error enriching data: {str(e)}")
+            return {"success": False, "error": f"Error enriching data: {str(e)}"}
+            
+    async def load_to_vector_db(self, dataset_id: int, config: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Load dataset to vector database using the API-centric approach.
+        
+        Args:
+            dataset_id: ID of the dataset to load
+            config: Configuration for vector loading
+            
+        Returns:
+            Dictionary with loading results
+        """
+        try:
+            # Get dataset information
+            dataset = await self.dataset_repository.get_dataset(dataset_id)
+            if not dataset:
+                return {"success": False, "error": f"Dataset {dataset_id} not found"}
+                
+            # Determine the file path to use (enriched > transformed > original)
+            file_path = None
+            metadata = dataset.metadata if hasattr(dataset, 'metadata') and dataset.metadata else {}
+            
+            # Check for enriched data first
+            if metadata.get("enriched") and metadata.get("enriched_file_path"):
+                file_path = metadata.get("enriched_file_path")
+                logger.info(f"Using enriched data file: {file_path}")
+            
+            # If no enriched data, check for transformed data
+            if not file_path and hasattr(dataset, 'transformed_file_path') and dataset.transformed_file_path:
+                file_path = dataset.transformed_file_path
+                logger.info(f"Using transformed data file: {file_path}")
+                
+            # If no transformed data, use original file
+            if not file_path:
+                # Get from source_info or metadata
+                if hasattr(dataset, 'source_info') and dataset.source_info:
+                    source_info = dataset.source_info
+                    if isinstance(source_info, str):
+                        try:
+                            source_info = json.loads(source_info)
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    if isinstance(source_info, dict):
+                        file_path = source_info.get('file_path')
+                        
+                # Check metadata if still no file path
+                if not file_path and metadata:
+                    file_path = metadata.get('file_path')
+                    
+            if not file_path:
+                return {"success": False, "error": f"No file path found for dataset {dataset_id}"}
+                
+            if not os.path.exists(file_path):
+                return {"success": False, "error": f"File not found at path: {file_path}"}
+                
+            # Use the vector embedding API for processing
+            from api.services.vector_embedding_api import vector_embedding_api
+            
+            # Configure chunk size and overlap
+            chunk_size = config.get("chunk_size", 1000) if config else 1000
+            overlap = config.get("overlap", 200) if config else 200
+            
+            # Process the dataset with the vector embedding API
+            result = await vector_embedding_api.process_dataset(
+                dataset_id=dataset_id,
+                file_path=file_path,
+                chunk_size=chunk_size,
+                overlap=overlap
+            )
+            
+            if result["success"]:
+                # Update dataset metadata
+                vector_metadata = {
+                    "vectorized": True,
+                    "vectorized_at": datetime.now().isoformat(),
+                    "total_vectors": result["total_vectors"],
+                    "vector_model": getattr(settings, "VECTOR_EMBEDDING_API_MODEL", "mistral")
+                }
+                await self.dataset_repository.update_dataset_metadata(dataset_id, vector_metadata)
+                
+                return {
+                    "success": True,
+                    "message": f"Successfully loaded {result['total_vectors']} vectors to the database",
+                    "total_vectors": result["total_vectors"],
+                    "total_records": result["total_records"]
+                }
+            else:
+                return {"success": False, "error": result["error"]}
+                
+        except Exception as e:
+            logger.error(f"Error loading to vector database: {str(e)}")
+            return {"success": False, "error": f"Error loading to vector database: {str(e)}"}
     
     async def load_data(self, dataset_id: int, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """

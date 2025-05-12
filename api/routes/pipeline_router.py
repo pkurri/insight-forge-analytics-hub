@@ -652,20 +652,126 @@ async def enrich_data(
         logger.error(f"Error enriching data: {str(e)}")
         return {"success": False, "error": f"Failed to enrich data: {str(e)}"}
 
+
+
 @router.post("/pipeline/load/{dataset_id}", response_model=Dict[str, Any])
 async def load_to_vector_db(
-    dataset_id: int
+    dataset_id: int,
+    config: Dict[str, Any] = Body({})
 ):
-    """Load data to vector database."""
+    """Load data to vector database for semantic search and RAG capabilities."""
     try:
-        # Load dataset data from file
-        data_result = await load_dataset_data_from_file(dataset_id, dataset_repository)
-        if not data_result["success"]:
-            return data_result
+        # Create a pipeline step for tracking
+        step_data = {
+            "dataset_id": dataset_id,
+            "step_type": "vector_load",
+            "status": "processing",
+            "start_time": datetime.now(),
+            "config": config
+        }
         
-        # Pass the loaded data to the vector database loading service
-        result = await pipeline_service.load_to_vector_db(dataset_id)
-        return result
+        # Get the latest pipeline run for this dataset
+        pipeline_run = await pipeline_repository.get_latest_pipeline_run(dataset_id)
+        if pipeline_run:
+            step_data["pipeline_run_id"] = pipeline_run.id
+            
+        step_id = await pipeline_repository.create_pipeline_step(step_data)
+        
+        # Get direct database connection using asyncpg
+        from api.db.connection import get_db_pool
+        pool = await get_db_pool()
+        
+        async with pool.acquire() as conn:
+            # Get dataset information directly from database
+            dataset = await conn.fetchrow(
+                """SELECT id, name, file_path, transformed_file_path, metadata, source_info 
+                   FROM datasets WHERE id = $1""", 
+                dataset_id
+            )
+            
+            if not dataset:
+                return {"success": False, "error": f"Dataset {dataset_id} not found"}
+                
+            # Determine file path to use (file_path column directly from dataset table)
+            file_path = dataset["file_path"]
+            
+            # If transformed file path exists, use it instead
+            if dataset["transformed_file_path"]:
+                file_path = dataset["transformed_file_path"]
+                
+            # Check if file exists
+            if not os.path.exists(file_path):
+                return {"success": False, "error": f"File not found at path: {file_path}"}
+                
+            # Use the vector embedding API for processing
+            from api.services.vector_embedding_api import vector_embedding_api
+            
+            # Configure chunk size and overlap
+            chunk_size = config.get("chunk_size", 1000) if config else 1000
+            overlap = config.get("overlap", 200) if config else 200
+            
+            # Process the dataset with the vector embedding API
+            result = await vector_embedding_api.process_dataset(
+                dataset_id=dataset_id,
+                file_path=file_path,
+                chunk_size=chunk_size,
+                overlap=overlap
+            )
+            
+            if result["success"]:
+                # Update dataset metadata directly in database
+                vector_metadata = {
+                    "vectorized": True,
+                    "vectorized_at": datetime.now().isoformat(),
+                    "total_vectors": result["total_vectors"],
+                    "vector_model": settings.VECTOR_EMBEDDING_API_MODEL
+                }
+                
+                # Get existing metadata or initialize empty dict
+                metadata = dataset["metadata"] if dataset["metadata"] else {}
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except json.JSONDecodeError:
+                        metadata = {}
+                        
+                # Update metadata with vector information
+                metadata.update(vector_metadata)
+                
+                # Save updated metadata back to database
+                await conn.execute(
+                    "UPDATE datasets SET metadata = $1 WHERE id = $2",
+                    json.dumps(metadata),
+                    dataset_id
+                )
+                
+                # Update step status
+                update_data = {
+                    "status": "completed",
+                    "end_time": datetime.now(),
+                    "result": result
+                }
+                
+                await pipeline_repository.update_pipeline_step(step_id, update_data)
+                
+                return {
+                    "success": True,
+                    "message": f"Successfully loaded {result['total_vectors']} vectors to the database",
+                    "total_vectors": result["total_vectors"],
+                    "total_records": result["total_records"]
+                }
+            else:
+                # Update step status for failure
+                update_data = {
+                    "status": "failed",
+                    "end_time": datetime.now(),
+                    "result": result,
+                    "error": result["error"]
+                }
+                
+                await pipeline_repository.update_pipeline_step(step_id, update_data)
+                return {"success": False, "error": result["error"]}
+                
     except Exception as e:
         logger.error(f"Error loading data to vector database: {str(e)}")
         return {"success": False, "error": f"Failed to load data to vector database: {str(e)}"}

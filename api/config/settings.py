@@ -84,7 +84,11 @@ class Settings(BaseSettings):
     INTERNAL_TEXT_GEN_API_USER: str = os.getenv("INTERNAL_TEXT_GEN_API_USER", "")
     INTERNAL_TEXT_GEN_API_PASS: str = os.getenv("INTERNAL_TEXT_GEN_API_PASS", "")
     INTERNAL_TEXT_GEN_MODEL: str = os.getenv("INTERNAL_TEXT_GEN_MODEL", "mistral")
-    
+    VECTOR_EMBEDDING_API_ENDPOINT: str = os.getenv("VECTOR_EMBEDDING_API_ENDPOINT", "http://internal-api/models/generate")
+    VECTOR_EMBEDDING_API_USERID: str = os.getenv("VECTOR_EMBEDDING_API_USERID", "")
+    VECTOR_EMBEDDING_API_PASSWORD: str = os.getenv("VECTOR_EMBEDDING_API_PASSWORD", "")
+    VECTOR_EMBEDDING_API_MODEL: str = os.getenv("VECTOR_EMBEDDING_API_MODEL", "mistral")
+    VECTOR_EMBEDDING_API_KEY: str = os.getenv("VECTOR_EMBEDDING_API_KEY", "")
     # Logging Settings
     logging: LoggingSettings = LoggingSettings()
 
