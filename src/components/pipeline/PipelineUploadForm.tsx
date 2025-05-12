@@ -1,6 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2, UploadCloud, CheckCircle2, XCircle, AlertCircle, Info, Sparkles, HardDrive, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 import EnhancedBusinessRules from './EnhancedBusinessRules';
@@ -418,9 +420,17 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
       const enrichResponse = await api.pipeline.enrichData(datasetId);
       
       if (enrichResponse.success) {
-        // Update step status
-        setCompletedSteps(prev => [...new Set([...prev, 4])]);
+        // Update step status - mark the current step as completed
+        setCompletedSteps(prev => {
+          const updatedSteps = [...new Set([...prev, 4])];
+          console.log('Updated completed steps after enrichment:', updatedSteps);
+          return updatedSteps;
+        });
+        
+        // Move to the next step
         setCurrentStep(5);
+        
+        // Update pipeline steps UI
         setPipelineSteps(steps => {
           let newSteps = [...steps];
           newSteps = updateStepStatus(newSteps, 4, 'completed');
@@ -429,7 +439,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
         
         toast({
           title: "Enrichment Complete",
-          description: "Data enrichment completed successfully."
+          description: "Data enrichment completed successfully. You can now proceed to load data to the vector database."
         });
       } else {
         setPipelineSteps(steps => updateStepStatus(steps, 4, 'failed'));
@@ -519,13 +529,24 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
 
   // Handle continue button - only trigger API calls if the step hasn't been completed
   const handleContinue = useCallback(async () => {
+    console.log('Current step:', currentStep);
+    console.log('Completed steps:', completedSteps);
+    
+    // If we're at the final step and it's completed, don't do anything
+    if (currentStep === pipelineSteps.length - 1 && completedSteps.includes(currentStep)) {
+      console.log('Final step already completed');
+      return;
+    }
+    
     // If the next step is already completed, just navigate to it
     if (completedSteps.includes(currentStep + 1)) {
+      console.log('Next step already completed, navigating to it');
       handleNavigate(currentStep + 1);
       return;
     }
     
     // Otherwise, trigger the appropriate API call based on the current step
+    console.log('Triggering action for step:', currentStep);
     switch (currentStep) {
       case 0: // Upload step
         await handleUpload();
@@ -548,7 +569,7 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
       default:
         break;
     }
-  }, [currentStep, completedSteps, handleNavigate, handleUpload, handleValidateFile, handleTransform, handleEnrichData, handleLoadData]);
+  }, [currentStep, completedSteps, handleNavigate, handleUpload, handleValidateFile, handleTransform, handleEnrichData, handleLoadData, pipelineSteps.length]);
   
   // Reset pipeline process for a new dataset
   const resetPipeline = useCallback(() => {
@@ -972,23 +993,35 @@ const PipelineUploadForm: React.FC<PipelineUploadFormProps> = () => {
               {/* Only show navigation controls after the first step */}
               {currentStep > 0 && (
                 <div className="flex justify-between mt-6">
-                  <button
-                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  <Button
+                    variant="outline"
+                    className="flex items-center gap-2"
                     onClick={() => handleNavigate(currentStep - 1)}
                     disabled={currentStep === 0 || Object.values(stageLoading).some(loading => loading)}
                   >
                     <ChevronLeft className="h-4 w-4" />
                     Back
-                  </button>
+                  </Button>
                   
-                  <button
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  <Button
+                    variant="default"
+                    className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
                     onClick={handleContinue}
-                    disabled={currentStep === pipelineSteps.length - 1 || Object.values(stageLoading).some(loading => loading) || pipelineCompleted}
+                    disabled={Object.values(stageLoading).some(loading => loading) || 
+                             (pipelineCompleted && currentStep === pipelineSteps.length - 1)}
                   >
-                    {Object.values(stageLoading).some(loading => loading) ? 'Processing...' : 'Continue'}
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
+                    {Object.values(stageLoading).some(loading => loading) ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        Continue
+                        <ChevronRight className="h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
                 </div>
               )}
             </div>

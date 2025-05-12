@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface PipelineNavigationProps {
   currentStep: number;
@@ -38,32 +39,36 @@ const PipelineNavigation: React.FC<PipelineNavigationProps> = ({
 
   return (
     <div className="flex justify-between mt-6">
-      <button
-        className="px-3 py-1.5 bg-gray-200 text-gray-800 text-sm rounded hover:bg-gray-300 flex items-center"
+      <Button
+        variant="outline"
+        size="sm"
+        className="flex items-center gap-2 transition-all"
         onClick={handleBack}
         disabled={currentStep === 0 || isLoading}
       >
-        <ChevronLeft className="mr-1 h-3.5 w-3.5" />
+        <ChevronLeft className="h-4 w-4" />
         Back
-      </button>
+      </Button>
       
-      <button
-        className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 flex items-center"
+      <Button
+        variant="default"
+        size="sm"
+        className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all"
         onClick={handleNext}
         disabled={currentStep === totalSteps - 1 || isLoading}
       >
         {isLoading ? (
           <>
-            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="h-4 w-4 animate-spin" />
             Processing...
           </>
         ) : (
           <>
-            <ChevronRight className="mr-1 h-3.5 w-3.5" />
             Continue
+            <ChevronRight className="h-4 w-4" />
           </>
         )}
-      </button>
+      </Button>
     </div>
   );
 };
