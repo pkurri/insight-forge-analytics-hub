@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Bot, User, ChevronDown, ChevronUp, Lightbulb, Clock, AlertCircle, Copy, ExternalLink, MessageSquare, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { cn } from '@/lib/utils';
 
 interface Source {
   title?: string;
@@ -15,6 +14,7 @@ interface Source {
 
 type MessageSource = string | Source;
 
+// Update Message interface to include metadata with proper typing
 interface MessageMetadata {
   sources?: MessageSource[];
   insights?: string[];
@@ -22,6 +22,13 @@ interface MessageMetadata {
   isError?: boolean;
   timestamp?: string;
   modelId?: string;
+}
+
+// Extend the Message type from ChatInterface to ensure proper typing
+declare module './ChatInterface' {
+  interface Message {
+    metadata?: MessageMetadata;
+  }
 }
 
 interface MessageListProps {
@@ -61,28 +68,17 @@ const MessageList: React.FC<MessageListProps> = ({
         return (
           <div 
             key={message.id}
-            className={cn(
-              "group flex", 
-              message.type === 'user' ? "justify-end" : "justify-start",
-              !isLastInSequence && "mb-1"
-            )}
+            className={`group flex ${message.type === 'user' ? 'justify-end' : 'justify-start'} ${!isLastInSequence ? 'mb-1' : ''}`}
           >
             <div 
-              className={cn(
-                "flex max-w-[85%] md:max-w-[75%] gap-3",
-                message.type === 'user' ? "flex-row-reverse" : "flex-row"
-              )}
+              className={`flex max-w-[85%] md:max-w-[75%] gap-3 ${message.type === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
             >
               {isLastInSequence && (
                 <div className="flex flex-col items-center mt-auto mb-1">
                   <Avatar 
-                    className={cn(
-                      "h-8 w-8", 
-                      message.type === 'assistant' 
-                        ? "bg-primary/10 ring-1 ring-primary/20" 
-                        : "bg-secondary/90 text-secondary-foreground",
-                      "shadow-sm"
-                    )}
+                    className={`h-8 w-8 ${message.type === 'assistant' 
+                      ? 'bg-primary/10 ring-1 ring-primary/20' 
+                      : 'bg-secondary/90 text-secondary-foreground'} shadow-sm`}
                   >
                     {message.type === 'assistant' ? (
                       <Bot className="h-4 w-4 text-primary" />
@@ -95,16 +91,13 @@ const MessageList: React.FC<MessageListProps> = ({
               
               <div className="flex flex-col space-y-1 min-w-0">
                 <div 
-                  className={cn(
-                    "rounded-2xl px-4 py-3",
-                    message.type === 'assistant' 
-                      ? "bg-card border shadow-sm" 
-                      : "bg-primary text-primary-foreground",
-                    !isFirstInSequence && message.type === 'assistant' && "rounded-tl-md",
-                    !isFirstInSequence && message.type === 'user' && "rounded-tr-md",
-                    !isLastInSequence && message.type === 'assistant' && "rounded-bl-md",
-                    !isLastInSequence && message.type === 'user' && "rounded-br-md"
-                  )}
+                  className={`rounded-2xl px-4 py-3 ${message.type === 'assistant' 
+                      ? 'bg-card border shadow-sm' 
+                      : 'bg-primary text-primary-foreground'} 
+                    ${!isFirstInSequence && message.type === 'assistant' ? 'rounded-tl-md' : ''}
+                    ${!isFirstInSequence && message.type === 'user' ? 'rounded-tr-md' : ''}
+                    ${!isLastInSequence && message.type === 'assistant' ? 'rounded-bl-md' : ''}
+                    ${!isLastInSequence && message.type === 'user' ? 'rounded-br-md' : ''}`}
                 >
                   {message.metadata?.isError ? (
                     <div className="flex items-center gap-2 text-destructive mb-2 pb-2 border-b border-destructive/10">
@@ -120,30 +113,33 @@ const MessageList: React.FC<MessageListProps> = ({
                   </div>
                   
                   {message.type === 'assistant' && onMessageAction && (
-                    <div className="flex items-center justify-end gap-1 mt-2 pt-1 border-t border-border/30 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center justify-end gap-2 mt-2 pt-1 border-t border-border/30 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button 
                         variant="ghost" 
                         size="icon" 
-                        className="h-6 w-6 rounded-full hover:bg-primary/5"
+                        className="h-7 w-7 rounded-full hover:bg-primary/10"
                         onClick={() => onMessageAction('copy', message.id)}
+                        title="Copy message"
                       >
-                        <Copy className="h-3 w-3 text-muted-foreground" />
+                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
                       <Button 
                         variant="ghost" 
                         size="icon" 
-                        className="h-6 w-6 rounded-full hover:bg-primary/5"
+                        className="h-7 w-7 rounded-full hover:bg-primary/10"
                         onClick={() => onMessageAction('feedback', message.id)}
+                        title="Provide feedback"
                       >
-                        <MessageSquare className="h-3 w-3 text-muted-foreground" />
+                        <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
                       <Button 
                         variant="ghost" 
                         size="icon" 
-                        className="h-6 w-6 rounded-full hover:bg-primary/5"
+                        className="h-7 w-7 rounded-full hover:bg-primary/10"
                         onClick={() => onMessageAction('improve', message.id)}
+                        title="Improve response"
                       >
-                        <Sparkles className="h-3 w-3 text-muted-foreground" />
+                        <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
                     </div>
                   )}
@@ -184,14 +180,25 @@ const MessageList: React.FC<MessageListProps> = ({
                               <span>Sources:</span>
                             </div>
                             <div className="space-y-2">
-                              {message.metadata.sources.map((source, i) => (
-                                <div key={i} className="text-xs bg-muted/30 p-2.5 rounded-md border border-border/50">
-                                  <div className="font-medium mb-1">{typeof source === 'string' ? source : source.title || 'Source'}</div>
-                                  {typeof source !== 'string' && source.snippet && (
-                                    <div className="line-clamp-2 text-muted-foreground">{source.snippet}</div>
-                                  )}
-                                </div>
-                              ))}
+                              {message.metadata.sources.map((source, i) => {
+                                // Ensure proper type handling for sources
+                                if (typeof source === 'string') {
+                                  return (
+                                    <div key={i} className="text-xs bg-muted/30 p-2.5 rounded-md border border-border/50">
+                                      <div className="font-medium">{source}</div>
+                                    </div>
+                                  );
+                                } else {
+                                  return (
+                                    <div key={i} className="text-xs bg-muted/30 p-2.5 rounded-md border border-border/50">
+                                      <div className="font-medium mb-1">{source.title || 'Source'}</div>
+                                      {source.snippet && (
+                                        <div className="line-clamp-2 text-muted-foreground">{source.snippet}</div>
+                                      )}
+                                    </div>
+                                  );
+                                }
+                              })}
                             </div>
                           </div>
                         ) : null}
@@ -240,15 +247,17 @@ const MessageList: React.FC<MessageListProps> = ({
       })}
       
       {isLoading && (
-        <div className="flex justify-start">
+        <div className="flex justify-start animate-pulse">
           <div className="flex flex-row max-w-[80%] gap-3">
-            <Avatar className="h-8 w-8 mt-0.5 bg-primary/10">
-              <Bot className="h-4 w-4 text-primary" />
-            </Avatar>
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-[250px] rounded-md" />
-              <Skeleton className="h-4 w-[200px] rounded-md" />
-              <Skeleton className="h-4 w-[150px] rounded-md" />
+            <div className="flex-shrink-0">
+              <Avatar className="h-8 w-8 bg-primary/10 ring-1 ring-primary/20 shadow-sm">
+                <Bot className="h-4 w-4 text-primary/70" />
+              </Avatar>
+            </div>
+            <div className="space-y-2.5 pt-1 w-full max-w-[350px]">
+              <Skeleton className="h-4 w-[85%] rounded-md" />
+              <Skeleton className="h-4 w-[70%] rounded-md" />
+              <Skeleton className="h-4 w-[40%] rounded-md" />
             </div>
           </div>
         </div>
