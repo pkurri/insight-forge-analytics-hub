@@ -2,16 +2,34 @@ import React from 'react';
 import { Message } from './ChatInterface';
 import { Avatar } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Bot, User, ChevronDown, ChevronUp, Lightbulb, Clock, AlertCircle } from 'lucide-react';
+import { Bot, User, ChevronDown, ChevronUp, Lightbulb, Clock, AlertCircle, Copy, ExternalLink, MessageSquare, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { cn } from '@/lib/utils';
+
+interface Source {
+  title?: string;
+  snippet?: string;
+}
+
+type MessageSource = string | Source;
+
+interface MessageMetadata {
+  sources?: MessageSource[];
+  insights?: string[];
+  confidence?: number;
+  isError?: boolean;
+  timestamp?: string;
+  modelId?: string;
+}
 
 interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
   expandedMessageIds: string[];
   toggleMessageExpanded: (id: string) => void;
+  onMessageAction?: (action: string, messageId: string) => void;
 }
 
 /**
@@ -23,10 +41,11 @@ const MessageList: React.FC<MessageListProps> = ({
   isLoading,
   expandedMessageIds,
   toggleMessageExpanded,
+  onMessageAction,
 }) => {
   return (
-    <div className="flex flex-col space-y-4 py-4">
-      {messages.map((message) => {
+    <div className="flex flex-col space-y-6">
+      {messages.map((message, index) => {
         const isExpanded = expandedMessageIds.includes(message.id);
         const hasMetadata = message.metadata && (
           message.metadata.sources?.length ||
@@ -34,38 +53,100 @@ const MessageList: React.FC<MessageListProps> = ({
           message.metadata.confidence
         );
         
+        // Check if this is the first message of a sequence from the same sender
+        const isFirstInSequence = index === 0 || messages[index - 1].type !== message.type;
+        // Check if this is the last message of a sequence from the same sender
+        const isLastInSequence = index === messages.length - 1 || messages[index + 1].type !== message.type;
+        
         return (
           <div 
             key={message.id}
-            className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={cn(
+              "group flex", 
+              message.type === 'user' ? "justify-end" : "justify-start",
+              !isLastInSequence && "mb-1"
+            )}
           >
-            <div className={`flex ${message.type === 'user' ? 'flex-row-reverse' : 'flex-row'} max-w-[80%] gap-3`}>
-              <Avatar className={`h-8 w-8 mt-0.5 ${message.type === 'assistant' ? 'bg-primary/10' : 'bg-secondary/80'}`}>
-                {message.type === 'assistant' ? (
-                  <Bot className="h-4 w-4 text-primary" />
-                ) : (
-                  <User className="h-4 w-4" />
-                )}
-              </Avatar>
+            <div 
+              className={cn(
+                "flex max-w-[85%] md:max-w-[75%] gap-3",
+                message.type === 'user' ? "flex-row-reverse" : "flex-row"
+              )}
+            >
+              {isLastInSequence && (
+                <div className="flex flex-col items-center mt-auto mb-1">
+                  <Avatar 
+                    className={cn(
+                      "h-8 w-8", 
+                      message.type === 'assistant' 
+                        ? "bg-primary/10 ring-1 ring-primary/20" 
+                        : "bg-secondary/90 text-secondary-foreground",
+                      "shadow-sm"
+                    )}
+                  >
+                    {message.type === 'assistant' ? (
+                      <Bot className="h-4 w-4 text-primary" />
+                    ) : (
+                      <User className="h-4 w-4" />
+                    )}
+                  </Avatar>
+                </div>
+              )}
               
-              <div className="flex flex-col space-y-1">
+              <div className="flex flex-col space-y-1 min-w-0">
                 <div 
-                  className={`rounded-lg px-4 py-3 ${message.type === 'assistant' 
-                    ? 'bg-muted/50 text-foreground' 
-                    : 'bg-primary text-primary-foreground'}`}
+                  className={cn(
+                    "rounded-2xl px-4 py-3",
+                    message.type === 'assistant' 
+                      ? "bg-card border shadow-sm" 
+                      : "bg-primary text-primary-foreground",
+                    !isFirstInSequence && message.type === 'assistant' && "rounded-tl-md",
+                    !isFirstInSequence && message.type === 'user' && "rounded-tr-md",
+                    !isLastInSequence && message.type === 'assistant' && "rounded-bl-md",
+                    !isLastInSequence && message.type === 'user' && "rounded-br-md"
+                  )}
                 >
                   {message.metadata?.isError ? (
-                    <div className="flex items-center space-x-2 text-destructive">
+                    <div className="flex items-center gap-2 text-destructive mb-2 pb-2 border-b border-destructive/10">
                       <AlertCircle className="h-4 w-4" />
                       <span className="font-medium">Error</span>
                     </div>
                   ) : null}
                   
-                  <div className="prose-sm dark:prose-invert prose-p:leading-relaxed prose-pre:p-0">
+                  <div className="prose-sm dark:prose-invert prose-p:leading-relaxed prose-pre:p-0 prose-pre:rounded-md prose-pre:bg-muted/50 prose-code:text-primary prose-a:text-primary hover:prose-a:text-primary/80 prose-headings:text-foreground">
                     <ReactMarkdown>
                       {message.content}
                     </ReactMarkdown>
                   </div>
+                  
+                  {message.type === 'assistant' && onMessageAction && (
+                    <div className="flex items-center justify-end gap-1 mt-2 pt-1 border-t border-border/30 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-6 w-6 rounded-full hover:bg-primary/5"
+                        onClick={() => onMessageAction('copy', message.id)}
+                      >
+                        <Copy className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-6 w-6 rounded-full hover:bg-primary/5"
+                        onClick={() => onMessageAction('feedback', message.id)}
+                      >
+                        <MessageSquare className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-6 w-6 rounded-full hover:bg-primary/5"
+                        onClick={() => onMessageAction('improve', message.id)}
+                      >
+                        <Sparkles className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  )}
                   
                   {hasMetadata && (
                     <Collapsible
@@ -84,7 +165,7 @@ const MessageList: React.FC<MessageListProps> = ({
                       
                       <CollapsibleContent className="mt-2 space-y-2">
                         {message.metadata?.confidence !== undefined && (
-                          <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <span>Confidence:</span>
                             <div className="w-full max-w-[100px] h-2 bg-muted rounded-full overflow-hidden">
                               <div 
@@ -97,26 +178,35 @@ const MessageList: React.FC<MessageListProps> = ({
                         )}
                         
                         {message.metadata?.sources?.length ? (
-                          <div className="space-y-1">
-                            <div className="text-xs text-muted-foreground">Sources:</div>
-                            <div className="flex flex-wrap gap-1">
-                              {message.metadata.sources.map((source, idx) => (
-                                <Badge key={idx} variant="outline" className="text-xs">
-                                  {source}
-                                </Badge>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <ExternalLink className="h-3 w-3" />
+                              <span>Sources:</span>
+                            </div>
+                            <div className="space-y-2">
+                              {message.metadata.sources.map((source, i) => (
+                                <div key={i} className="text-xs bg-muted/30 p-2.5 rounded-md border border-border/50">
+                                  <div className="font-medium mb-1">{typeof source === 'string' ? source : source.title || 'Source'}</div>
+                                  {typeof source !== 'string' && source.snippet && (
+                                    <div className="line-clamp-2 text-muted-foreground">{source.snippet}</div>
+                                  )}
+                                </div>
                               ))}
                             </div>
                           </div>
                         ) : null}
                         
                         {message.metadata?.insights?.length ? (
-                          <div className="space-y-1">
-                            <div className="text-xs text-muted-foreground">Insights:</div>
-                            <div className="space-y-1">
-                              {message.metadata.insights.map((insight, idx) => (
-                                <div key={idx} className="flex items-start space-x-1 text-xs">
-                                  <Lightbulb className="h-3 w-3 mt-0.5 text-amber-500" />
-                                  <span>{insight}</span>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Lightbulb className="h-3 w-3 text-amber-500" />
+                              <span>Insights:</span>
+                            </div>
+                            <div className="space-y-1.5 bg-amber-50 dark:bg-amber-950/20 p-2.5 rounded-md border border-amber-100 dark:border-amber-900/30">
+                              {message.metadata.insights.map((insight, i) => (
+                                <div key={i} className="flex items-start gap-2 text-xs">
+                                  <div className="mt-0.5 min-w-[12px]">{i + 1}.</div>
+                                  <div>{insight}</div>
                                 </div>
                               ))}
                             </div>
@@ -124,9 +214,9 @@ const MessageList: React.FC<MessageListProps> = ({
                         ) : null}
                         
                         {message.metadata?.timestamp && (
-                          <div className="flex items-center space-x-1 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-2">
                             <Clock className="h-3 w-3" />
-                            <span>{new Date(message.metadata.timestamp).toLocaleTimeString()}</span>
+                            <span>{new Date(message.metadata.timestamp).toLocaleString()}</span>
                           </div>
                         )}
                         

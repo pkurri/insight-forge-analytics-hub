@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
-  SendHorizontal, Bot, RefreshCw, 
-  Settings, Loader2, Sparkles
+  SendHorizontal, Settings, Loader2, Sparkles,
+  MessageSquare, RotateCw, BrainCircuit, Copy
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -727,40 +727,44 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </DialogContent>
       </Dialog>
       
-      <Card className={`flex flex-col h-full ${className}`}>
-      <CardHeader className="px-4 py-3 border-b">
+      <Card className={`flex flex-col h-full shadow-lg border-0 overflow-hidden ${className}`}>
+      <CardHeader className="px-6 py-4 bg-gradient-to-r from-primary/5 to-secondary/5 border-b">
         <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-lg">{title}</CardTitle>
-            <p className="text-sm text-muted-foreground">{subtitle}</p>
+          <div className="flex items-center gap-2">
+            <div className="bg-primary/10 p-2 rounded-full">
+              <BrainCircuit className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+              <p className="text-sm text-muted-foreground">{subtitle}</p>
+            </div>
           </div>
           
           <div className="flex items-center space-x-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8">
+                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full hover:bg-primary/10">
                   <Settings className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => clearHistory()}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  <span>Clear History</span>
+              <DropdownMenuContent align="end" className="w-56 p-1">
+                <DropdownMenuItem onClick={() => clearHistory()} className="gap-2 cursor-pointer">
+                  <RotateCw className="h-4 w-4" />
+                  <span>Clear Conversation</span>
                 </DropdownMenuItem>
                 {conversationId && (
-                  <>
-                    <DropdownMenuItem>
-                      <Sparkles className="mr-2 h-4 w-4" />
-                      <span>Conversation ID: {conversationId.substring(0, 8)}...</span>
-                    </DropdownMenuItem>
-                  </>
+                  <DropdownMenuItem className="gap-2 cursor-pointer">
+                    <Sparkles className="h-4 w-4" />
+                    <span className="flex-1 truncate">ID: {conversationId.substring(0, 8)}...</span>
+                    <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                  </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
         
-        <div className="flex flex-col sm:flex-row gap-2 mt-3">
+        <div className="flex flex-col sm:flex-row gap-3 mt-4">
           {showDatasetSelector && (
             <div className="flex-1">
               <DatasetSelector
@@ -768,6 +772,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 selectedDataset={currentDataset}
                 onDatasetChange={setCurrentDataset}
                 isLoading={isLoadingDatasets}
+                className="bg-background border shadow-sm rounded-md"
               />
             </div>
           )}
@@ -778,14 +783,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 selectedModel={modelId}
                 onModelChange={setModelId}
                 isLoading={isLoadingModels}
+                className="bg-background border shadow-sm rounded-md"
               />
           </div>
         </div>
       </CardHeader>
       
-      <CardContent className="flex-1 p-0 overflow-hidden">
+      <CardContent className="flex-1 p-0 overflow-hidden bg-muted/5">
         <ScrollArea className="h-full" ref={scrollAreaRef}>
-          <div className="p-4">
+          <div className="p-6">
             <MessageList
               messages={messages}
               isLoading={isHistoryLoading || isProcessing}
@@ -809,42 +815,48 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             />
             
             {messages.length === 0 && !isHistoryLoading && (
-              <div className="flex flex-col items-center justify-center h-[300px] text-center p-4">
-                <Bot className="h-12 w-12 mb-4 text-muted-foreground" />
-                <h3 className="text-lg font-medium mb-2">How can I help you today?</h3>
-                <p className="text-sm text-muted-foreground max-w-md mb-6">
+              <div className="flex flex-col items-center justify-center h-[350px] text-center p-6 rounded-xl bg-gradient-to-b from-background to-muted/20">
+                <div className="bg-primary/10 p-4 rounded-full mb-6">
+                  <MessageSquare className="h-10 w-10 text-primary" />
+                </div>
+                <h3 className="text-xl font-semibold mb-3">How can I help you today?</h3>
+                <p className="text-sm text-muted-foreground max-w-md mb-8">
                   Ask me anything about your data or use the suggestions below to get started.
                 </p>
                 
                 {suggestions.length > 0 && (
-                  <ChatSuggestions 
-                    suggestions={suggestions} 
-                    onSuggestionClick={applySuggestion}
-                  />
+                  <div className="w-full max-w-lg">
+                    <ChatSuggestions 
+                      suggestions={suggestions} 
+                      onSuggestionClick={applySuggestion}
+                    />
+                  </div>
                 )}
               </div>
             )}
             
             {isProcessing && (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                <span className="text-sm">Generating response...</span>
+              <div className="flex items-center justify-center py-6 animate-pulse">
+                <div className="flex items-center gap-3 px-4 py-2 rounded-full bg-primary/5 text-primary shadow-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm font-medium">Generating response...</span>
+                </div>
               </div>
             )}
           </div>
         </ScrollArea>
       </CardContent>
       
-      <CardFooter className="p-4 border-t">
+      <CardFooter className="p-4 border-t bg-background/95 backdrop-blur-sm">
         <form 
-          className="flex w-full items-center space-x-2" 
+          className="flex w-full items-center gap-3" 
           onSubmit={(e) => {
             e.preventDefault();
             handleSendMessage();
           }}
         >
           <Input
-            className="flex-1"
+            className="flex-1 border-muted-foreground/20 bg-background shadow-sm rounded-full py-6 px-4 focus-visible:ring-primary/20 focus-visible:ring-offset-0"
             placeholder="Type your message..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -856,13 +868,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               <TooltipTrigger asChild>
                 <Button 
                   type="submit" 
-                  size="icon" 
+                  size="icon"
+                  className="rounded-full h-12 w-12 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-all duration-200 ease-in-out"
                   disabled={isProcessing || !input.trim()}
                 >
                   {isProcessing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-5 w-5 animate-spin" />
                   ) : (
-                    <SendHorizontal className="h-4 w-4" />
+                    <SendHorizontal className="h-5 w-5" />
                   )}
                 </Button>
               </TooltipTrigger>
