@@ -5,3 +5,4 @@ export * from './modelService';
 export * from './aiChatService';
 export * from './vectorUtilsService';
 export * from './cacheService';
+export * from './vectorDatasetService';

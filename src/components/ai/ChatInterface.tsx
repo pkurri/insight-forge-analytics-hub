@@ -19,7 +19,7 @@ import { api } from '@/api';
 import { useToast } from '@/hooks/use-toast';
 import { DatasetSelector } from './DatasetSelector';
 import ChatSuggestions, { ChatSuggestion } from './ChatSuggestions';
-import { aiAgentService, embeddingService } from '@/api/services/ai';
+import { aiAgentService, vectorDatasetService } from '@/api/services/ai';
 import { getAllowedModels } from '@/api/services/ai/modelService';
 import MessageList from './MessageList';
 import ModelSelector from './ModelSelector';
@@ -114,7 +114,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   
   // Use the context dataset if available, otherwise use local state
   const currentDataset = activeDataset || localActiveDataset;
-  const handleSetDataset = setActiveDataset || setLocalActiveDataset;
+  const setCurrentDataset = setActiveDataset || setLocalActiveDataset;
   
   // Chat history hook manages messages and persistence
   const {
@@ -229,23 +229,35 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const fetchDatasets = useCallback(async () => {
     setIsLoadingDatasets(true);
     try {
-      const response = await api.datasets.getDatasets();
+      // Use the vectorDatasetService to get vectorized datasets
+      const response = await vectorDatasetService.getVectorizedDatasets();
       
       if (response.success && response.data) {
-        setAvailableDatasets(response.data.datasets || []);
+        // Convert the response format to match the expected Dataset interface
+        const formattedDatasets = response.data.map(dataset => ({
+          id: dataset.id,
+          name: dataset.name,
+          rows: dataset.record_count,
+          columns: dataset.column_count,
+          lastUpdated: dataset.last_updated,
+          // Add embedding model information for display
+          source: dataset.embedding_model ? `Model: ${dataset.embedding_model}` : undefined
+        }));
+        
+        setAvailableDatasets(formattedDatasets);
       } else {
-        console.error('Failed to fetch datasets:', response.error || 'Unknown error');
+        console.error('Failed to fetch vectorized datasets:', response.error || 'Unknown error');
         toast({
           title: 'Error',
-          description: 'Failed to fetch datasets',
+          description: 'Failed to fetch vectorized datasets',
           variant: 'destructive'
         });
       }
     } catch (error) {
-      console.error('Error fetching datasets:', error);
+      console.error('Error fetching vectorized datasets:', error);
       toast({
         title: 'Error',
-        description: 'Failed to fetch datasets',
+        description: 'Failed to fetch vectorized datasets',
         variant: 'destructive'
       });
     } finally {
@@ -476,41 +488,43 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         return;
       }
       
-      // Generate embeddings for semantic search if dataset is selected
-      let searchContext = {} as Partial<SearchContext>;
+      // Generate assistant response
+      const assistantMessageId = Date.now().toString();
       
-      try {
-        // Only search if dataset is selected
-        if (currentDataset && currentDataset !== 'all') {
-          // Generate embeddings for the input
-          const embeddingResponse = await embeddingService.generateEmbedding(input);
-          
-          if (embeddingResponse.success && embeddingResponse.data) {
-            // Search for similar content if dataset is selected
-            const searchResponse = await embeddingService.searchSimilarVectors(
-              input, 
-              currentDataset, 
-              3
-            );
-            
-            if (searchResponse.success && searchResponse.data) {
-              searchContext = {
-                similarContent: searchResponse.data.results,
-                embeddingModel: embeddingResponse.data.model
-              };
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error with embeddings:', error);
-        // Continue without embeddings if there's an error
-      }
+      // Add placeholder message while generating
+      const placeholderMessage: Message = {
+        id: assistantMessageId,
+        type: 'assistant',
+        content: '...',
+        metadata: {
+          isLoading: true
+        },
+        timestamp: new Date()
+      };
       
-      // Call AI service
-      const response = await api.getAiAssistantResponse(input, {
-        dataset_id: currentDataset === 'all' ? undefined : currentDataset,
-        model_id: modelId,
-        context: searchContext
+      addMessage(placeholderMessage);
+      
+      // Get chat history for context
+      const chatHistory = messages
+        .filter(msg => msg.type !== 'system' && !msg.metadata?.isError)
+        .map(msg => ({
+          role: msg.type as 'user' | 'assistant',
+          content: msg.content
+        }));
+        
+      // Determine if we're using all datasets or a specific one
+      const isUsingAllDatasets = currentDataset === 'all';
+      
+      // Use the AI agent service to get a response
+      const response = await aiAgentService.getAgentResponse({
+        query: input,
+        modelId: modelId,
+        // If 'all' is selected, we'll set use_all_datasets to true
+        // and leave datasetId undefined
+        datasetId: isUsingAllDatasets ? undefined : currentDataset,
+        use_all_datasets: isUsingAllDatasets,
+        chatHistory: chatHistory,
+        context: {}
       });
       
       if (response.success && response.data) {
@@ -594,7 +608,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         processingCallback(false);
       }
     }
-  }, [input, isProcessing, addMessage, conversationId, setInputHistory, currentDataset, modelId, processingCallback, onMessage, evaluateResponse, toast]);
+  }, [input, isProcessing, addMessage, conversationId, setInputHistory, currentDataset, modelId, processingCallback, onMessage, evaluateResponse, toast, messages]);
   
   // Apply a suggested question
   const applySuggestion = useCallback((text: string) => {
@@ -604,6 +618,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       handleSendMessage();
     }
   }, [handleSendMessage, isProcessing]);
+  
+  // Enhance the existing handleSetDataset with additional functionality
+  useEffect(() => {
+    // Log the dataset selection for debugging
+    console.log(`Dataset selected: ${currentDataset === 'all' ? 'All Datasets' : currentDataset}`);
+    
+    // Reset suggestions when dataset changes
+    setSuggestions([]);
+  }, [currentDataset]);
   
   // Handle keyboard shortcuts
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
@@ -743,7 +766,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               <DatasetSelector
                 datasets={availableDatasets}
                 selectedDataset={currentDataset}
-                onDatasetChange={handleSetDataset}
+                onDatasetChange={setCurrentDataset}
                 isLoading={isLoadingDatasets}
               />
             </div>

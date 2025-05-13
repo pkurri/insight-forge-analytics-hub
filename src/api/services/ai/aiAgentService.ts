@@ -22,9 +22,9 @@ export interface ChatMessage {
 
 export interface ChatContext {
   systemPromptAddition?: string;
-  similarContent?: any[];
+  similarContent?: Record<string, unknown>[];
   embeddingModel?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface ChatRequest {
@@ -32,6 +32,7 @@ export interface ChatRequest {
   modelId?: string;
   agentType?: string;
   datasetId?: string;
+  use_all_datasets?: boolean;
   chatHistory?: ChatMessage[];
   context?: ChatContext;
 }
@@ -48,8 +49,18 @@ export interface ChatResponse {
 
 export interface StreamingChatResponse {
   type: 'chunk' | 'context' | 'complete' | 'error';
-  content: string | any;
+  content: string | Record<string, unknown>;
   done?: boolean;
+}
+
+interface ChunkResponse extends StreamingChatResponse {
+  type: 'chunk';
+  content: string;
+}
+
+interface CompleteResponse extends StreamingChatResponse {
+  type: 'complete';
+  content: Record<string, unknown>;
 }
 
 export interface SuggestionsRequest {
@@ -111,9 +122,9 @@ export interface FeedbackResult {
  * Get available AI agents
  * @returns Promise with available agents
  */
-async function getAvailableAgents(): Promise<ApiResponse<AIAgent[]>> {
+async function getAvailableAgents(): Promise<ApiResponse> {
   try {
-    return await callApi<AIAgent[]>('ai/agents');
+    return await callApi('ai/agents');
   } catch (error) {
     console.error('Error fetching AI agents:', error);
     return {
@@ -129,9 +140,12 @@ async function getAvailableAgents(): Promise<ApiResponse<AIAgent[]>> {
  * @param request Chat request parameters
  * @returns Promise with chat response
  */
-async function getAgentResponse(request: ChatRequest): Promise<ApiResponse<ChatResponse>> {
+async function getAgentResponse(request: ChatRequest): Promise<ApiResponse> {
   try {
-    return await callApi<ChatResponse>('ai/chat', 'POST', request);
+    return await callApi('ai/chat', {
+      method: 'POST',
+      body: JSON.stringify(request)
+    });
   } catch (error) {
     console.error('Error getting AI response:', error);
     return {
@@ -153,7 +167,7 @@ async function getAgentResponse(request: ChatRequest): Promise<ApiResponse<ChatR
 async function getStreamingResponse(
   request: ChatRequest,
   onChunk: (chunk: string) => void,
-  onComplete?: (metadata: any) => void,
+  onComplete?: (metadata: Record<string, unknown>) => void,
   onError?: (error: string) => void
 ): Promise<void> {
   try {
@@ -214,13 +228,18 @@ async function getStreamingResponse(
             }
             
             if (data.type === 'chunk') {
-              onChunk(data.content as string);
+              // For chunk type, content is always a string
+              onChunk(typeof data.content === 'string' ? data.content : JSON.stringify(data.content));
               
               if (data.done && onComplete) {
                 onComplete({});
               }
             } else if (data.type === 'complete' && onComplete) {
-              onComplete(data.content);
+              // For complete type, content should be an object
+              const metadata = typeof data.content === 'string' 
+                ? {} // If it's a string (unexpected), use empty object
+                : data.content;
+              onComplete(metadata);
             }
           } catch (e) {
             console.error('Error parsing SSE message:', e);
@@ -241,9 +260,12 @@ async function getStreamingResponse(
  * @param request Suggestions request parameters
  * @returns Promise with chat suggestions
  */
-async function getChatSuggestions(request: SuggestionsRequest): Promise<ApiResponse<ChatSuggestion[]>> {
+async function getChatSuggestions(request: SuggestionsRequest): Promise<ApiResponse> {
   try {
-    return await callApi<ChatSuggestion[]>('ai/suggestions', 'POST', request);
+    return await callApi('ai/suggestions', {
+      method: 'POST',
+      body: JSON.stringify(request)
+    });
   } catch (error) {
     console.error('Error fetching chat suggestions:', error);
     return {
@@ -268,15 +290,18 @@ async function evaluateResponse(
   response: string,
   conversationId?: string,
   messageId?: string,
-  facts?: any[]
-): Promise<ApiResponse<EvaluationResult>> {
+  facts?: Record<string, unknown>[]
+): Promise<ApiResponse> {
   try {
-    return await callApi<EvaluationResult>('ai/evaluate', 'POST', {
-      query,
-      response,
-      conversation_id: conversationId,
-      message_id: messageId,
-      facts
+    return await callApi('ai/evaluate', {
+      method: 'POST',
+      body: JSON.stringify({
+        query,
+        response,
+        conversation_id: conversationId,
+        message_id: messageId,
+        facts
+      })
     });
   } catch (error) {
     console.error('Error evaluating response:', error);
@@ -301,13 +326,16 @@ async function getImprovedResponse(
   initialResponse: string,
   conversationId?: string,
   evaluationId?: string
-): Promise<ApiResponse<ImprovedResponseResult>> {
+): Promise<ApiResponse> {
   try {
-    return await callApi<ImprovedResponseResult>('ai/improve-response', 'POST', {
-      query,
-      initial_response: initialResponse,
-      conversation_id: conversationId,
-      evaluation_id: evaluationId
+    return await callApi('ai/improve-response', {
+      method: 'POST',
+      body: JSON.stringify({
+        query,
+        initial_response: initialResponse,
+        conversation_id: conversationId,
+        evaluation_id: evaluationId
+      })
     });
   } catch (error) {
     console.error('Error getting improved response:', error);
@@ -330,15 +358,18 @@ async function submitUserFeedback(
   conversationId: string,
   messageId: string,
   feedback: UserFeedback
-): Promise<ApiResponse<FeedbackResult>> {
+): Promise<ApiResponse> {
   try {
-    return await callApi<FeedbackResult>('ai/user-feedback', 'POST', {
-      conversation_id: conversationId,
-      message_id: messageId,
-      rating: feedback.rating,
-      feedback_text: feedback.feedback_text,
-      improvement_areas: feedback.improvement_areas,
-      tags: feedback.tags
+    return await callApi('ai/user-feedback', {
+      method: 'POST',
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        message_id: messageId,
+        rating: feedback.rating,
+        feedback_text: feedback.feedback_text,
+        improvement_areas: feedback.improvement_areas,
+        tags: feedback.tags
+      })
     });
   } catch (error) {
     console.error('Error submitting user feedback:', error);
@@ -359,11 +390,14 @@ async function submitUserFeedback(
 async function evaluateInsights(
   conversationId: string,
   insights: string[]
-): Promise<ApiResponse<EvaluationResult>> {
+): Promise<ApiResponse> {
   try {
-    return await callApi<EvaluationResult>('ai/evaluate-insights', 'POST', {
-      conversation_id: conversationId,
-      insights
+    return await callApi('ai/evaluate-insights', {
+      method: 'POST',
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        insights
+      })
     });
   } catch (error) {
     console.error('Error evaluating insights:', error);
