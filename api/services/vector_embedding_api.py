@@ -13,14 +13,77 @@ import requests
 import pandas as pd
 import logging
 import math
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
+from typing import Dict, List, Any, Optional, Union
 
 from api.config.settings import get_settings
 from api.db.connection import execute_query, execute_command, get_db_connection
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# Define supported embedding models
+EMBEDDING_MODELS = {
+    "all-MiniLM-L6-v2": {
+        "id": "all-MiniLM-L6-v2",
+        "name": "all-MiniLM-L6-v2",
+        "provider": "huggingface",
+        "dimensions": 384,
+        "description": "General purpose embedding model for text similarity",
+        "endpoint": "sentence-transformers/all-MiniLM-L6-v2"
+    },
+    "nomic-embed-text-v1.5": {
+        "id": "nomic-embed-text-v1.5",
+        "name": "Nomic Embed Text v1.5",
+        "provider": "huggingface",
+        "dimensions": 768,
+        "description": "High-quality text embeddings for semantic search",
+        "endpoint": "nomic-ai/nomic-embed-text-v1.5"
+    },
+    "roberta-base-go_emotions-SapBERT": {
+        "id": "roberta-base-go_emotions-SapBERT",
+        "name": "RoBERTa Emotions SapBERT",
+        "provider": "huggingface",
+        "dimensions": 768,
+        "description": "Emotion-aware text embeddings",
+        "endpoint": "cambridgeltl/roberta-base-go_emotions-SapBERT"
+    },
+    "BioLinkBERT-large": {
+        "id": "BioLinkBERT-large",
+        "name": "BioLinkBERT Large",
+        "provider": "huggingface",
+        "dimensions": 1024,
+        "description": "Specialized for biomedical text",
+        "endpoint": "michiyasunaga/BioLinkBERT-large"
+    }
+}
+
+# Define supported text generation models
+TEXT_GEN_MODELS = {
+    "Mistral-3.2-instruct": {
+        "id": "Mistral-3.2-instruct",
+        "name": "Mistral 3.2 Instruct",
+        "provider": "internal",
+        "description": "Mistral's latest instruction-tuned model",
+        "max_tokens": 8192
+    },
+    "llama-3.3-70b-instruct": {
+        "id": "llama-3.3-70b-instruct",
+        "name": "Llama 3.3 70B Instruct",
+        "provider": "internal",
+        "description": "Meta's largest instruction-tuned model",
+        "max_tokens": 8192
+    },
+    "pythia28b": {
+        "id": "pythia28b",
+        "name": "Pythia 28B",
+        "provider": "internal",
+        "description": "EleutherAI's Pythia model",
+        "max_tokens": 4096
+    }
+}
 
 class VectorEmbeddingAPI:
     def __init__(self, endpoint=None, api_key=None):
@@ -34,6 +97,96 @@ class VectorEmbeddingAPI:
         self.endpoint = endpoint or settings.VECTOR_EMBEDDING_API_ENDPOINT
         self.api_key = api_key or settings.VECTOR_EMBEDDING_API_KEY
         self.batch_size = getattr(settings, "VECTOR_BATCH_SIZE", 10000)
+        
+    async def delete_dataset_vectors(self, dataset_id: int) -> dict:
+        """
+        Delete all vector embeddings for a dataset from the vector database.
+        
+        Args:
+            dataset_id: ID of the dataset to delete vectors for
+            
+        Returns:
+            Dictionary with deletion results
+        """
+        try:
+            logger.info(f"Deleting vector embeddings for dataset {dataset_id}")
+            
+            # Get database connection pool
+            from api.db.connection import get_db_pool
+            pool = await get_db_pool()
+            
+            # Start a transaction to ensure atomicity
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    # Count vectors before deletion for reporting
+                    count_result = await conn.fetchval(
+                        "SELECT COUNT(*) FROM vector_embeddings WHERE dataset_id = $1",
+                        dataset_id
+                    )
+                    
+                    # Delete all vectors for the dataset
+                    await conn.execute(
+                        "DELETE FROM vector_embeddings WHERE dataset_id = $1",
+                        dataset_id
+                    )
+                    
+                    # Update dataset status
+                    await conn.execute(
+                        """UPDATE datasets 
+                           SET vectorized = FALSE, vectorized_at = NULL 
+                           WHERE id = $1""",
+                        dataset_id
+                    )
+                    
+                    # Update dataset metadata
+                    dataset_row = await conn.fetchrow(
+                        "SELECT metadata FROM datasets WHERE id = $1",
+                        dataset_id
+                    )
+                    
+                    if dataset_row and dataset_row['metadata']:
+                        metadata = dataset_row['metadata']
+                        if isinstance(metadata, str):
+                            try:
+                                metadata = json.loads(metadata)
+                            except json.JSONDecodeError:
+                                metadata = {}
+                        else:
+                            metadata = {}
+                            
+                        # Remove vector-related metadata
+                        keys_to_remove = [
+                            'embedding_model', 'embedding_model_dimensions',
+                            'embedding_timestamp', 'vectorized', 'vectorized_at',
+                            'total_vectors', 'vector_model'
+                        ]
+                        
+                        for key in keys_to_remove:
+                            if key in metadata:
+                                del metadata[key]
+                        
+                        # Save updated metadata
+                        await conn.execute(
+                            "UPDATE datasets SET metadata = $1 WHERE id = $2",
+                            json.dumps(metadata),
+                            dataset_id
+                        )
+            
+            return {
+                "success": True,
+                "dataset_id": dataset_id,
+                "deleted_count": count_result or 0,
+                "message": f"Successfully deleted {count_result or 0} vector embeddings for dataset {dataset_id}"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error deleting vector embeddings for dataset {dataset_id}: {str(e)}")
+            return {
+                "success": False,
+                "dataset_id": dataset_id,
+                "error": str(e),
+                "message": f"Failed to delete vector embeddings for dataset {dataset_id}: {str(e)}"
+            }
         
     async def invoke_api(self, inputs, config, dataset_id):
         """
@@ -149,18 +302,38 @@ class VectorEmbeddingAPI:
             "total_vectors": total_vectors
         }
     
-    async def generate_embeddings(self, texts, dataset_id=None):
+    async def generate_embeddings(self, texts, model_id=None, dataset_id=None):
         """
-        Generate embeddings for a list of texts.
+        Generate embeddings for a list of texts using the specified model.
         
         Args:
             texts: List of texts to generate embeddings for
+            model_id: ID of the embedding model to use
             dataset_id: Optional dataset ID for tracking
             
         Returns:
-            List of embeddings
+            Dictionary with embeddings and metadata
         """
         try:
+            # Use default model if none specified or if specified model is not supported
+            if not model_id or model_id not in EMBEDDING_MODELS:
+                model_id = settings.VECTOR_EMBEDDING_API_MODEL
+                logger.info(f"Using default embedding model: {model_id}")
+            
+            model_config = EMBEDDING_MODELS.get(model_id)
+            if not model_config:
+                logger.warning(f"Model {model_id} not found in EMBEDDING_MODELS, using default configuration")
+                # Use a fallback configuration
+                model_config = {
+                    "id": model_id,
+                    "name": model_id,
+                    "provider": "huggingface",
+                    "dimensions": 384,  # Default dimension
+                    "endpoint": f"sentence-transformers/{model_id}"
+                }
+            
+            logger.info(f"Generating embeddings using model: {model_id}")
+            
             # Prepare the API request
             headers = {
                 "Authorization": f"Basic {self.api_key}" if self.api_key else None,
@@ -170,10 +343,14 @@ class VectorEmbeddingAPI:
             # Remove None values from headers
             headers = {k: v for k, v in headers.items() if v is not None}
             
+            # Ensure texts is a list
+            if not isinstance(texts, list):
+                texts = [texts]
+            
             # Prepare the request payload
             payload = {
                 "inputs": texts,
-                "model": settings.VECTOR_EMBEDDING_API_MODEL
+                "model": model_id
             }
             
             # Make the API request
@@ -189,7 +366,8 @@ class VectorEmbeddingAPI:
                 return {
                     "success": True,
                     "embeddings": result.get("embeddings", []),
-                    "model": settings.VECTOR_EMBEDDING_API_MODEL,
+                    "model": model_id,
+                    "dimensions": model_config.get("dimensions", len(result.get("embeddings", [[]])[0]) if result.get("embeddings") else 0),
                     "count": len(texts)
                 }
             else:
@@ -207,7 +385,7 @@ class VectorEmbeddingAPI:
                 "error": str(e)
             }
     
-    async def process_dataset(self, dataset_id, file_path, chunk_size=1000, overlap=200):
+    async def process_dataset(self, dataset_id, file_path, chunk_size=1000, overlap=200, model_id=None, config=None):
         """
         Process a dataset to generate embeddings and store them in the vector database.
         
@@ -216,12 +394,29 @@ class VectorEmbeddingAPI:
             file_path: Path to the dataset file
             chunk_size: Size of text chunks for processing
             overlap: Overlap between chunks
+            model_id: ID of the embedding model to use
+            config: Additional configuration options
             
         Returns:
             Processing results
         """
         try:
-            logger.info(f"Processing dataset {dataset_id} from file {file_path}")
+            # Use the specified model or default from settings
+            if not model_id or model_id not in EMBEDDING_MODELS:
+                model_id = settings.VECTOR_EMBEDDING_API_MODEL
+                logger.info(f"Using default embedding model: {model_id}")
+            else:
+                logger.info(f"Using specified embedding model: {model_id}")
+            
+            # Get model configuration
+            model_config = EMBEDDING_MODELS.get(model_id, {
+                "id": model_id,
+                "name": model_id,
+                "dimensions": 384,  # Default dimension
+                "provider": "huggingface"
+            })
+            
+            logger.info(f"Processing dataset {dataset_id} from file {file_path} using model {model_id}")
             
             # Load the dataset using pandas
             file_ext = file_path.split('.')[-1].lower()
@@ -247,13 +442,44 @@ class VectorEmbeddingAPI:
                     "success": False,
                     "error": "No records found in dataset"
                 }
-                
-            # Convert dataframe to text for processing
-            # For large datasets, we'll process directly instead of pre-chunking
-            # to avoid memory issues
             
-            # Prepare config for API call
-            config = settings
+            # Get database connection pool for direct database operations
+            from api.db.connection import get_db_pool
+            pool = await get_db_pool()
+            
+            # Store model information in dataset metadata
+            async with pool.acquire() as conn:
+                # Get current metadata
+                dataset_row = await conn.fetchrow(
+                    "SELECT metadata FROM datasets WHERE id = $1",
+                    dataset_id
+                )
+                
+                if dataset_row and dataset_row['metadata']:
+                    metadata = dataset_row['metadata']
+                    if isinstance(metadata, str):
+                        try:
+                            metadata = json.loads(metadata)
+                        except json.JSONDecodeError:
+                            metadata = {}
+                else:
+                    metadata = {}
+                
+                # Update metadata with embedding model information
+                metadata.update({
+                    "embedding_model": model_id,
+                    "embedding_model_dimensions": model_config.get("dimensions", 384),
+                    "embedding_timestamp": datetime.now().isoformat(),
+                    "chunk_size": chunk_size,
+                    "overlap": overlap
+                })
+                
+                # Save updated metadata
+                await conn.execute(
+                    "UPDATE datasets SET metadata = $1 WHERE id = $2",
+                    json.dumps(metadata),
+                    dataset_id
+                )
             
             # For very large datasets, we'll use direct API invocation with batching
             if record_count > 10000:
@@ -266,22 +492,34 @@ class VectorEmbeddingAPI:
                     record_text = json.dumps(record)
                     inputs.append(record_text)
                 
+                # Create a custom config object for the API call
+                api_config = type('Config', (), {})()
+                api_config.VECTOR_EMBEDDING_API_ENDPOINT = self.endpoint
+                api_config.VECTOR_EMBEDDING_API_KEY = self.api_key
+                api_config.VECTOR_BATCH_SIZE = getattr(settings, "VECTOR_BATCH_SIZE", 1000)
+                api_config.VECTOR_EMBEDDING_API_MODEL = model_id
+                
                 # Call the API with batching
-                api_result = await self.invoke_api(inputs, config, dataset_id)
+                api_result = await self.invoke_api(inputs, api_config, dataset_id)
+                
+                # Update dataset with vectorization status
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE datasets SET vectorized = TRUE, vectorized_at = NOW() WHERE id = $1",
+                        dataset_id
+                    )
                 
                 return {
                     "success": api_result["success"],
                     "total_vectors": api_result.get("total_vectors", 0),
                     "total_records": record_count,
+                    "model": model_id,
+                    "dimensions": model_config.get("dimensions", 384),
                     "message": api_result.get("message", "")
                 }
             
             # For smaller datasets, use the standard approach with more control
             logger.info(f"Processing {record_count} records with chunk size {chunk_size}")
-            
-            # Get database connection pool for direct database operations
-            from api.db.connection import get_db_pool
-            pool = await get_db_pool()
             
             # Process in batches
             batch_size = min(1000, record_count)

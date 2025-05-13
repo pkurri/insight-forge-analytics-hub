@@ -95,11 +95,14 @@ class Settings(BaseSettings):
     # Allowed embedding and generation models (internal only)
     ALLOWED_EMBEDDING_MODELS: List[str] = [
         "all-MiniLM-L6-v2",
-        "nomic-embed-text-v1.5"
+        "nomic-embed-text-v1.5",
+        "roberta-base-go_emotions-SapBERT",
+        "BioLinkBERT-large"
     ]
     ALLOWED_TEXT_GEN_MODELS: List[str] = [
         "Mistral-3.2-instruct",
-        "Llama-3.3-70b-instruct"
+        "llama-3.3-70b-instruct",
+        "pythia28b"
     ]
     
     # Monitoring Settings
