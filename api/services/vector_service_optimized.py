@@ -10,7 +10,7 @@ from functools import wraps
 from api.db.connection import execute_query, execute_command, execute_transaction, get_db_connection
 
 # Import configuration
-from config.settings import get_settings
+from api.config.settings import get_settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -70,12 +70,6 @@ class VectorService:
             CREATE INDEX IF NOT EXISTS idx_vector_embeddings_dataset_embedding ON vector_embeddings(dataset_id, embedding);
             """
             
-            # Create indexes if they don't exist
-            create_indexes_query = """
-            CREATE INDEX IF NOT EXISTS idx_vector_embeddings_dataset_id ON vector_embeddings(dataset_id);
-            CREATE INDEX IF NOT EXISTS vector_embeddings_embedding_idx ON vector_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-            """
-            
             # Execute the create table query
             await execute_command(create_table_query)
             
@@ -91,42 +85,65 @@ class VectorService:
             except Exception as e:
                 # HNSW index might not be supported in all PostgreSQL versions with pgvector
                 logger.warning(f"Failed to create HNSW index, falling back to exact search: {str(e)}")
+            
+            # Create IVF index for faster vector search
+            create_indexes_query = """
+            CREATE INDEX IF NOT EXISTS vector_embeddings_embedding_idx ON vector_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+            """
             await execute_command(create_indexes_query)
             
             logger.info("Vector database initialization complete")
-            return True
         except Exception as e:
-            logger.error(f"Failed to initialize vector database: {e}", exc_info=True)
-            return False
-
-    async def add_vectors(self, dataset_id: int, vectors: List[Dict[str, Any]]):
+            logger.error(f"Error initializing vector database: {str(e)}")
+    
+    async def add_vectors(
+        self,
+        vectors: List[Dict[str, Any]],
+        dataset_id: int,
+        batch_size: int = 100
+    ) -> Dict[str, Any]:
         """
-        Add vectors to the database for a specific dataset
+        Add vectors to the database
         
         Args:
+            vectors: List of vector dictionaries with record_id, content, embedding, and metadata
             dataset_id: ID of the dataset
-            vectors: List of vector data dictionaries with record_id, embedding, content, and optional metadata
+            batch_size: Number of vectors to insert in each batch
             
         Returns:
-            Dictionary with success status and count or error message
+            Dictionary with success status and count of added vectors
         """
         try:
             # Prepare values for bulk insert
             values_list = []
-            for v in vectors:
+            
+            for vector in vectors:
+                record_id = vector.get("record_id", "")
+                content = vector.get("content", "")
+                chunk_index = vector.get("chunk_index", 0)
+                chunk_text = vector.get("chunk_text", content)
+                embedding = vector.get("embedding", [])
+                metadata = vector.get("metadata", {})
+                
+                # Validate embedding dimension
+                if len(embedding) != self.vector_dim:
+                    logger.warning(f"Skipping vector with incorrect dimension: {len(embedding)} != {self.vector_dim}")
+                    continue
+                
+                # Add to values list
                 values_list.append((
                     dataset_id,
-                    v['record_id'],
-                    v.get('content', ''),  # Store original content for RAG
-                    v.get('chunk_index'),  # Store chunk index
-                    v.get('chunk_text', ''),  # Store chunk text
-                    v['embedding'],  # Vector embedding
-                    json.dumps(v.get('metadata', {}))  # JSON metadata
+                    record_id,
+                    content,
+                    chunk_index,
+                    chunk_text,
+                    embedding,
+                    json.dumps(metadata)
                 ))
             
-            # Bulk insert query
+            # Insert query with ON CONFLICT DO UPDATE
             insert_query = """
-            INSERT INTO vector_embeddings 
+            INSERT INTO vector_embeddings
                 (dataset_id, record_id, content, chunk_index, chunk_text, embedding, vector_metadata)
             VALUES 
                 ($1, $2, $3, $4, $5, $6::vector, $7::jsonb)
@@ -337,6 +354,7 @@ class VectorService:
         except Exception as e:
             logger.error(f"Error searching vectors: {str(e)}")
             return []
+    
     async def get_ordered_chunks(
         self,
         dataset_id: int,
@@ -360,82 +378,82 @@ class VectorService:
             # Build the query
             query = """
             SELECT 
-                id, record_id, dataset_id, chunk_index, chunk_text, content, vector_metadata
-            FROM vector_embeddings
-            WHERE dataset_id = $1 AND record_id = $2
+                id, chunk_index, chunk_text, content, vector_metadata
+            FROM 
+                vector_embeddings
+            WHERE 
+                dataset_id = $1 AND record_id = $2
             """
             
             params = [dataset_id, record_id]
-            param_idx = 3
+            param_idx = 3  # Starting with $3
             
             # Add index filters if specified
             if start_index is not None:
                 query += f" AND chunk_index >= ${param_idx}"
                 params.append(start_index)
                 param_idx += 1
-                
+            
             if end_index is not None:
                 query += f" AND chunk_index <= ${param_idx}"
                 params.append(end_index)
                 param_idx += 1
-                
+            
             # Order by chunk index
-            query += " ORDER BY chunk_index"
+            query += " ORDER BY chunk_index ASC"
             
             # Execute query
             results = await execute_query(query, *params)
             
             # Format results
-            return [{
-                "chunk_index": row["chunk_index"],
-                "chunk_text": row["chunk_text"],
-                "content": row["content"],
-                "metadata": row["vector_metadata"]
-            } for row in results]
+            formatted_results = []
+            for row in results:
+                result_item = {
+                    "id": row["id"],
+                    "chunk_index": row["chunk_index"],
+                    "chunk_text": row["chunk_text"],
+                    "content": row["content"],
+                    "metadata": row["vector_metadata"]
+                }
+                
+                formatted_results.append(result_item)
+            
+            return formatted_results
             
         except Exception as e:
             logger.error(f"Error getting ordered chunks: {str(e)}")
             return []
-
-    async def delete_vectors(self, dataset_id: int) -> Dict[str, Any]:
-        """Delete all vectors for a specific dataset"""
-        try:
-            # Delete query
-            query = "DELETE FROM vector_embeddings WHERE dataset_id = $1"
-            
-            # Execute query
-            result = await execute_command(query, dataset_id)
-            
-            return {
-                "success": True,
-                "message": f"Deleted vectors for dataset {dataset_id}"
-            }
-        except Exception as e:
-            logger.error(f"Error deleting vectors: {str(e)}", exc_info=True)
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
+    
     async def get_dataset_info(self, dataset_id: int) -> Dict[str, Any]:
-        """Get information about vectors stored for a specific dataset"""
-        try:
-            # Count query
-            count_query = "SELECT COUNT(*) as count FROM vector_embeddings WHERE dataset_id = $1"
+        """
+        Get information about a dataset's vector embeddings
+        
+        Args:
+            dataset_id: ID of the dataset
             
-            # Record count query (unique record_ids)
-            record_count_query = """
-            SELECT COUNT(DISTINCT record_id) as record_count 
-            FROM vector_embeddings 
+        Returns:
+            Dictionary with dataset information
+        """
+        try:
+            # Get count of vectors
+            count_query = """
+            SELECT COUNT(*) as count
+            FROM vector_embeddings
             WHERE dataset_id = $1
             """
             
-            # Execute queries
             count_result = await execute_query(count_query, dataset_id)
-            record_count_result = await execute_query(record_count_query, dataset_id)
+            count = count_result[0]["count"]
             
-            count = count_result[0]["count"] if count_result else 0
-            record_count = record_count_result[0]["record_count"] if record_count_result else 0
+            # Get count of unique records
+            record_count_query = """
+            SELECT COUNT(DISTINCT record_id) as record_count
+            FROM vector_embeddings
+            WHERE dataset_id = $1
+            """
+            
+            record_count_result = await execute_query(record_count_query, dataset_id)
+            record_count = record_count_result[0]["record_count"]
             
             return {
                 "dataset_id": dataset_id,

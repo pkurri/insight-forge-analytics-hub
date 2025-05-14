@@ -33,6 +33,7 @@ interface AIResponse {
   confidence?: number;
   sources?: string[];
   insights?: string[];
+  has_relevant_context?: boolean; // Added flag to indicate if relevant context was found
   context?: {
     sources?: string[];
     similarContent?: Array<{
@@ -69,6 +70,7 @@ export interface Message {
     dataset?: string;
     timestamp?: string;
     modelId?: string;
+    hasRelevantContext?: boolean; // Added flag to indicate if relevant context was found
     conversationId?: string;
     isError?: boolean;
     evaluationId?: string;
@@ -518,12 +520,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       // Use the AI agent service to get a response
       const response = await aiAgentService.getAgentResponse({
         query: input,
-        modelId: modelId,
+        model_id: modelId,  // Changed from modelId to match backend
         // If 'all' is selected, we'll set use_all_datasets to true
-        // and leave datasetId undefined
-        datasetId: isUsingAllDatasets ? undefined : currentDataset,
+        // and leave dataset_id undefined
+        dataset_id: isUsingAllDatasets ? undefined : currentDataset,  // Changed from datasetId to match backend
         use_all_datasets: isUsingAllDatasets,
-        chatHistory: chatHistory,
+        chat_history: chatHistory,  // Changed from chatHistory to match backend
         context: {}
       });
       
@@ -534,11 +536,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         // Cast response.data to our AIResponse type
         const aiResponse = response.data as AIResponse;
         
+        // Check if we need to add a context availability notice
+        const content = aiResponse.answer || aiResponse.text || aiResponse.response;
+        const hasRelevantContext = aiResponse.has_relevant_context !== false; // Default to true if not specified
+        
         // Add assistant response
         addMessage({
           id: assistantMessageId,
           type: 'assistant',
-          content: aiResponse.answer || aiResponse.text || aiResponse.response,
+          content: content,
           metadata: {
             confidence: aiResponse.confidence || 0.9,
             sources: aiResponse.sources || aiResponse.context?.sources,
@@ -546,10 +552,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             dataset: currentDataset,
             timestamp: new Date().toISOString(),
             modelId: modelId,
-            conversationId: conversationId
+            conversationId: conversationId,
+            hasRelevantContext: hasRelevantContext
           },
           timestamp: new Date()
         });
+        
+        // If using a specific dataset and no relevant context was found, show a toast notification
+        if (currentDataset !== 'all' && !hasRelevantContext) {
+          toast({
+            title: 'Limited Dataset Knowledge',
+            description: `No highly relevant information was found in the selected dataset for this query.`,
+            variant: 'default',
+            duration: 5000
+          });
+        }
         
         // Auto-evaluate the response quality if we have a conversation ID
         if (conversationId) {

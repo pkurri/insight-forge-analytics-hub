@@ -4,7 +4,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Bot, User, ChevronDown, ChevronUp, Lightbulb, Clock, AlertCircle, Copy, ExternalLink, MessageSquare, Sparkles } from 'lucide-react';
+import { Bot, User, ChevronDown, ChevronUp, Lightbulb, Clock, AlertCircle, Copy, MessageSquare, Sparkles, AlertTriangle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface Source {
@@ -22,6 +22,7 @@ interface MessageMetadata {
   isError?: boolean;
   timestamp?: string;
   modelId?: string;
+  hasRelevantContext?: boolean;
 }
 
 // Extend the Message type from ChatInterface to ensure proper typing
@@ -173,35 +174,64 @@ const MessageList: React.FC<MessageListProps> = ({
                           </div>
                         )}
                         
-                        {message.metadata?.sources?.length ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <ExternalLink className="h-3 w-3" />
-                              <span>Sources:</span>
-                            </div>
-                            <div className="space-y-2">
-                              {message.metadata.sources.map((source, i) => {
-                                // Ensure proper type handling for sources
-                                if (typeof source === 'string') {
-                                  return (
-                                    <div key={i} className="text-xs bg-muted/30 p-2.5 rounded-md border border-border/50">
-                                      <div className="font-medium">{source}</div>
-                                    </div>
-                                  );
-                                } else {
-                                  return (
-                                    <div key={i} className="text-xs bg-muted/30 p-2.5 rounded-md border border-border/50">
-                                      <div className="font-medium mb-1">{source.title || 'Source'}</div>
-                                      {source.snippet && (
-                                        <div className="line-clamp-2 text-muted-foreground">{source.snippet}</div>
-                                      )}
-                                    </div>
-                                  );
-                                }
-                              })}
-                            </div>
+                        {message.type === "assistant" && (
+                          <div className="mt-4">
+                            {/* Show context availability indicator */}
+                            {message.metadata?.hasRelevantContext === false && (
+                              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-amber-500 dark:text-amber-400">
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                <span>No relevant information found in the selected dataset</span>
+                              </div>
+                            )}
+                            
+                            {/* Show sources if available */}
+                            {message.metadata?.sources?.length > 0 && (
+                              <>
+                                <div className="mb-2 text-xs font-medium text-muted-foreground">
+                                  Sources
+                                </div>
+                                <div className="space-y-2">
+                                  {message.metadata.sources.map((source, i) => {
+                                    // Ensure proper type handling for sources
+                                    if (typeof source === 'string') {
+                                       return (
+                                        <div key={i} className="text-xs bg-muted/30 p-2.5 rounded-md border border-border/50">
+                                          <div className="font-medium">{source}</div>
+                                        </div>
+                                      );
+                                    } else if (source && typeof source === 'object') {
+                                      // Define the structure we expect for object sources
+                                      const sourceObj = source as {
+                                        title?: string;
+                                        snippet?: string;
+                                        content?: string;
+                                        [key: string]: string | number | boolean | undefined;
+                                      };
+                                      
+                                      return (
+                                        <div key={i} className="text-xs bg-muted/30 p-2.5 rounded-md border border-border/50">
+                                          <div className="font-medium mb-1">{sourceObj.title || 'Source'}</div>
+                                          {(sourceObj.snippet || sourceObj.content) && (
+                                            <div className="line-clamp-2 text-muted-foreground">
+                                              {sourceObj.snippet || sourceObj.content}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    } else {
+                                      // Fallback for unexpected source types
+                                      return (
+                                        <div key={i} className="text-xs bg-muted/30 p-2.5 rounded-md border border-border/50">
+                                          <div className="font-medium">Unknown Source</div>
+                                        </div>
+                                      );
+                                    }
+                                  })}
+                                </div>
+                              </>
+                            )}
                           </div>
-                        ) : null}
+                        )}
                         
                         {message.metadata?.insights?.length ? (
                           <div className="space-y-2">

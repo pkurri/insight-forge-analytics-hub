@@ -29,11 +29,11 @@ export interface ChatContext {
 
 export interface ChatRequest {
   query: string;
-  modelId?: string;
-  agentType?: string;
-  datasetId?: string;
+  model_id?: string;  // Changed from modelId to match backend
+  agent_type?: string;  // Changed from agentType to match backend
+  dataset_id?: string;  // Changed from datasetId to match backend
   use_all_datasets?: boolean;
-  chatHistory?: ChatMessage[];
+  chat_history?: ChatMessage[];  // Changed from chatHistory to match backend
   context?: ChatContext;
 }
 

@@ -10,7 +10,7 @@ import numpy as np
 from fastapi import HTTPException
 
 from .cache_service import get_cache, set_cache
-from .vector_service import VectorService, search_similar_vectors
+from .vector_service import VectorService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -142,7 +142,13 @@ async def get_available_agents() -> List[Dict[str, Any]]:
 async def generate_embeddings(text: str, model_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Generate embeddings for text using the specified model
+    
+    This function uses the vector_embedding_api service for consistent embedding generation
+    throughout the application.
     """
+    # Import the vector_embedding_api service
+    from ..services.vector_embedding_api import vector_embedding_api
+    
     # Use default model if none specified
     if not model_id or model_id not in AVAILABLE_MODELS:
         model_id = DEFAULT_MODEL
@@ -157,46 +163,26 @@ async def generate_embeddings(text: str, model_id: Optional[str] = None) -> Dict
         return cached_result
     
     try:
-        # For Hugging Face sentence transformers
-        if embedding_model.startswith("sentence-transformers/"):
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{HF_API_BASE}{embedding_model}",
-                    headers={"Authorization": f"Bearer {HF_API_KEY}"},
-                    json={"inputs": text}
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Error from HF API: {error_text}")
-                        raise HTTPException(status_code=response.status, detail="Failed to generate embeddings")
-                    
-                    result = await response.json()
-                    # HF returns a list of embeddings, we take the first one
-                    embeddings = result[0]
+        # Use the vector_embedding_api service for consistent embedding generation
+        result = await vector_embedding_api.generate_embeddings(
+            texts=text,
+            model_id=embedding_model
+        )
         
-        # For OpenAI embeddings
-        elif model_config["provider"] == "openai":
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{OPENAI_API_BASE}embeddings",
-                    headers={
-                        "Authorization": f"Bearer {OPENAI_API_KEY}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "input": text,
-                        "model": embedding_model
-                    }
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Error from OpenAI API: {error_text}")
-                        raise HTTPException(status_code=response.status, detail="Failed to generate embeddings")
-                    
-                    result = await response.json()
-                    embeddings = result["data"][0]["embedding"]
-        else:
-            raise HTTPException(status_code=400, detail=f"Unsupported embedding model: {embedding_model}")
+        if not result["success"]:
+            # If the vector_embedding_api fails, log the error and raise an exception
+            logger.error(f"Error from vector_embedding_api: {result.get('error', 'Unknown error')}")
+            raise HTTPException(
+                status_code=result.get('status', 500), 
+                detail=f"Failed to generate embeddings: {result.get('error', 'Unknown error')}"
+            )
+        
+        # Extract embeddings from the result
+        embeddings = result["embeddings"]
+        
+        # If embeddings is a list of embeddings (for multiple texts), take the first one
+        if isinstance(embeddings, list) and len(embeddings) > 0:
+            embeddings = embeddings[0]
         
         # Cache the result
         response_data = {
@@ -241,22 +227,34 @@ async def get_agent_response(
         if cached_result:
             return cached_result
     
-    # Prepare context from vector search if dataset is specified
+    # Prepare context from vector search if dataset is specified or provided in context
     vector_context = []
-    if dataset_id:
+    
+    # First check if vector search results are already provided in the context
+    if context and isinstance(context, dict) and "vector_search_results" in context:
+        vector_context_from_router = context["vector_search_results"]
+        if isinstance(vector_context_from_router, dict) and "similarContent" in vector_context_from_router:
+            vector_context = vector_context_from_router["similarContent"]
+        elif isinstance(vector_context_from_router, list):
+            vector_context = vector_context_from_router
+    
+    # If no vector context yet and dataset_id is provided, perform vector search
+    if not vector_context and dataset_id:
         try:
             # Generate embeddings for the query
             embedding_result = await generate_embeddings(query, model_id)
-            query_embedding = embedding_result["embeddings"]
+            # Handle both single embedding and list of embeddings
+            query_embedding = embedding_result["embeddings"][0] if isinstance(embedding_result["embeddings"], list) else embedding_result["embeddings"]
             
-            # Search for similar vectors
-            search_results = await search_similar_vectors(
-                query_embedding,
-                dataset_id,
-                limit=5
+            # Search for similar vectors using the vector_service
+            search_results = await vector_service.search_vectors(
+                query_vector=query_embedding,
+                dataset_id=int(dataset_id) if dataset_id and dataset_id.isdigit() else None,
+                limit=5,
+                include_chunks=True
             )
             
-            if search_results and search_results["results"]:
+            if search_results and isinstance(search_results, dict) and "results" in search_results and search_results["results"]:
                 vector_context = search_results["results"]
         except Exception as e:
             logger.error(f"Error searching vectors: {str(e)}")
@@ -265,12 +263,49 @@ async def get_agent_response(
     # Prepare the prompt with context
     system_prompt = agent_config["system_prompt"]
     
-    # Add dataset context if available
+    # Check if we have relevant context from vector search
+    has_relevant_context = False
+    context_relevance_threshold = 0.75  # Minimum similarity score to consider context relevant
+    context_text = "\n\nRelevant context from the dataset:\n"
+    
     if vector_context:
-        context_text = "\n\nRelevant context from the dataset:\n"
-        for i, item in enumerate(vector_context):
-            context_text += f"[{i+1}] {item['content']}\n"
-        system_prompt += context_text
+        # Filter out low-relevance context items
+        relevant_items = []
+        for item in vector_context:
+            similarity = item.get('similarity', 0)
+            if similarity >= context_relevance_threshold:
+                relevant_items.append(item)
+        
+        # If we have relevant context, add it to the prompt
+        if relevant_items:
+            has_relevant_context = True
+            for i, item in enumerate(relevant_items):
+                # Handle different possible content field names
+                content_field = (
+                    item.get('content') or 
+                    item.get('chunk_text') or 
+                    item.get('text') or 
+                    str(item.get('metadata', {}).get('content', ''))
+                )
+                if content_field:
+                    # Add source information if available
+                    source_info = ""
+                    source = (
+                        item.get("metadata", {}).get("source") or 
+                        item.get("source") or 
+                        item.get("dataset_name")
+                    )
+                    if source:
+                        source_info = f" (Source: {source})"
+                    
+                    context_text += f"[{i+1}] {content_field}{source_info}\n"
+            system_prompt += context_text
+    
+    # Add a note about context availability to the prompt
+    if not has_relevant_context and dataset_id:
+        system_prompt += "\n\nNote: No highly relevant context was found in the dataset for this query. "
+        system_prompt += "Please inform the user that you don't have specific information about this topic from the dataset, "
+        system_prompt += "but you can still provide general knowledge if appropriate.\n"
     
     # Add custom context if provided
     if context and isinstance(context, dict):
@@ -355,6 +390,18 @@ async def get_agent_response(
         # Extract insights if possible (simple implementation)
         insights = extract_insights(ai_response)
         
+        # Calculate confidence based on context relevance
+        confidence = 0.9  # Default confidence
+        if dataset_id:
+            if not has_relevant_context:
+                confidence = 0.4  # Low confidence when no relevant context found
+            elif vector_context:
+                # Calculate average similarity of top results
+                similarities = [item.get('similarity', 0) for item in vector_context[:3]]
+                if similarities:
+                    avg_similarity = sum(similarities) / len(similarities)
+                    confidence = min(0.95, avg_similarity)  # Cap at 0.95
+        
         # Prepare response
         response_data = {
             "success": True,
@@ -362,9 +409,16 @@ async def get_agent_response(
             "model": model_id,
             "agent": agent_type,
             "timestamp": datetime.now().isoformat(),
-            "confidence": 0.9,  # Placeholder, could be calculated based on model and context
+            "confidence": confidence,
+            "has_relevant_context": has_relevant_context,
             "insights": insights,
-            "sources": [item.get("metadata", {}).get("source", "") for item in vector_context] if vector_context else []
+            "sources": [
+                item.get("metadata", {}).get("source", "") or 
+                item.get("source", "") or 
+                item.get("dataset_name", "") or
+                f"Dataset {item.get('dataset_id', 'unknown')}"
+                for item in vector_context
+            ] if vector_context else []
         }
         
         # Cache the result if it's the first message in a conversation
