@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   SendHorizontal, Settings, Loader2, Sparkles,
-  MessageSquare, RotateCw, BrainCircuit, Copy
+  RotateCw, BrainCircuit, Copy
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ import { aiAgentService, vectorDatasetService } from '@/api/services/ai';
 import { getAllowedModels } from '@/api/services/ai/modelService';
 import MessageList from './MessageList';
 import ModelSelector from './ModelSelector';
+import RobotAvatar from './RobotAvatar';
 
 // Define response type interfaces
 // Used for AI service responses
@@ -833,8 +834,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             
             {messages.length === 0 && !isHistoryLoading && (
               <div className="flex flex-col items-center justify-center h-[350px] text-center p-6 rounded-xl bg-gradient-to-b from-background to-muted/20">
-                <div className="bg-primary/10 p-4 rounded-full mb-6">
-                  <MessageSquare className="h-10 w-10 text-primary" />
+                <div className="mb-6">
+                  <RobotAvatar className="h-20 w-20" isAnimated={true} />
                 </div>
                 <h3 className="text-xl font-semibold mb-3">How can I help you today?</h3>
                 <p className="text-sm text-muted-foreground max-w-md mb-8">
@@ -853,10 +854,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             )}
             
             {isProcessing && (
-              <div className="flex items-center justify-center py-6 animate-pulse">
-                <div className="flex items-center gap-3 px-4 py-2 rounded-full bg-primary/5 text-primary shadow-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm font-medium">Generating response...</span>
+              <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
+                <div className="flex-shrink-0">
+                  <RobotAvatar className="h-8 w-8" isAnimated={true} />
+                </div>
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">AI Assistant</span>
+                    <span className="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full">Thinking</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"></div>
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse delay-150"></div>
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse delay-300"></div>
+                  </div>
                 </div>
               </div>
             )}

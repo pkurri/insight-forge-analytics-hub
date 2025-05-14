@@ -4,7 +4,8 @@ import { Avatar } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Bot, User, ChevronDown, ChevronUp, Lightbulb, Clock, AlertCircle, Copy, MessageSquare, Sparkles, AlertTriangle } from 'lucide-react';
+import { User, ChevronDown, ChevronUp, Lightbulb, Clock, AlertCircle, Copy, MessageSquare, Sparkles, AlertTriangle } from 'lucide-react';
+import RobotAvatar from './RobotAvatar';
 import ReactMarkdown from 'react-markdown';
 
 interface Source {
@@ -76,17 +77,18 @@ const MessageList: React.FC<MessageListProps> = ({
             >
               {isLastInSequence && (
                 <div className="flex flex-col items-center mt-auto mb-1">
-                  <Avatar 
-                    className={`h-8 w-8 ${message.type === 'assistant' 
-                      ? 'bg-primary/10 ring-1 ring-primary/20' 
-                      : 'bg-secondary/90 text-secondary-foreground'} shadow-sm`}
-                  >
-                    {message.type === 'assistant' ? (
-                      <Bot className="h-4 w-4 text-primary" />
-                    ) : (
+                  {message.type === 'assistant' ? (
+                    <RobotAvatar 
+                      className="h-8 w-8 shadow-sm" 
+                      isAnimated={true} 
+                    />
+                  ) : (
+                    <Avatar 
+                      className="h-8 w-8 bg-secondary/90 text-secondary-foreground shadow-sm"
+                    >
                       <User className="h-4 w-4" />
-                    )}
-                  </Avatar>
+                    </Avatar>
+                  )}
                 </div>
               )}
               
