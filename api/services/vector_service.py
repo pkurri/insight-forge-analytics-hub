@@ -222,6 +222,18 @@ class VectorService:
                 if cached_result:
                     logger.info("Using cached vector search result")
                     return cached_result
+                    
+            # Ensure query vector is properly formatted
+            # This handles potential precision issues by explicitly converting to float
+            try:
+                # Convert to list of float with proper precision
+                query_vector_formatted = [float(val) for val in query_vector]
+                # Log vector details for debugging
+                logger.debug(f"Query vector length: {len(query_vector_formatted)}")
+                logger.debug(f"Query vector sample: {query_vector_formatted[:3]}...")
+            except Exception as e:
+                logger.error(f"Error formatting query vector: {str(e)}")
+                raise ValueError(f"Invalid query vector format: {str(e)}")
             
             # Determine if we should use approximate search
             # Get count of vectors in the dataset to decide on search method
@@ -239,18 +251,18 @@ class VectorService:
             
             # Build the query
             if use_approximate:
-                # Use HNSW index for approximate search
+                # Use HNSW index for approximate search with explicit type casting
                 query = """
                 SELECT 
                     id, record_id, dataset_id,
-                    1 - (embedding <=> $1::vector) as similarity
+                    1 - (embedding <=> $1::float8[]) as similarity
                 """
             else:
-                # Use exact search
+                # Use exact search with explicit type casting
                 query = """
                 SELECT 
                     id, record_id, dataset_id,
-                    1 - (embedding <=> $1::vector) as similarity
+                    1 - (embedding <=> $1::float8[]) as similarity
                 """
             
             # Add content and chunk_text if requested
@@ -264,7 +276,7 @@ class VectorService:
             query += " FROM vector_embeddings"
             
             # Where clause
-            params = [query_vector]
+            params = [query_vector_formatted]  # Use the properly formatted vector
             param_idx = 2  # Starting with $2 since $1 is already used
             
             where_clauses = []
@@ -304,10 +316,30 @@ class VectorService:
             
             # Execute query with timing for performance monitoring
             start_time = datetime.now()
-            results = await execute_query(query, *params)
-            query_time = (datetime.now() - start_time).total_seconds()
-            
-            logger.info(f"Vector search completed in {query_time:.3f}s with {len(results)} results")
+            try:
+                # Log the query for debugging
+                logger.debug(f"Vector search query: {query}")
+                results = await execute_query(query, *params)
+                query_time = (datetime.now() - start_time).total_seconds()
+                logger.info(f"Vector search completed in {query_time:.3f}s with {len(results)} results")
+            except Exception as e:
+                logger.error(f"Error executing vector search query: {str(e)}")
+                # Check for specific type conversion errors
+                if "cannot cast" in str(e).lower() or "type conversion" in str(e).lower():
+                    logger.error("Possible type mismatch between query vector and database column")
+                    # Try alternative type casting as fallback
+                    try:
+                        # Modify query to use vector type if float8[] failed
+                        query = query.replace("$1::float8[]", "$1::vector")
+                        logger.info("Retrying with vector type casting")
+                        results = await execute_query(query, *params)
+                        query_time = (datetime.now() - start_time).total_seconds()
+                        logger.info(f"Vector search with fallback completed in {query_time:.3f}s with {len(results)} results")
+                    except Exception as inner_e:
+                        logger.error(f"Fallback query also failed: {str(inner_e)}")
+                        raise
+                else:
+                    raise
             
             # Format results
             formatted_results = []

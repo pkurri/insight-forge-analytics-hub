@@ -208,7 +208,22 @@ async def get_agent_response(
     context: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Get a response from an AI agent
+    Get a response from an AI agent with enhanced insights generation
+    
+    This method processes a user query, retrieves relevant context from vector search,
+    passes both the query and search results to a generative LLM, and returns insights
+    derived from the LLM's analysis.
+    
+    Args:
+        query: The user's question or prompt
+        agent_type: Type of AI agent to use
+        model_id: ID of the LLM model to use
+        dataset_id: Optional dataset ID to search within
+        chat_history: Optional conversation history
+        context: Optional additional context including vector search results
+        
+    Returns:
+        Dictionary containing the AI response, insights, and metadata
     """
     # Validate model and agent type
     if model_id not in AVAILABLE_MODELS:
@@ -315,21 +330,33 @@ async def get_agent_response(
     try:
         # Format messages based on provider
         if model_config["provider"] == "huggingface":
-            messages = []
+            # Initialize messages with system prompt
+            messages = [{"role": "system", "content": system_prompt}]
             
-            # Add system prompt
-            messages.append({"role": "system", "content": system_prompt})
+            # Process chat history if available
+            if chat_history and isinstance(chat_history, list):
+                # Check if chat history already contains the system message
+                has_system_message = any(msg.get("role") == "system" for msg in chat_history)
+                
+                # If chat history already has system message, use it directly
+                if has_system_message:
+                    messages = chat_history.copy()
+                else:
+                    # Add chat history after system message
+                    for msg in chat_history:
+                        if msg.get("role") and msg.get("content"):
+                            messages.append({
+                                "role": msg.get("role"),
+                                "content": msg.get("content")
+                            })
             
-            # Add chat history if available
-            if chat_history:
-                for msg in chat_history:
-                    messages.append({
-                        "role": msg.get("role", "user"),
-                        "content": msg.get("content", "")
-                    })
-            
-            # Add current query
-            messages.append({"role": "user", "content": query})
+            # Check if the last message is already the current query
+            last_message = messages[-1] if messages else None
+            if not (last_message and 
+                    last_message.get("role") == "user" and 
+                    last_message.get("content") == query):
+                # Add current query if it's not already the last message
+                messages.append({"role": "user", "content": query})
             
             # Call Hugging Face API
             async with aiohttp.ClientSession() as session:
@@ -347,21 +374,33 @@ async def get_agent_response(
                     ai_response = result[0]["generated_text"]
         
         elif model_config["provider"] == "openai":
-            messages = []
+            # Initialize messages with system prompt
+            messages = [{"role": "system", "content": system_prompt}]
             
-            # Add system prompt
-            messages.append({"role": "system", "content": system_prompt})
+            # Process chat history if available
+            if chat_history and isinstance(chat_history, list):
+                # Check if chat history already contains the system message
+                has_system_message = any(msg.get("role") == "system" for msg in chat_history)
+                
+                # If chat history already has system message, use it directly
+                if has_system_message:
+                    messages = chat_history.copy()
+                else:
+                    # Add chat history after system message
+                    for msg in chat_history:
+                        if msg.get("role") and msg.get("content"):
+                            messages.append({
+                                "role": msg.get("role"),
+                                "content": msg.get("content")
+                            })
             
-            # Add chat history if available
-            if chat_history:
-                for msg in chat_history:
-                    messages.append({
-                        "role": msg.get("role", "user"),
-                        "content": msg.get("content", "")
-                    })
-            
-            # Add current query
-            messages.append({"role": "user", "content": query})
+            # Check if the last message is already the current query
+            last_message = messages[-1] if messages else None
+            if not (last_message and 
+                    last_message.get("role") == "user" and 
+                    last_message.get("content") == query):
+                # Add current query if it's not already the last message
+                messages.append({"role": "user", "content": query})
             
             # Call OpenAI API
             async with aiohttp.ClientSession() as session:
@@ -402,7 +441,73 @@ async def get_agent_response(
                     avg_similarity = sum(similarities) / len(similarities)
                     confidence = min(0.95, avg_similarity)  # Cap at 0.95
         
-        # Prepare response
+        # Generate enhanced insights using the embedding model and search results
+        enhanced_insights = insights
+        try:
+            # Only attempt to generate enhanced insights if we have relevant context
+            if has_relevant_context and vector_context:
+                # Prepare a specialized prompt for insight generation
+                insight_prompt = f"Based on the search results and the query '{query}', provide 3-5 key insights or findings:"
+                
+                # Prepare context from search results for insight generation
+                insight_context = "\n\nSearch Results:\n"
+                for i, item in enumerate(vector_context[:3]):
+                    content = (
+                        item.get('content') or 
+                        item.get('chunk_text') or 
+                        item.get('text') or 
+                        str(item.get('metadata', {}).get('content', ''))
+                    )
+                    if content:
+                        insight_context += f"[{i+1}] {content}\n"
+                
+                # Create a specialized message for insight extraction
+                # Use a clean message array for insight generation to avoid role duplication
+                insight_messages = [
+                    {"role": "system", "content": "You are an analytical assistant that identifies key insights from data. Focus on extracting patterns, trends, correlations, anomalies, and business implications."}, 
+                    {"role": "user", "content": insight_context + "\n" + insight_prompt}
+                ]
+                
+                # Use the same model provider but with a specialized prompt for insights
+                if model_config["provider"] == "huggingface":
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            f"{HF_API_BASE}{model_config['endpoint']}",
+                            headers={"Authorization": f"Bearer {HF_API_KEY}"},
+                            json={"inputs": insight_messages, "parameters": {"max_new_tokens": 512}}
+                        ) as response:
+                            if response.status == 200:
+                                result = await response.json()
+                                insight_response = result[0]["generated_text"]
+                                # Parse the insights into a list
+                                enhanced_insights = [line.strip() for line in insight_response.split("\n") 
+                                                   if line.strip() and not line.strip().startswith("#")]
+                
+                elif model_config["provider"] == "openai":
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            f"{OPENAI_API_BASE}{model_config['endpoint']}",
+                            headers={
+                                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                                "Content-Type": "application/json"
+                            },
+                            json={
+                                "model": model_config["model"],
+                                "messages": insight_messages,
+                                "max_tokens": 512
+                            }
+                        ) as response:
+                            if response.status == 200:
+                                result = await response.json()
+                                insight_response = result["choices"][0]["message"]["content"]
+                                # Parse the insights into a list
+                                enhanced_insights = [line.strip() for line in insight_response.split("\n") 
+                                                   if line.strip() and not line.strip().startswith("#")]
+        except Exception as e:
+            logger.warning(f"Error generating enhanced insights: {str(e)}")
+            # Fall back to the original insights if enhanced insight generation fails
+        
+        # Prepare response with enhanced insights
         response_data = {
             "success": True,
             "answer": ai_response,
@@ -411,7 +516,13 @@ async def get_agent_response(
             "timestamp": datetime.now().isoformat(),
             "confidence": confidence,
             "has_relevant_context": has_relevant_context,
-            "insights": insights,
+            "insights": enhanced_insights,
+            "query": query,  # Include the original query
+            "search_results": {
+                "count": len(vector_context),
+                "relevance_score": confidence,
+                "items": vector_context[:3]  # Include top 3 search results for reference
+            } if vector_context else None,
             "sources": [
                 item.get("metadata", {}).get("source", "") or 
                 item.get("source", "") or 
