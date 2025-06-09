@@ -1,831 +1,618 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
-import { Loader2, Filter, Check, Download, Brain, Code, Wand } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { Loader2, Check, X, Plus, RefreshCw, Sparkles } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { api } from '@/api/api';
-import type { 
-  BusinessRule, 
-  RuleSuggestion, 
-  RuleGenerationEngine, 
-  ColumnMetadata 
-} from '@/api/services/businessRules/businessRulesService';
-import { 
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import type { BusinessRule } from '@/api/services/businessRules/businessRulesService';
 
-// Import our new components
-import RuleSelector from './RuleSelector';
-import RulePreview from './RulePreview';
-import QuickRuleBuilder from './QuickRuleBuilder';
-import RuleStatusIndicator from './RuleStatusIndicator';
+// Types
+type RuleStatus = 'idle' | 'loading' | 'applying' | 'success' | 'error' | 'generating' | 'warning';
+type RuleGenerationEngine = 'openai' | 'anthropic' | 'gemini';
+type RuleAction = 'warn' | 'error' | 'correct';
+
+interface RuleSuggestion extends Omit<BusinessRule, 'severity'> {
+  severity: 'low' | 'medium' | 'high';
+  category?: string;
+  isNew?: boolean;
+  ruleType: string;
+  action: RuleAction;
+}
 
 interface EnhancedBusinessRulesProps {
   datasetId: string;
-  sampleData?: Record<string, unknown>[];
-  onRulesApplied?: (ruleIds: string[]) => void;
+  sampleData: any[];
+  onRulesApplied?: (rules: BusinessRule[]) => void;
   onComplete?: () => void;
 }
 
-type RuleStatus = 'idle' | 'pending' | 'processing' | 'success' | 'failed' | 'warning';
+interface RulePreviewProps {
+  rules: BusinessRule[];
+  onApply: () => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
 
-const EnhancedBusinessRules: React.FC<EnhancedBusinessRulesProps> = ({ 
-  datasetId, 
+const RuleStatusIndicator: React.FC<{ status: RuleStatus; message?: string }> = ({ 
+  status, 
+  message 
+}) => {
+  if (!status || status === 'idle') return null;
+
+  const statusConfig = {
+    loading: { icon: Loader2, className: 'text-blue-500', label: 'Loading...' },
+    applying: { icon: Loader2, className: 'text-blue-500', label: 'Applying...' },
+    success: { icon: Check, className: 'text-green-500', label: 'Success' },
+    error: { icon: X, className: 'text-red-500', label: 'Error' },
+    generating: { icon: RefreshCw, className: 'text-yellow-500', label: 'Generating...' },
+    warning: { icon: X, className: 'text-yellow-500', label: 'Warning' },
+  };
+
+  const { icon: Icon, className, label } = statusConfig[status] || statusConfig.error;
+
+  return (
+    <div className={`flex items-center gap-2 text-sm ${className}`}>
+      <Icon className="h-4 w-4 animate-spin" />
+      <span>{message || label}</span>
+    </div>
+  );
+};
+
+const RulePreview: React.FC<RulePreviewProps> = ({ rules, onApply, onCancel, isLoading = false }) => (
+  <Card className="mt-4">
+    <CardHeader>
+      <CardTitle>Review Generated Rules</CardTitle>
+      <CardDescription>Review and apply the generated business rules to your dataset.</CardDescription>
+    </CardHeader>
+    <CardContent>
+      <ScrollArea className="h-64 rounded-md border p-4">
+        <div className="space-y-4">
+          {rules.map((rule) => (
+            <div key={rule.id} className="rounded-lg border p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium">{rule.name}</h4>
+                  <p className="text-sm text-muted-foreground">
+                    {rule.description || 'No description'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
+                    {(rule as any).ruleType || 'validation'}
+                  </span>
+                  <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                    {(rule as any).action || 'warn'}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-2">
+                <code className="rounded bg-muted px-2 py-1 text-xs">
+                  {rule.condition}
+                </code>
+              </div>
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="outline" onClick={onCancel} disabled={isLoading}>
+          Cancel
+        </Button>
+        <Button onClick={onApply} disabled={isLoading}>
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Applying...
+            </>
+          ) : (
+            `Apply ${rules.length} Rule${rules.length !== 1 ? 's' : ''}`
+          )}
+        </Button>
+      </div>
+    </CardContent>
+  </Card>
+);
+
+const EnhancedBusinessRules: React.FC<EnhancedBusinessRulesProps> = ({
+  datasetId,
   sampleData = [],
-  onRulesApplied,
-  onComplete
+  onRulesApplied = () => {},
+  onComplete = () => {},
 }) => {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<string>('select');
-  const [selectedRules, setSelectedRules] = useState<string[]>([]);
-  const [ruleObjects, setRuleObjects] = useState<BusinessRule[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isApplying, setIsApplying] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [showRuleBuilder, setShowRuleBuilder] = useState(false);
-  const [impactAnalysis, setImpactAnalysis] = useState<{
-    totalRecords: number;
-    passingRecords: number;
-    failingRecords: number;
-    impactPercentage: number;
-  } | null>(null);
-  const [ruleStatus, setRuleStatus] = useState<RuleStatus>('idle');
-  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [rules, setRules] = useState<BusinessRule[]>([]);
   const [suggestedRules, setSuggestedRules] = useState<RuleSuggestion[]>([]);
-  const [selectedEngine, setSelectedEngine] = useState<RuleGenerationEngine>('ai_default');
-  const [selectedModel, setSelectedModel] = useState<string>('default');
-  const [columnMetadata, setColumnMetadata] = useState<ColumnMetadata[]>([]);
+  const [selectedRules, setSelectedRules] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRuleBuilderOpen, setIsRuleBuilderOpen] = useState(false);
+  const [selectedEngine, setSelectedEngine] = useState<RuleGenerationEngine>('openai');
+  const [ruleStatus, setRuleStatus] = useState<RuleStatus>('idle');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  // Fetch rules for the dataset
-  const fetchRules = useCallback(async () => {
-    if (!datasetId) return;
-    
-    setIsLoading(true);
-    
+  const [newRule, setNewRule] = useState<Omit<BusinessRule, 'id' | 'createdAt' | 'updatedAt' | 'datasetId'>>({ 
+    name: '',
+    description: '',
+    condition: '',
+    severity: 'medium',
+    message: '',
+    active: true,
+    confidence: 0,
+    lastUpdated: new Date().toISOString(),
+    model_generated: false
+  });
+
+  // Load existing rules when component mounts
+  useEffect(() => {
+    const loadRules = async () => {
+      try {
+        setIsLoading(true);
+        setRuleStatus('loading');
+        setStatusMessage('Loading rules...');
+        
+        const response = await api.businessRules.getBusinessRules(datasetId);
+        
+        if (response.success) {
+          setRules(response.rules || []);
+          setRuleStatus('success');
+        } else {
+          throw new Error(response.error || 'Failed to load rules');
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load rules';
+        setError(errorMessage);
+        setRuleStatus('error');
+        setStatusMessage('Error loading rules');
+        toast({
+          title: 'Error',
+          description: errorMessage,
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadRules();
+  }, [datasetId, toast]);
+
+  // Handle rule generation
+  const handleGenerateRules = useCallback(async () => {
     try {
-      const response = await api.businessRules.getBusinessRules(datasetId);
-      if (response.success) {
-        setRuleObjects(response.data || []);
+      setIsGenerating(true);
+      setRuleStatus('generating');
+      setStatusMessage('Generating business rules...');
+      
+      const response = await api.businessRules.suggestRules(datasetId, [
+        { engine: selectedEngine },
+        ...sampleData
+      ]);
+
+      if (response.success && response.suggested_rules) {
+        const generatedRules = response.suggested_rules.map(rule => ({
+          ...rule,
+          isNew: true,
+          id: `generated-${Math.random().toString(36).substr(2, 9)}`,
+        }));
+        
+        setSuggestedRules(generatedRules);
+        setRuleStatus('success');
+        setStatusMessage('Rules generated successfully');
+        
+        toast({
+          title: 'Success',
+          description: 'Business rules have been generated successfully.',
+        });
+      } else {
+        throw new Error(response.error || 'Failed to generate rules');
       }
     } catch (err) {
-      console.error('Error fetching business rules:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate rules';
+      setError(errorMessage);
+      setRuleStatus('error');
+      setStatusMessage('Error generating rules');
       toast({
         title: 'Error',
-        description: 'Failed to fetch business rules',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [datasetId, sampleData, selectedEngine, toast]);
+
+  // Handle creating a new rule
+  const handleCreateRule = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setRuleStatus('applying');
+      setStatusMessage('Creating rule...');
+
+      const response = await api.businessRules.createBusinessRule(datasetId, {
+        ...newRule,
+        datasetId,
+      });
+
+      if (response.success && response.rule) {
+        setRules(prev => [...prev, response.rule!]);
+        setNewRule({
+          name: '',
+          description: '',
+          condition: '',
+          severity: 'medium',
+          message: '',
+          active: true,
+          confidence: 0,
+          lastUpdated: new Date().toISOString(),
+          model_generated: false
+        });
+        setIsRuleBuilderOpen(false);
+        setRuleStatus('success');
+        setStatusMessage('Rule created successfully');
+        
+        toast({
+          title: 'Success',
+          description: 'Business rule has been created successfully.',
+        });
+      } else {
+        throw new Error(response.error || 'Failed to create rule');
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create rule';
+      setError(errorMessage);
+      setRuleStatus('error');
+      setStatusMessage('Error creating rule');
+      toast({
+        title: 'Error',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
     }
-  }, [datasetId, toast]);
+  }, [datasetId, newRule, toast]);
 
-  // Extract column metadata from sample data
-  const extractColumnMetadata = useCallback(() => {
-    if (!sampleData || sampleData.length === 0) return [];
-    
-    const metadata: ColumnMetadata[] = [];
-    const firstRow = sampleData[0];
-    
-    Object.keys(firstRow).forEach(colName => {
-      // Determine column type
-      let colType = 'string';
-      const values = sampleData.map(row => row[colName]);
+  // Handle input changes for new rule form
+  const handleNewRuleChange = useCallback((
+    field: keyof Omit<BusinessRule, 'id' | 'createdAt' | 'updatedAt' | 'datasetId'>,
+    value: string | boolean | number
+  ) => {
+    setNewRule(prev => ({
+      ...prev,
+      [field]: value,
+    }));
+  }, []);
+
+  // Handle applying rules
+  const handleApplyRules = useCallback(async (rulesToApply: BusinessRule[]) => {
+    try {
+      setIsLoading(true);
+      setRuleStatus('applying');
+      setStatusMessage('Applying rules...');
+
+      const response = await api.businessRules.saveBusinessRules(datasetId, rulesToApply);
       
-      // Check if numeric
-      if (values.every(val => val === null || val === undefined || typeof val === 'number')) {
-        colType = 'number';
-      } else if (values.every(val => val === null || val === undefined || typeof val === 'boolean')) {
-        colType = 'boolean';
-      } else if (values.every(val => val === null || val === undefined || !isNaN(Date.parse(String(val))))) {
-        colType = 'date';
-      }
-      
-      // Calculate basic stats
-      const numericValues = values.filter(v => typeof v === 'number') as number[];
-      const stringValues = values.filter(v => typeof v === 'string') as string[];
-      
-      const stats: ColumnMetadata['stats'] = {
-        total_count: sampleData.length,
-        null_count: values.filter(v => v === null || v === undefined).length,
-        unique_count: new Set(values).size
-      };
-      
-      // Add type-specific stats
-      if (colType === 'number' && numericValues.length > 0) {
-        stats.min = Math.min(...numericValues);
-        stats.max = Math.max(...numericValues);
-        stats.mean = numericValues.reduce((sum, val) => sum + val, 0) / numericValues.length;
+      if (response.success) {
+        setRules(rulesToApply);
+        onRulesApplied(rulesToApply);
+        setRuleStatus('success');
+        setStatusMessage('Rules applied successfully');
         
-        // Standard deviation
-        const mean = stats.mean;
-        stats.std = Math.sqrt(
-          numericValues.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / numericValues.length
-        );
-      } else if (colType === 'string' && stringValues.length > 0) {
-        stats.max_length = Math.max(...stringValues.map(s => s.length));
-        
-        // Get common values (top 10)
-        const valueCounts: Record<string, number> = {};
-        stringValues.forEach(val => {
-          valueCounts[val] = (valueCounts[val] || 0) + 1;
+        toast({
+          title: 'Success',
+          description: 'Business rules have been applied successfully.',
         });
         
-        const sortedValues = Object.entries(valueCounts)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 10)
-          .map(([value]) => value);
-        
-        stats.common_values = sortedValues;
-      }
-      
-      metadata.push({
-        name: colName,
-        type: colType,
-        stats
-      });
-    });
-    
-    setColumnMetadata(metadata);
-    return metadata;
-  }, [sampleData]);
-
-  // Fetch rule suggestions if sample data is available
-  const fetchRuleSuggestions = useCallback(async () => {
-    if (!datasetId || !sampleData || sampleData.length === 0) return;
-    
-    try {
-      const response = await api.businessRules.suggestRules(datasetId, sampleData);
-      if (response.success && response.data) {
-        setSuggestedRules(response.data.suggested_rules || []);
+        onComplete();
+      } else {
+        throw new Error(response.error || 'Failed to apply rules');
       }
     } catch (err) {
-      console.error('Error fetching rule suggestions:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to apply rules';
+      setError(errorMessage);
+      setRuleStatus('error');
+      setStatusMessage('Error applying rules');
+      
       toast({
         title: 'Error',
-        description: 'Failed to fetch rule suggestions',
+        description: errorMessage,
         variant: 'destructive',
       });
+    } finally {
+      setIsLoading(false);
     }
-  }, [datasetId, sampleData, toast]);
-
-  // Load rules and suggestions on component mount
-  useEffect(() => {
-    fetchRules();
-    if (sampleData && sampleData.length > 0) {
-      fetchRuleSuggestions();
-      extractColumnMetadata();
-    }
-  }, [fetchRules, fetchRuleSuggestions, extractColumnMetadata, sampleData]);
+  }, [datasetId, onComplete, onRulesApplied, toast]);
 
   // Handle rule selection change
-  const handleRuleSelectionChange = (ruleIds: string[]) => {
-    setSelectedRules(ruleIds);
-    
-    // Analyze impact if sample data is available
-    if (sampleData && sampleData.length > 0 && ruleIds.length > 0) {
-      analyzeRuleImpact(ruleIds);
-    }
-  };
-
-  // Analyze the impact of selected rules on sample data
-  const analyzeRuleImpact = async (ruleIds: string[]) => {
-    if (!sampleData || sampleData.length === 0 || ruleIds.length === 0) return;
-    
-    try {
-      // Get the rule objects for the selected rule IDs
-      const selectedRuleObjects = ruleObjects.filter(rule => ruleIds.includes(rule.id));
-      
-      // Call the API to analyze rule impact
-      const response = await api.businessRules.testRulesOnSample(datasetId, sampleData, selectedRuleObjects);
-      
-      if (response.success && response.data) {
-        const results = response.data;
-        const passingRecords = results.passing_records || Math.floor(sampleData.length * 0.85); // Fallback if API doesn't return this
-        const failingRecords = results.failing_records || (sampleData.length - passingRecords);
-        
-        setImpactAnalysis({
-          totalRecords: sampleData.length,
-          passingRecords,
-          failingRecords,
-          impactPercentage: Math.round((failingRecords / sampleData.length) * 100)
-        });
-      } else {
-        // Fallback if API fails
-        const passingRecords = Math.floor(sampleData.length * 0.85);
-        const failingRecords = sampleData.length - passingRecords;
-        
-        setImpactAnalysis({
-          totalRecords: sampleData.length,
-          passingRecords,
-          failingRecords,
-          impactPercentage: Math.round((failingRecords / sampleData.length) * 100)
-        });
-      }
-    } catch (err) {
-      console.error('Error analyzing rule impact:', err);
-      toast({
-        title: 'Error',
-        description: 'Failed to analyze rule impact',
-        variant: 'destructive',
-      });
-      
-      // Fallback if API fails
-      const passingRecords = Math.floor(sampleData.length * 0.85);
-      const failingRecords = sampleData.length - passingRecords;
-      
-      setImpactAnalysis({
-        totalRecords: sampleData.length,
-        passingRecords,
-        failingRecords,
-        impactPercentage: Math.round((failingRecords / sampleData.length) * 100)
-      });
-    }
-  };
-
-  // Handle creating a new rule
-  const handleRuleCreated = (newRule: BusinessRule) => {
-    setRuleObjects(prev => [...prev, newRule]);
-    setSelectedRules(prev => [...prev, newRule.id]);
-    setShowRuleBuilder(false);
-    
-    toast({
-      title: 'Rule Created',
-      description: `Rule "${newRule.name}" has been created successfully.`,
-    });
-  };
-  
-  // Generate business rules using AI
-  const generateRules = async () => {
-    if (!datasetId || columnMetadata.length === 0) {
-      toast({
-        title: 'Cannot Generate Rules',
-        description: 'Sample data is required to generate rules.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    
-    setIsGenerating(true);
-    setStatusMessage(`Generating rules using ${selectedEngine}...`);
-    
-    try {
-      const options = {
-        engine: selectedEngine,
-        modelType: selectedModel !== 'default' ? selectedModel : undefined,
-        columnMeta: {
-          columns: columnMetadata,
-          dataset_info: {
-            dataset_id: datasetId,
-            record_count: sampleData?.length || 0
-          }
-        }
-      };
-      
-      const response = await api.businessRules.generateRules(datasetId, options);
-      
-      if (response.success && response.data) {
-        // Add the generated rules to the suggested rules
-        const generatedRules = response.data.rules.map(rule => ({
-          ...rule,
-          confidence: 0.9, // High confidence for AI-generated rules
-          model_generated: true
-        })) as RuleSuggestion[];
-        
-        setSuggestedRules(prev => [...prev, ...generatedRules]);
-        setActiveTab('suggestions'); // Switch to suggestions tab
-        
-        toast({
-          title: 'Rules Generated',
-          description: `Successfully generated ${generatedRules.length} rules using ${selectedEngine}.`,
-        });
-      } else {
-        toast({
-          title: 'Generation Failed',
-          description: response.error || `Failed to generate rules using ${selectedEngine}.`,
-          variant: 'destructive',
-        });
-      }
-    } catch (err) {
-      console.error(`Error generating rules with ${selectedEngine}:`, err);
-      toast({
-        title: 'Error',
-        description: `Failed to generate rules using ${selectedEngine}.`,
-        variant: 'destructive',
-      });
-    } finally {
-      setIsGenerating(false);
-      setStatusMessage('');
-    }
-  };
-  
-  // Handle adding a suggested rule
-  const handleAddSuggestedRule = (suggestion: RuleSuggestion) => {
-    // Check if rule already exists
-    const isDuplicate = ruleObjects.some(
-      rule => 
-        rule.name.toLowerCase() === suggestion.name.toLowerCase() ||
-        rule.condition === suggestion.condition
+  const handleRuleSelectionChange = useCallback((ruleId: string, isSelected: boolean) => {
+    setSelectedRules(prev => 
+      isSelected 
+        ? [...prev, ruleId] 
+        : prev.filter(id => id !== ruleId)
     );
-    
-    if (isDuplicate) {
-      toast({
-        title: 'Duplicate Rule',
-        description: 'This rule or a similar rule already exists in your selection.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    
-    // Create a new rule from the suggestion
-    const newRule: BusinessRule = {
-      id: `rule-${Date.now()}`, // Generate a temporary ID
-      name: suggestion.name,
-      description: suggestion.description || '',
-      condition: suggestion.condition,
-      severity: suggestion.severity,
-      message: suggestion.message,
-      active: true,
-      confidence: suggestion.confidence,
-      model_generated: suggestion.model_generated || false
-    };
-    
-    // Add to rule objects and selected rules
-    setRuleObjects(prev => [...prev, newRule]);
-    setSelectedRules(prev => [...prev, newRule.id]);
-    
-    // Analyze impact if sample data is available
-    if (sampleData && sampleData.length > 0) {
-      analyzeRuleImpact([...selectedRules, newRule.id]);
-    }
-    
-    toast({
-      title: 'Rule Added',
-      description: `Added "${suggestion.name}" to your selected rules.`,
-    });
-  };
-
-  // Handle rule export
-  const handleExportRules = () => {
-    const rulesToExport = ruleObjects.filter(rule => selectedRules.includes(rule.id));
-    const dataStr = JSON.stringify(rulesToExport, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `business_rules_${datasetId}_${new Date().toISOString().split('T')[0]}.json`;
-    link.click();
-    
-    toast({
-      title: 'Rules Exported',
-      description: `Exported ${rulesToExport.length} rules to JSON file.`,
-    });
-  };
+  }, []);
 
   // Get selected rule objects
-  const getSelectedRuleObjects = () => {
-    return ruleObjects.filter(rule => selectedRules.includes(rule.id));
-  };
-
-      
-      setSuggestedRules(prev => [...prev, ...generatedRules]);
-      setActiveTab('suggestions'); // Switch to suggestions tab
-      
-      toast({
-        title: 'Rules Generated',
-        description: `Successfully generated ${generatedRules.length} rules using ${selectedEngine}.`,
-      });
-    } else {
-      toast({
-        title: 'Generation Failed',
-        description: response.error || `Failed to generate rules using ${selectedEngine}.`,
-        variant: 'destructive',
-      });
-    }
-  } catch (err) {
-    console.error(`Error generating rules with ${selectedEngine}:`, err);
-    toast({
-      title: 'Error',
-      description: `Failed to generate rules using ${selectedEngine}.`,
-      variant: 'destructive',
-    });
-  } finally {
-    setIsGenerating(false);
-    setStatusMessage('');
-  }
-};
-
-// Handle adding a suggested rule
-const handleAddSuggestedRule = (suggestion: RuleSuggestion) => {
-  // Check if rule already exists
-  const isDuplicate = ruleObjects.some(
-    rule => 
-      rule.name.toLowerCase() === suggestion.name.toLowerCase() ||
-      rule.condition === suggestion.condition
-  );
-  
-  if (isDuplicate) {
-    toast({
-      title: 'Duplicate Rule',
-      description: 'This rule or a similar rule already exists in your selection.',
-      variant: 'destructive',
-    });
-    return;
-  }
-  
-  // Create a new rule from the suggestion
-  const newRule: BusinessRule = {
-    id: `rule-${Date.now()}`, // Generate a temporary ID
-    name: suggestion.name,
-    description: suggestion.description || '',
-    condition: suggestion.condition,
-    severity: suggestion.severity,
-    message: suggestion.message,
-    active: true,
-    confidence: suggestion.confidence,
-    model_generated: suggestion.model_generated || false
-  };
-  
-  // Add to rule objects and selected rules
-  setRuleObjects(prev => [...prev, newRule]);
-  setSelectedRules(prev => [...prev, newRule.id]);
-  
-  // Analyze impact if sample data is available
-  if (sampleData && sampleData.length > 0) {
-    analyzeRuleImpact([...selectedRules, newRule.id]);
-  }
-  
-  toast({
-    title: 'Rule Added',
-    description: `Added "${suggestion.name}" to your selected rules.`,
-  });
-};
-
-// Handle rule export
-const handleExportRules = () => {
-  const rulesToExport = ruleObjects.filter(rule => selectedRules.includes(rule.id));
-  const dataStr = JSON.stringify(rulesToExport, null, 2);
-  const blob = new Blob([dataStr], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `business_rules_${datasetId}_${new Date().toISOString().split('T')[0]}.json`;
-  link.click();
-  
-  toast({
-    title: 'Rules Exported',
-    description: `Exported ${rulesToExport.length} rules to JSON file.`,
-  });
-};
-
-// Get selected rule objects
-const getSelectedRuleObjects = () => {
-  return ruleObjects.filter(rule => selectedRules.includes(rule.id));
-};
-
-// Apply selected rules to the dataset
-const handleApplyRules = async () => {
-  if (selectedRules.length === 0) {
-    toast({
-      title: 'No Rules Selected',
-      description: 'Please select at least one business rule to apply.',
-      variant: 'destructive',
-    });
-    return;
-  }
-  
-  setIsApplying(true);
-  setRuleStatus('processing');
-  setStatusMessage('Applying business rules...');
-  
-  try {
-    // Get the selected rule objects
-    const rulesToApply = ruleObjects.filter(rule => selectedRules.includes(rule.id));
-    
-    // Call the enhanced API to save and apply the rules
-    const response = await api.businessRules.saveBusinessRules(datasetId, rulesToApply);
-    
-    if (response.success) {
-      // Check if rules were both saved and applied
-      if (response.data.applied) {
-        setRuleStatus('success');
-        setStatusMessage('Business rules saved and applied successfully!');
-        
-        toast({
-          title: 'Rules Applied',
-          description: `Successfully saved and applied ${rulesToApply.length} business rules.`,
-        });
-        
-        // Notify parent component with the rule IDs
-        if (onRulesApplied) {
-          // If we have created_rules from batch endpoint, use those IDs
-          const appliedRuleIds = response.data.created_rules 
-            ? response.data.created_rules.map((rule: any) => rule.id)
-            : selectedRules;
-            
-          onRulesApplied(appliedRuleIds);
-        }
-        
-        // Move to the next step if onComplete is provided
-        if (onComplete) {
-          setTimeout(() => {
-            onComplete();
-          }, 1500);
-        }
-      } else {
-        // Rules were saved but not applied
-        setRuleStatus('warning');
-        setStatusMessage('Business rules saved but could not be applied. You can try applying them again.');
-        
-        toast({
-          title: 'Rules Saved',
-          description: `Rules were saved but could not be applied: ${response.data.applyError || 'Unknown error'}`,
-          variant: 'warning',
-        });
-      }
-    } else {
-      setRuleStatus('failed');
-      setStatusMessage('Failed to apply business rules.');
-      
-      toast({
-        title: 'Error',
-        description: 'Failed to apply business rules.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsApplying(false);
-    }
-  };
+  const selectedRuleObjects = useMemo(() => {
+    return rules.filter(rule => selectedRules.includes(rule.id));
+  }, [rules, selectedRules]);
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle>Business Rules</CardTitle>
-        <CardDescription>
-          Apply business rules to validate and transform your data.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {showRuleBuilder ? (
-          <QuickRuleBuilder 
-            datasetId={datasetId}
-            onRuleCreated={handleRuleCreated}
-            onCancel={() => setShowRuleBuilder(false)}
-            sampleData={sampleData}
-            suggestedRules={suggestedRules}
-          />
-        ) : (
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid grid-cols-4 mb-4">
-              <TabsTrigger value="select">Select Rules</TabsTrigger>
-              <TabsTrigger value="suggestions" disabled={suggestedRules.length === 0}>
-                Suggestions {suggestedRules.length > 0 && <Badge variant="outline" className="ml-2">{suggestedRules.length}</Badge>}
-              </TabsTrigger>
-              <TabsTrigger value="generate">AI Generate</TabsTrigger>
-              <TabsTrigger value="preview">Preview Impact</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="select" className="space-y-4">
-              <RuleSelector 
-                rules={ruleObjects} 
-                selectedRuleIds={selectedRules}
-                onChange={handleRuleSelectionChange}
-                isLoading={isLoading}
-              />
-            </TabsContent>
-            
-            <TabsContent value="suggestions" className="space-y-4">
-              {suggestedRules.length > 0 ? (
-                <div className="space-y-2">
-                  {suggestedRules.map((suggestion) => (
-                    <Card key={`${suggestion.name}-${suggestion.condition}`} className="p-4">
-                      <div className="flex justify-between items-start">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Business Rules</h2>
+        <div className="flex items-center gap-2">
+          <Select
+            value={selectedEngine}
+            onValueChange={(value: RuleGenerationEngine) => setSelectedEngine(value)}
+          >
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Select AI Engine" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="openai">OpenAI</SelectItem>
+              <SelectItem value="anthropic">Anthropic</SelectItem>
+              <SelectItem value="gemini">Gemini</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={handleGenerateRules}
+            disabled={isGenerating || sampleData.length === 0}
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Sparkles className="mr-2 h-4 w-4" />
+                Generate Rules
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={() => setIsRuleBuilderOpen(true)}
+            variant="outline"
+            disabled={isLoading}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Create Rule
+          </Button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-md bg-red-50 p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <X className="h-5 w-5 text-red-400" aria-hidden="true" />
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-red-800">Error</h3>
+              <div className="mt-2 text-sm text-red-700">
+                <p>{error}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <RuleStatusIndicator status={ruleStatus} message={statusMessage} />
+
+      <Tabs defaultValue="suggested" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="suggested">Suggested Rules</TabsTrigger>
+          <TabsTrigger value="existing">Existing Rules</TabsTrigger>
+          {selectedRules.length > 0 && (
+            <TabsTrigger value="preview">
+              Preview Selected ({selectedRules.length})
+            </TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="suggested">
+          {suggestedRules.length > 0 ? (
+            <RulePreview
+              rules={suggestedRules}
+              onApply={() => handleApplyRules(suggestedRules)}
+              onCancel={() => setSuggestedRules([])}
+              isLoading={isLoading}
+            />
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>No Suggested Rules</CardTitle>
+                <CardDescription>
+                  Click "Generate Rules" to get AI-suggested rules for your dataset.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="existing">
+          <Card>
+            <CardHeader>
+              <CardTitle>Existing Rules</CardTitle>
+              <CardDescription>
+                {rules.length > 0
+                  ? `You have ${rules.length} active rule${rules.length !== 1 ? 's' : ''}`
+                  : 'No rules have been created yet.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {rules.length > 0 ? (
+                <div className="space-y-4">
+                  {rules.map((rule) => (
+                    <div key={rule.id} className="rounded-lg border p-4">
+                      <div className="flex items-center justify-between">
                         <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-medium">{suggestion.name}</h4>
-                            {suggestion.model_generated && (
-                              <Badge variant="outline" className="bg-blue-50">AI Generated</Badge>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground">{suggestion.description}</p>
-                          <p className="text-xs mt-1 text-muted-foreground">Condition: <code>{suggestion.condition}</code></p>
-                          <div className="mt-2 flex items-center space-x-2">
-                            <Badge variant="outline">{suggestion.severity}</Badge>
-                            <Badge variant="secondary">Confidence: {Math.round(suggestion.confidence * 100)}%</Badge>
-                            {suggestion.source && (
-                              <Badge variant="outline" className="bg-gray-50">Source: {suggestion.source}</Badge>
-                            )}
-                          </div>
+                          <h4 className="font-medium">{rule.name}</h4>
+                          <p className="text-sm text-muted-foreground">
+                            {rule.description || 'No description'}
+                          </p>
                         </div>
-                        <Button
-                          size="sm"
-                          onClick={() => handleAddSuggestedRule(suggestion)}
-                        >
-                          Add Rule
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
+                            {(rule as any).ruleType || 'validation'}
+                          </span>
+                          <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                            {(rule as any).action || 'warn'}
+                          </span>
+                        </div>
                       </div>
-                    </Card>
+                      <div className="mt-2">
+                        <code className="rounded bg-muted px-2 py-1 text-xs">
+                          {rule.condition}
+                        </code>
+                      </div>
+                    </div>
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center p-8 text-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">Generating rule suggestions based on your data...</p>
+                <div className="flex h-40 flex-col items-center justify-center rounded-md border-2 border-dashed p-8 text-center">
+                  <p className="text-muted-foreground">No rules found</p>
+                  <p className="text-sm text-muted-foreground">
+                    Create your first rule to get started
+                  </p>
                 </div>
               )}
-            </TabsContent>
-            
-            <TabsContent value="generate" className="space-y-4">
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-medium">Generate Rules with AI</h3>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {selectedRules.length > 0 && (
+          <TabsContent value="preview">
+            <RulePreview
+              rules={selectedRuleObjects}
+              onApply={() => handleApplyRules(selectedRuleObjects)}
+              onCancel={() => setSelectedRules([])}
+              isLoading={isLoading}
+            />
+          </TabsContent>
+        )}
+      </Tabs>
+
+      {/* Rule Builder Dialog */}
+      {isRuleBuilderOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-2xl">
+            <CardHeader>
+              <CardTitle>Create New Rule</CardTitle>
+              <CardDescription>
+                Define a new business rule for your dataset
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="rule-name">Rule Name</Label>
+                <Input
+                  id="rule-name"
+                  placeholder="Enter rule name"
+                  value={newRule.name}
+                  onChange={(e) => handleNewRuleChange('name', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rule-description">Description (Optional)</Label>
+                <Textarea
+                  id="rule-description"
+                  placeholder="Enter rule description"
+                  value={newRule.description}
+                  onChange={(e) => handleNewRuleChange('description', e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="rule-severity">Severity</Label>
+                  <Select
+                    value={newRule.severity}
+                    onValueChange={(value) => handleNewRuleChange('severity', value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select severity" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Rule Generation Engine</label>
-                      <Select
-                        value={selectedEngine}
-                        onValueChange={(value) => setSelectedEngine(value as RuleGenerationEngine)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select engine" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ai_default">
-                            <div className="flex items-center">
-                              <Brain className="mr-2 h-4 w-4" />
-                              <span>AI Default</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="huggingface">
-                            <div className="flex items-center">
-                              <Wand className="mr-2 h-4 w-4" />
-                              <span>Hugging Face</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="pydantic">
-                            <div className="flex items-center">
-                              <Code className="mr-2 h-4 w-4" />
-                              <span>Pydantic</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="great_expectations">
-                            <div className="flex items-center">
-                              <Check className="mr-2 h-4 w-4" />
-                              <span>Great Expectations</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="greater_expressions">
-                            <div className="flex items-center">
-                              <Filter className="mr-2 h-4 w-4" />
-                              <span>Greater Expressions</span>
-                            </div>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    {selectedEngine === 'huggingface' && (
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Model Type</label>
-                        <Select
-                          value={selectedModel}
-                          onValueChange={setSelectedModel}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select model type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="default">Default</SelectItem>
-                            <SelectItem value="zero-shot-classification">Zero-shot Classification</SelectItem>
-                            <SelectItem value="table-qa">Table Question Answering</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                    
-                    <Button 
-                      onClick={generateRules}
-                      disabled={isGenerating || !sampleData || sampleData.length === 0}
-                      className="w-full"
-                    >
-                      {isGenerating ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Generating Rules...
-                        </>
-                      ) : (
-                        <>
-                          <Wand className="mr-2 h-4 w-4" />
-                          Generate Rules
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                  
-                  <div className="border rounded-md p-4">
-                    <h4 className="text-sm font-medium mb-2">Engine Description</h4>
-                    {selectedEngine === 'ai_default' && (
-                      <p className="text-sm text-muted-foreground">
-                        Uses AI to analyze your data and suggest business rules based on patterns and best practices.
-                      </p>
-                    )}
-                    {selectedEngine === 'huggingface' && (
-                      <p className="text-sm text-muted-foreground">
-                        Leverages Hugging Face models for zero-shot classification or table question answering to generate rules.
-                      </p>
-                    )}
-                    {selectedEngine === 'pydantic' && (
-                      <p className="text-sm text-muted-foreground">
-                        Creates rules based on Pydantic validation models, focusing on type safety and constraints.
-                      </p>
-                    )}
-                    {selectedEngine === 'great_expectations' && (
-                      <p className="text-sm text-muted-foreground">
-                        Uses Great Expectations library to generate data quality validation rules.
-                      </p>
-                    )}
-                    {selectedEngine === 'greater_expressions' && (
-                      <p className="text-sm text-muted-foreground">
-                        Generates advanced expressions for complex data validation and transformation rules.
-                      </p>
-                    )}
-                    
-                    <h4 className="text-sm font-medium mt-4 mb-2">Available Column Metadata</h4>
-                    <div className="max-h-40 overflow-y-auto">
-                      <ul className="text-xs space-y-1">
-                        {columnMetadata.map(col => (
-                          <li key={col.name} className="text-muted-foreground">
-                            <span className="font-medium">{col.name}</span>: {col.type}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="rule-active">Status</Label>
+                  <Select
+                    value={newRule.active ? 'active' : 'inactive'}
+                    onValueChange={(value) => handleNewRuleChange('active', value === 'active')}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-            </TabsContent>
-            
-            <TabsContent value="preview">
-              <RulePreview 
-                rules={getSelectedRuleObjects()}
-                impactAnalysis={impactAnalysis}
-                isApplying={isApplying}
-                onApplyRules={handleApplyRules}
-              />
-            </TabsContent>
-          </Tabs>
-        )}
-      </CardContent>
-      <CardFooter className="flex justify-between">
-        <div className="flex items-center space-x-2">
-          {ruleStatus !== 'idle' && (
-            <RuleStatusIndicator status={ruleStatus} message={statusMessage} />
-          )}
+              <div className="space-y-2">
+                <Label htmlFor="rule-condition">Condition</Label>
+                <Textarea
+                  id="rule-condition"
+                  placeholder="Enter rule condition (e.g., value > 100)"
+                  className="font-mono text-sm"
+                  rows={4}
+                  value={newRule.condition}
+                  onChange={(e) => handleNewRuleChange('condition', e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use JavaScript syntax for conditions. The value will be available as 'value'.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rule-message">Error Message (Optional)</Label>
+                <Input
+                  id="rule-message"
+                  placeholder="Enter error message to display when condition fails"
+                  value={newRule.message}
+                  onChange={(e) => handleNewRuleChange('message', e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsRuleBuilderOpen(false)}
+                  disabled={isLoading}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleCreateRule} 
+                  disabled={isLoading || !newRule.name || !newRule.condition}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Rule'
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
-        <div className="flex space-x-2">
-          {!showRuleBuilder && (
-            <>
-              <Button 
-                variant="outline" 
-                onClick={() => setShowRuleBuilder(true)}
-                disabled={isApplying}
-              >
-                Create Rule
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={handleExportRules}
-                disabled={selectedRules.length === 0 || isApplying}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Export Rules
-              </Button>
-              <Button 
-                onClick={handleApplyRules}
-                disabled={selectedRules.length === 0 || isApplying}
-              >
-                {isApplying ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Applying...
-                  </>
-                ) : (
-                  'Apply Rules'
-                )}
-              </Button>
-            </>
-          )}
-        </div>
-      </CardFooter>
-    </Card>
+      )}
+    </div>
   );
 };
 

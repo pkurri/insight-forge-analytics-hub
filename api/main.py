@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 from db.connection import init_db_pool, close_db_pool
 from routes import pipeline_router
+from routers import business_rules
 
 # Load environment variables
 load_dotenv()
@@ -25,7 +26,8 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(pipeline_router.router)
+app.include_router(pipeline_router.router, prefix="/api")
+app.include_router(business_rules.router, prefix="/api/business-rules", tags=["Business Rules"])
 
 @app.on_event("startup")
 async def startup_event():

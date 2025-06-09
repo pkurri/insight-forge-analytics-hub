@@ -17,6 +17,7 @@ import NotFound from './pages/NotFound';
 import Login from './pages/Login';
 import { ThemeProvider } from './components/theme/ThemeProvider';
 import { Toaster } from '@/components/ui/toaster';
+import { PipelineProvider } from '@/contexts/PipelineContext';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -76,7 +77,9 @@ function App() {
             element={
               <ProtectedRoute>
                 <Layout>
-                  <Pipeline />
+                  <PipelineProvider>
+                    <Pipeline />
+                  </PipelineProvider>
                 </Layout>
               </ProtectedRoute>
             }
@@ -86,7 +89,9 @@ function App() {
             element={
               <ProtectedRoute>
                 <Layout>
-                  <PipelineTest />
+                  <PipelineProvider>
+                    <PipelineTest />
+                  </PipelineProvider>
                 </Layout>
               </ProtectedRoute>
             }

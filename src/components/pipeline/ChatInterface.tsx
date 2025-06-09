@@ -1,15 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send } from 'lucide-react';
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/use-toast";
+import { Send, Search, RefreshCw, Sparkles, AlertCircle, Brain } from 'lucide-react'; // Added Brain icon
+import { Button } from '../ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { ScrollArea } from '../ui/scroll-area';
+import { Input } from '../ui/input';
 import { Separator } from '@/components/ui/separator';
-// import { pythonApi } from '@/api/pythonIntegration'; // Removed: Not available. See usage below for status handling.
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Avatar } from '@/components/ui/avatar';
+import { CardFooter } from '@/components/ui/card';
 
 /**
  * Message interface defining the structure of chat messages
@@ -17,19 +16,25 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
  * AI usage: The message type and metadata structure supports
  * AI-generated responses with confidence scores and source attribution
  */
-interface Message {
+interface ChatMessage {
   id: string;
-  type: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system';
   content: string;
-  metadata?: {
-    confidence?: number;
-    sources?: string[];
-    isError?: boolean;
-    processing_time?: number;
-    tokens_used?: number;
-    embedding_count?: number;
-  };
   timestamp: Date;
+  metadata?: ChatMessageMetadata;
+}
+
+interface ChatMessageMetadata {
+  confidence?: number;
+  sources?: string[];
+  isError?: boolean;
+  processing_time?: number;
+  tokens_used?: number;
+  embedding_count?: number;
+  used_agent?: string;
+  context_count?: number;
+  context_sample?: Array<{ text: string; similarity: number }>;
+  isThinking?: boolean;
 }
 
 /**
@@ -41,59 +46,101 @@ interface Message {
  * - Presents AI confidence scores and source attributions for transparency
  * - Handles AI errors gracefully with fallbacks
  */
-interface ChatInterfaceProps {
-  datasetId?: string;
+interface ChatContext {
+  currentDataset?: any; // Consider defining a proper type for dataset
+  pipelineStatus?: 'idle' | 'processing' | 'completed' | 'error';
+  activeTab?: string;
+  businessRules?: any[]; // Consider defining a proper type for business rules
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
-  const { toast } = useToast();
-  const [messages, setMessages] = useState<Message[]>([
+interface ChatInterfaceProps {
+  datasetId?: string;
+  context?: ChatContext;
+}
+
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId, context = {} }) => {
+  // Use context to enhance the chat experience
+  const systemMessage = React.useMemo(() => {
+    if (!context) return '';
+    
+    let message = 'Current context:\n';
+    if (context.currentDataset) {
+      message += `- Dataset: ${context.currentDataset.name || 'Unnamed dataset'}\n`;
+    }
+    if (context.pipelineStatus) {
+      message += `- Pipeline Status: ${context.pipelineStatus}\n`;
+    }
+    if (context.activeTab) {
+      message += `- Active Tab: ${context.activeTab}\n`;
+    }
+    if (context.businessRules?.length) {
+      message += `- Active Business Rules: ${context.businessRules.length}\n`;
+    }
+    
+    return message;
+  }, [context]);
+  
+  // Update system message when context changes
+  useEffect(() => {
+    if (systemMessage) {
+      setMessages(prev => [
+        {
+          id: 'system-context',
+          role: 'system',
+          content: systemMessage,
+          timestamp: new Date()
+        },
+        ...prev.filter(msg => msg.id !== 'system-context')
+      ]);
+    }
+  }, [systemMessage]);
+  
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
-      type: 'assistant',
+      role: 'assistant',
       content: 'Hi there! I\'m your AI assistant for data pipeline operations. How can I help you today?',
       timestamp: new Date()
     },
     {
       id: '2',
-      type: 'system',
+      role: 'system',
       content: 'I can answer questions about your loaded datasets using vector database technology and AI-powered schema detection.',
       timestamp: new Date()
     }
   ]);
   const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [activeDataset, setActiveDataset] = useState<string>(datasetId || '');
   const [availableDatasets, setAvailableDatasets] = useState<Array<{id: string, name: string}>>([]);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   
-  // Fetch available datasets when component mounts
   useEffect(() => {
-    const fetchDatasets = async () => {
-      try {
-        const response = await fetch('/api/datasets');
-        if (response.ok) {
-          const data = await response.json();
-          setAvailableDatasets(data.datasets || []);
-          if (!activeDataset && data.datasets?.length > 0) {
-            setActiveDataset(data.datasets[0].id);
-          }
+    if (datasetId) {
+      setActiveDataset(datasetId);
+      // In a real app, you would fetch available datasets here
+      const fetchDatasets = async () => {
+        try {
+          // Simulate fetching datasets
+          setAvailableDatasets([
+            { id: '1', name: 'Sales Data' },
+            { id: '2', name: 'Customer Data' },
+          ]);
+        } catch (err) {
+          console.error('Error fetching datasets:', err);
+          setMessages(prev => [...prev, {
+            id: `error-${Date.now()}`,
+            role: 'system',
+            content: 'Failed to load available datasets. Please try again later.',
+            metadata: { isError: true },
+            timestamp: new Date()
+          }]);
         }
-      } catch (error) {
-        console.error('Error fetching datasets:', error);
-        setMessages(prev => [...prev, {
-          id: `error-${Date.now()}`,
-          type: 'system',
-          content: 'Failed to load available datasets. Please try again later.',
-          metadata: { isError: true },
-          timestamp: new Date()
-        }]);
-      }
-    };
-    
-    fetchDatasets();
-  }, []);
+      };
+      
+      fetchDatasets();
+    }
+  }, [datasetId, activeDataset]);
   
   /**
    * Send a user message to the AI assistant and handle the response
@@ -103,133 +150,98 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
    * 3. AI model generates an answer based on retrieved context
    * 4. Response with confidence scores and metadata is displayed
    */
-  const handleSendMessage = async () => {
-    if (!input.trim() || isProcessing) return;
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
     
-    // Add user message
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      type: 'user',
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
       content: input,
       timestamp: new Date()
     };
     
     setMessages(prev => [...prev, userMessage]);
     setInput('');
-    setIsTyping(true);
-    setIsProcessing(true);
+    setIsLoading(true);
     
     try {
-      // Show thinking indicator
-      const thinkingMessage: Message = {
-        id: `thinking-${Date.now()}`,
-        type: 'system',
-        content: 'Thinking...',
-        metadata: { isThinking: true },
-        timestamp: new Date()
+      // Here you would typically call your API to get a response
+      // For now, we'll simulate a response
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const botMessage: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `I received your message: "${input}"`,
+        timestamp: new Date(),
+        metadata: {
+          processing_time: 500,
+          tokens_used: 20
+        },
       };
       
-      setMessages(prev => [...prev, thinkingMessage]);
+      setMessages(prev => [...prev, botMessage]);
       
-      // Send question to backend API
-      const response = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query: input,
-          dataset_id: activeDataset,
-          use_agent: true, // Enable agentic capabilities
-          history: messages.slice(-5).map(m => ({ role: m.type, content: m.content })) // Include conversation history
-        }),
-      });
-      
-      // Remove thinking message
-      setMessages(prev => prev.filter(m => !m.metadata?.isThinking));
-      
-      if (response.ok) {
-        const data = await response.json();
+      // Simulate API response handling
+      try {
+        const mockData = {
+          success: true,
+          text: `I received your message: "${input}"`,
+          confidence: 0.8,
+          processing_time: 500,
+          tokens_used: 20
+        };
         
-        if (data.success) {
+        if (mockData.success) {
           // Add AI response
-          const aiMessage: Message = {
-            id: `ai-${Date.now()}`,
-            type: 'assistant',
-            content: data.text || data.response || 'I found some information that might help.',
+          const aiMessage: ChatMessage = {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: mockData.text || 'I found some information that might help.',
             metadata: {
-              confidence: data.confidence || 0.8,
-              sources: data.sources || [],
-              processing_time: data.processing_time,
-              tokens_used: data.tokens_used,
-              embedding_count: data.context_count || 0,
-              used_agent: data.used_agent
+              confidence: mockData.confidence || 0.8,
+              processing_time: mockData.processing_time,
+              tokens_used: mockData.tokens_used
             },
             timestamp: new Date()
           };
           
           setMessages(prev => [...prev, aiMessage]);
-          
-          // If we have context, add a system message with context information
-          if (data.context && data.context.length > 0) {
-            const contextMessage: Message = {
-              id: `context-${Date.now()}`,
-              type: 'system',
-              content: `Found ${data.context.length} relevant pieces of information in the dataset.`,
-              metadata: {
-                context_count: data.context.length,
-                context_sample: data.context.slice(0, 2).map((c: any) => ({ text: c.text.substring(0, 100) + '...', similarity: c.similarity }))
-              },
-              timestamp: new Date()
-            };
-            
-            setMessages(prev => [...prev, contextMessage]);
-          }
         } else {
           // Handle error in response
-          const errorMessage: Message = {
+          const errorMessage: ChatMessage = {
             id: `error-${Date.now()}`,
-            type: 'system',
-            content: data.error || 'Sorry, I encountered an issue while processing your request.',
+            role: 'system',
+            content: 'Sorry, I encountered an issue while processing your request.',
             metadata: { isError: true },
             timestamp: new Date()
           };
-          
           setMessages(prev => [...prev, errorMessage]);
         }
-      } else {
-        // Handle HTTP error
-        const errorMessage: Message = {
+      } catch (err) {
+        console.error('Error processing message:', err);
+        const errorMessage: ChatMessage = {
           id: `error-${Date.now()}`,
-          type: 'system',
-          content: 'Sorry, there was a problem connecting to the AI service.',
+          role: 'system',
+          content: err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.',
           metadata: { isError: true },
           timestamp: new Date()
         };
-        
         setMessages(prev => [...prev, errorMessage]);
       }
     } catch (error) {
-      // Handle exception
-      const errorMessage: Message = {
+      console.error('Error processing message:', error);
+      const errorMessage: ChatMessage = {
         id: `error-${Date.now()}`,
-        type: 'system',
-        content: 'Sorry, there was a problem connecting to the AI service.',
+        role: 'system',
+        content: error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.',
         metadata: { isError: true },
         timestamp: new Date()
       };
-      
       setMessages(prev => [...prev, errorMessage]);
     } finally {
-      setIsTyping(false);
-      setIsProcessing(false);
-    }
-  };
-  
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
+      setIsLoading(false);
     }
   };
   
@@ -286,13 +298,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
                       setMessages([
                         {
                           id: '1',
-                          type: 'assistant',
+                          role: 'assistant',
                           content: 'Hi there! I\'m your AI assistant for data pipeline operations. How can I help you today?',
                           timestamp: new Date()
                         },
                         {
                           id: '2',
-                          type: 'system',
+                          role: 'system',
                           content: 'I can answer questions about your loaded datasets using vector database technology and AI-powered schema detection.',
                           timestamp: new Date()
                         }
@@ -316,19 +328,19 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
           <div className="space-y-4">
             {messages.map((message) => (
               <div key={message.id} className={`flex ${
-                message.type === 'user' ? 'justify-end' : 
-                message.type === 'system' ? 'justify-center' : 'justify-start'
+                message.role === 'user' ? 'justify-end' : 
+                message.role === 'system' ? 'justify-center' : 'justify-start'
               }`}>
                 <div 
                   className={`max-w-[80%] rounded-lg p-3 ${
-                    message.type === 'user' 
+                    message.role === 'user' 
                       ? 'bg-blue-500 text-white' 
-                      : message.type === 'system'
+                      : message.role === 'system'
                         ? 'bg-gray-200 text-gray-800'
                         : 'bg-gray-100 text-gray-800'
                   }`}
                 >
-                  {message.type === 'assistant' && (
+                  {message.role === 'assistant' && (
                     <div className="flex items-center text-blue-600 text-xs mb-1 space-x-1">
                       <Sparkles className="h-3 w-3" />
                       <span>AI Assistant</span>
@@ -338,7 +350,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
                   <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                   
                   {/* Show confidence and sources for AI responses */}
-                  {message.type === 'assistant' && message.metadata?.confidence && (
+                  {message.role === 'assistant' && message.metadata?.confidence && (
                     <div className="mt-2 text-xs text-gray-500 border-t border-gray-200 pt-1">
                       <div className="flex items-center">
                         <span>Confidence: {Math.round(message.metadata.confidence * 100)}%</span>
@@ -373,7 +385,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
                 </div>
               </div>
             ))}
-            {isTyping && (
+            {isLoading && (
               <div className="flex justify-start">
                 <div className="bg-gray-100 text-gray-800 rounded-lg p-3">
                   <div className="flex space-x-1">
@@ -391,24 +403,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ datasetId }) => {
       <Separator />
       
       <CardFooter className="p-3">
-        <div className="flex w-full items-center space-x-2">
-          <Input
-            placeholder="Ask me about your dataset..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyPress}
-            className="flex-grow"
-            disabled={isProcessing}
-          />
-          <Button 
-            onClick={handleSendMessage} 
-            disabled={!input.trim() || isProcessing} 
-            size="icon"
-            className="bg-blue-500 hover:bg-blue-600"
-          >
-            <SendHorizontal className="h-4 w-4" />
-          </Button>
-        </div>
+        <form onSubmit={handleSendMessage}>
+          <div className="flex w-full items-center space-x-2">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Type your message..."
+              className="flex-1"
+              disabled={isLoading}
+            />
+            <Button type="submit" size="icon" disabled={isLoading}>
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </form>
       </CardFooter>
     </Card>
   );

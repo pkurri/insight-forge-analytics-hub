@@ -80,43 +80,28 @@ export const businessRulesService = {
    * Get business rules for a dataset
    */
   getBusinessRules: async (datasetId: string): Promise<ApiResponse<BusinessRule[]>> => {
-    const endpoint = `business-rules/${datasetId}`;
+    const endpoint = `business-rules/${datasetId}/suggestions`;
     
     try {
       const response = await callApi(endpoint);
       if (response.success) {
-        return response;
+        // Transform the backend response to match our frontend types
+        const rules = (response.data || []).map((rule: any) => ({
+          id: rule.id || `rule_${Math.random().toString(36).substr(2, 9)}`,
+          name: rule.name || 'Unnamed Rule',
+          description: rule.description || '',
+          condition: rule.conditions || '',
+          severity: (rule.priority?.toLowerCase() as RuleSeverity) || 'medium',
+          message: rule.description || '',
+          active: true,
+          confidence: rule.confidence || 0.8,
+          model_generated: true
+        }));
+        
+        return { ...response, data: rules };
       }
       
-      // Fallback to mock data if API fails
-      console.log(`Falling back to mock data for: ${endpoint}`);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      return {
-        success: true,
-        data: [
-          {
-            id: 'br001',
-            name: 'Price Range Rule',
-            description: 'Product price must be between $0 and $10,000',
-            condition: 'price >= 0 AND price <= 10000',
-            severity: 'high',
-            message: 'Price must be between $0 and $10,000',
-            active: true,
-            lastUpdated: '2023-06-02T14:10:22Z'
-          },
-          {
-            id: 'br002',
-            name: 'Required Fields Rule',
-            description: 'Name and category fields must not be empty',
-            condition: 'name IS NOT NULL AND category IS NOT NULL',
-            severity: 'high',
-            message: 'Name and category are required fields',
-            active: true,
-            lastUpdated: '2023-06-01T09:15:10Z'
-          }
-        ]
-      };
+      return response;
     } catch (error) {
       console.error("Error fetching business rules:", error);
       return {
@@ -189,15 +174,75 @@ export const businessRulesService = {
   },
 
   /**
+   * Suggest business rules for a dataset
+   */
+  suggestRules: async (datasetId: string, sampleData: Record<string, any>[]): Promise<ApiResponse<{ suggested_rules: RuleSuggestion[] }>> => {
+    const endpoint = `business-rules/${datasetId}/suggest`;
+    
+    try {
+      // Get column metadata from sample data
+      const columnMeta = {
+        columns: Object.keys(sampleData[0] || {}).map(key => ({
+          name: key,
+          type: typeof sampleData[0][key],
+          stats: {}
+        })),
+        dataset_info: {
+          row_count: sampleData.length,
+          column_count: Object.keys(sampleData[0] || {}).length
+        }
+      };
+      
+      const response = await callApi(endpoint, 'POST', { 
+        dataset_id: datasetId,
+        sample_data: sampleData,
+        column_meta: columnMeta
+      });
+      
+      if (response.success) {
+        return {
+          success: true,
+          data: {
+            suggested_rules: (response.data?.suggested_rules || []).map((rule: any) => ({
+              name: rule.name,
+              description: rule.description,
+              condition: rule.conditions || rule.condition,
+              severity: (rule.priority?.toLowerCase() as RuleSeverity) || 'medium',
+              message: rule.message || rule.description,
+              active: true,
+              confidence: rule.confidence || 0.8,
+              source: rule.source || 'ai_default',
+              column: rule.column,
+              rule_type: rule.rule_type,
+              sample_match_rate: rule.sample_match_rate
+            }))
+          }
+        };
+      }
+      
+      return {
+        success: false,
+        error: response.error || 'Failed to generate rule suggestions'
+      };
+    } catch (error) {
+      console.error('Error suggesting rules:', error);
+      return {
+        success: false,
+        error: 'Failed to suggest rules'
+      };
+    }
+  },
+
+  /**
    * Update a business rule
    */
-  updateBusinessRule: async (datasetId: string, ruleId: string, rule: Partial<BusinessRule>): Promise<ApiResponse<any>> => {
+  updateBusinessRule: async (datasetId: string, ruleId: string, rule: Partial<BusinessRule>): Promise<ApiResponse<BusinessRule>> => {
     const endpoint = `business-rules/${datasetId}/${ruleId}`;
     
     try {
-      const response = await callApi(endpoint, {
-        method: 'PUT',
-        body: JSON.stringify(rule)
+      const response = await callApi(endpoint, 'PUT', {
+        ...rule,
+        dataset_id: datasetId
       });
       if (response.success) {
         return response;
@@ -290,113 +335,21 @@ export const businessRulesService = {
       console.error("Error importing business rules:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to import business rules"
+        error: response.error || 'Failed to generate rule suggestions'
       };
-    }
-  },
-  
-  /**
-   * Suggest business rules based on sample data
-   */
-  suggestRules: async (datasetId: string, sampleData: Record<string, any>[]): Promise<ApiResponse<{ suggested_rules: RuleSuggestion[] }>> => {
-    const endpoint = `business-rules/suggest/${datasetId}`;
-    
-    try {
-      const response = await callApi(endpoint, {
-        method: 'POST',
-        body: JSON.stringify(sampleData),
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      return response;
     } catch (error) {
-      console.error('Error suggesting business rules:', error);
+      console.error('Error suggesting rules:', error);
       return {
         success: false,
-        error: 'Failed to generate rule suggestions. Please try again.'
+        error: 'Failed to suggest rules'
       };
     }
   },
   
   /**
-   * Update rule suggestions after generation
-   */
-  updateSuggestions: async (datasetId: string, suggestions: RuleSuggestion[]): Promise<ApiResponse<{ updated_suggestions: RuleSuggestion[] }>> => {
-    const endpoint = `business-rules/update-suggestions/${datasetId}`;
-    
-    try {
-      const response = await callApi(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ suggestions }),
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      return response;
-    } catch (error) {
-      console.error('Error updating rule suggestions:', error);
-      return {
-        success: false,
-        error: 'Failed to update rule suggestions'
-      };
-    }
-  },
-  
-  /**
-   * Test business rules against sample data
-   */
-  testRulesOnSample: async (datasetId: string, sampleData: Record<string, any>[], rules: BusinessRule[]): Promise<ApiResponse<{ 
-    passing_records: number;
-    failing_records: number;
-    failures_by_rule: Record<string, number>;
-    impact_percentage: number;
-  }>> => {
-    const endpoint = `business-rules/test/${datasetId}`;
-    
-    try {
-      const response = await callApi(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({
-          sample_data: sampleData,
-          rules: rules
-        }),
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      return response;
-    } catch (error) {
-      console.error('Error testing rules on sample data:', error);
-      return {
-        success: false,
-        error: 'Failed to test rules on sample data'
-      };
-    }
-  },
-  
-  /**
-   * Export business rules for a dataset
    */
   exportBusinessRules: async (datasetId: string): Promise<ApiResponse<{ rules: BusinessRule[], export_time: string }>> => {
-    const endpoint = `business-rules/${datasetId}/export`;
-    
-    try {
-      const response = await callApi(endpoint);
-      if (response.success) {
-        return {
-          success: true,
-          data: {
-            rules: response.data,
-            export_time: new Date().toISOString()
-          }
-        };
-      }
       
-      // Fallback to mock data if API fails
-      console.log(`Falling back to mock data for: ${endpoint}`);
       await new Promise(resolve => setTimeout(resolve, 500));
       
       return {

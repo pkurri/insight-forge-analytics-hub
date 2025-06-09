@@ -42,6 +42,7 @@ interface PipelineStep {
 
 interface PipelineUploadFormProps {
   onUploadComplete?: (datasetId: string) => void;
+  onUploadSuccess?: (dataset: any) => void; // Add this line
 }
 
 /**

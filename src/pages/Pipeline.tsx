@@ -1,9 +1,9 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MessageSquare, AlertCircle } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 import PipelineStages from '@/components/pipeline/PipelineStages';
 import PipelineUploadForm from '@/components/pipeline/PipelineUploadForm';
 import PipelineStatusTable from '@/components/pipeline/PipelineStatusTable';
@@ -17,9 +17,21 @@ import {
   TooltipProvider,
   TooltipTrigger 
 } from '@/components/ui/tooltip';
+import { usePipeline } from '@/contexts/PipelineContext';
 
 const Pipeline: React.FC = () => {
-  const [isChatOpen, setIsChatOpen] = useState(false);
+  const { 
+    isChatOpen, 
+    toggleChat, 
+    activeTab, 
+    setActiveTab,
+    currentDataset,
+    setCurrentDataset,
+    pipelineStatus,
+    setPipelineStatus,
+    businessRules,
+    updateBusinessRules
+  } = usePipeline();
   
   return (
     <div className="space-y-6">
@@ -34,7 +46,7 @@ const Pipeline: React.FC = () => {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button 
-                onClick={() => setIsChatOpen(!isChatOpen)}
+                onClick={toggleChat}
                 variant="outline"
                 className="flex items-center gap-2"
               >
@@ -63,7 +75,11 @@ const Pipeline: React.FC = () => {
 
       <div className={`grid gap-6 ${isChatOpen ? 'md:grid-cols-3' : 'md:grid-cols-1'}`}>
         <div className={isChatOpen ? 'md:col-span-2' : 'md:col-span-1'}>
-          <Tabs defaultValue="upload" className="w-full">
+          <Tabs 
+            value={activeTab} 
+            onValueChange={setActiveTab}
+            className="w-full"
+          >
             <TabsList className="grid grid-cols-5 mb-4">
               <TabsTrigger value="upload">Upload Data</TabsTrigger>
               <TabsTrigger value="datasources">Data Sources</TabsTrigger>
@@ -78,7 +94,13 @@ const Pipeline: React.FC = () => {
                   <CardTitle>Data Upload</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <PipelineUploadForm />
+                  <PipelineUploadForm 
+                    onUploadSuccess={(dataset) => {
+                      setCurrentDataset(dataset);
+                      setPipelineStatus('completed');
+                      setActiveTab('analytics');
+                    }}
+                  />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -110,7 +132,12 @@ const Pipeline: React.FC = () => {
             </TabsContent>
             
             <TabsContent value="rules" className="mt-0">
-              <BusinessRules />
+              <BusinessRules 
+                rules={businessRules}
+                onRulesUpdate={updateBusinessRules}
+                dataset={currentDataset}
+                datasetId={currentDataset?.id}
+              />
             </TabsContent>
           </Tabs>
         </div>
@@ -125,7 +152,14 @@ const Pipeline: React.FC = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                <ChatInterface />
+<ChatInterface 
+                  context={{
+                    currentDataset,
+                    pipelineStatus,
+                    activeTab,
+                    businessRules
+                  }}
+                />
               </CardContent>
             </Card>
           </div>

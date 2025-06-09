@@ -6,10 +6,10 @@ and interacting with the vector database for semantic search capabilities.
 """
 
 from datetime import date, datetime
+import aiohttp
 import json
 import concurrent
 import asyncpg
-import requests
 import pandas as pd
 import logging
 import math
@@ -228,54 +228,72 @@ class VectorEmbeddingAPI:
             data = {"inputs": json_object}
             
             try:
-                # Make API request
-                response = requests.post(api_endpoint, headers=headers, json=data)
-                
-                if response.status_code == 200:
-                    batch_vectors = response.json()
-                    
-                    # Get connection from pool
-                    async with pool.acquire() as conn:
-                        # Insert vectors into database
-                        values_list = []
-                        for i, vector in enumerate(batch_vectors):
-                            record_id = f"batch_{batch_num}_item_{i}"
-                            values_list.append((
-                                dataset_id,
-                                record_id,
-                                batch_inputs[i],  # content
-                                batch_num * batch_size + i,  # chunk_index
-                                batch_inputs[i],  # chunk_text
-                                vector,  # embedding
-                                json.dumps({"batch": batch_num, "index": i})  # metadata
-                            ))
-                        
-                        # Execute batch insert
-                        await conn.executemany(
-                            """
-                            INSERT INTO vector_embeddings 
-                                (dataset_id, record_id, content, chunk_index, chunk_text, embedding, vector_metadata)
-                            VALUES 
-                                ($1, $2, $3, $4, $5, $6::vector, $7::jsonb)
-                            ON CONFLICT (dataset_id, record_id) DO UPDATE SET
-                                content = EXCLUDED.content,
-                                chunk_index = EXCLUDED.chunk_index,
-                                chunk_text = EXCLUDED.chunk_text,
-                                embedding = EXCLUDED.embedding,
-                                vector_metadata = EXCLUDED.vector_metadata,
-                                created_at = CURRENT_TIMESTAMP
-                            """,
-                            values_list
-                        )
-                    
-                    logger.info(f"Batch {batch_num} completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                    return {"success": True, "count": len(batch_inputs)}
-                else:
-                    logger.error(f"Batch {batch_num} failed: {response.status_code} - {response.text}")
-                    return {"success": False, "error": f"API error: {response.status_code} - {response.text}"}
+                # Make API request using aiohttp
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        async with session.post(
+                            api_endpoint,
+                            headers=headers,
+                            json=data
+                        ) as response:
+                            response_text = await response.text()
+                            
+                            if response.status == 200:
+                                try:
+                                    batch_vectors = json.loads(response_text) if isinstance(response_text, str) else response_text
+                                    
+                                    # Get connection from pool
+                                    async with pool.acquire() as conn:
+                                        # Insert vectors into database
+                                        values_list = []
+                                        for i, vector in enumerate(batch_vectors):
+                                            record_id = f"batch_{batch_num}_item_{i}"
+                                            values_list.append((
+                                                dataset_id,
+                                                record_id,
+                                                batch_inputs[i],  # content
+                                                batch_num * batch_size + i,  # chunk_index
+                                                batch_inputs[i],  # chunk_text
+                                                vector,  # embedding
+                                                json.dumps({"batch": batch_num, "index": i})  # metadata
+                                            ))
+                                        
+                                        # Execute batch insert
+                                        await conn.executemany(
+                                            """
+                                            INSERT INTO vector_embeddings 
+                                                (dataset_id, record_id, content, chunk_index, chunk_text, embedding, vector_metadata)
+                                            VALUES 
+                                                ($1, $2, $3, $4, $5, $6::vector, $7::jsonb)
+                                            ON CONFLICT (dataset_id, record_id) DO UPDATE SET
+                                                content = EXCLUDED.content,
+                                                chunk_index = EXCLUDED.chunk_index,
+                                                chunk_text = EXCLUDED.chunk_text,
+                                                embedding = EXCLUDED.embedding,
+                                                vector_metadata = EXCLUDED.vector_metadata,
+                                                created_at = CURRENT_TIMESTAMP
+                                            """,
+                                            values_list
+                                        )
+                                    
+                                    logger.info(f"Batch {batch_num} completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                                    return {"success": True, "count": len(batch_inputs)}
+                                except json.JSONDecodeError as e:
+                                    error_msg = f"Failed to decode API response for batch {batch_num}: {str(e)}"
+                                    logger.error(error_msg)
+                                    return {"success": False, "error": error_msg}
+                            else:
+                                error_msg = f"Batch {batch_num} failed: {response.status} - {response_text}"
+                                logger.error(error_msg)
+                                return {"success": False, "error": f"API error: {response.status}", "message": response_text}
+                    except aiohttp.ClientError as e:
+                        error_msg = f"HTTP client error in batch {batch_num}: {str(e)}"
+                        logger.error(error_msg)
+                        return {"success": False, "error": error_msg}
             except Exception as e:
-                logger.error(f"Error processing batch {batch_num}: {str(e)}")
-                return {"success": False, "error": str(e)}
+                error_msg = f"Error processing batch {batch_num}: {str(e)}"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
         
         # Process batches with concurrency control
         tasks = []
@@ -353,30 +371,48 @@ class VectorEmbeddingAPI:
                 "model": model_id
             }
             
-            # Make the API request
-            response = requests.post(
-                self.endpoint,
-                headers=headers,
-                json=payload
-            )
-            
-            # Check if the request was successful
-            if response.status_code == 200:
-                result = response.json()
-                return {
-                    "success": True,
-                    "embeddings": result.get("embeddings", []),
-                    "model": model_id,
-                    "dimensions": model_config.get("dimensions", len(result.get("embeddings", [[]])[0]) if result.get("embeddings") else 0),
-                    "count": len(texts)
-                }
-            else:
-                logger.error(f"API error: {response.status_code} - {response.text}")
-                return {
-                    "success": False,
-                    "error": f"API error: {response.status_code}",
-                    "message": response.text
-                }
+            # Make the API request using aiohttp
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.post(
+                        self.endpoint,
+                        headers=headers,
+                        json=payload
+                    ) as response:
+                        response_text = await response.text()
+                        
+                        # Check if the request was successful
+                        if response.status == 200:
+                            try:
+                                result = json.loads(response_text) if isinstance(response_text, str) else response_text
+                                return {
+                                    "success": True,
+                                    "embeddings": result.get("embeddings", []),
+                                    "model": model_id,
+                                    "dimensions": model_config.get("dimensions", len(result.get("embeddings", [[]])[0]) if result.get("embeddings") else 0),
+                                    "count": len(texts)
+                                }
+                            except json.JSONDecodeError as e:
+                                logger.error(f"Failed to decode API response: {e}")
+                                return {
+                                    "success": False,
+                                    "error": "Failed to decode API response",
+                                    "message": response_text
+                                }
+                        else:
+                            logger.error(f"API error: {response.status} - {response_text}")
+                            return {
+                                "success": False,
+                                "error": f"API error: {response.status}",
+                                "message": response_text
+                            }
+                except aiohttp.ClientError as e:
+                    logger.error(f"HTTP client error: {str(e)}")
+                    return {
+                        "success": False,
+                        "error": f"HTTP client error: {str(e)}",
+                        "message": str(e)
+                    }
                 
         except Exception as e:
             logger.error(f"Error generating embeddings: {str(e)}")

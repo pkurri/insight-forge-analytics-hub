@@ -99,6 +99,12 @@ AGENT_TYPES = {
         "system_prompt": "You are a business intelligence assistant. Help the user understand their business data, identify trends, and make data-driven decisions. Use the context provided to answer questions accurately.",
         "capabilities": ["trend_analysis", "forecasting", "recommendations"]
     },
+    "business_rules": {
+        "name": "Business Rules Engine",
+        "description": "Generates and manages business rules based on data patterns",
+        "system_prompt": "You are a business rules expert. Analyze the data and context to generate relevant business rules. Provide clear, actionable rules that can be applied to the data. Format rules in a structured way with conditions and actions.",
+        "capabilities": ["rule_generation", "pattern_recognition", "validation"]
+    },
     "data_explorer": {
         "name": "Data Explorer",
         "description": "Helps explore and understand datasets",
@@ -578,12 +584,103 @@ def extract_insights(text: str) -> List[str]:
     # Limit to top 5 insights
     return insights[:5]
 
+async def generate_business_rules(
+    dataset_id: str,
+    model_id: str = DEFAULT_MODEL,
+    context: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Generate business rules based on dataset analysis.
+    
+    Args:
+        dataset_id: ID of the dataset to analyze
+        model_id: ID of the LLM model to use
+        context: Optional additional context including vector search results
+        
+    Returns:
+        Dictionary containing generated rules and metadata
+    """
+    try:
+        # Get dataset metadata
+        from api.services.dataset_service import DatasetService
+        dataset_service = DatasetService()
+        dataset = await dataset_service.get_dataset(dataset_id)
+        
+        if not dataset:
+            return {"success": False, "error": "Dataset not found"}
+        
+        # Get sample data for analysis
+        sample_data = await dataset_service.get_sample_data(dataset_id, limit=100)
+        
+        # Prepare prompt for business rule generation
+        prompt = f"""Analyze the following dataset and generate relevant business rules.
+        
+        Dataset: {dataset.name}
+        Description: {dataset.description or 'No description available'}
+        
+        Sample Data (first 100 rows):
+        {sample_data}
+        
+        Generate 5-10 business rules that could be applied to this data. For each rule, include:
+        1. Rule name
+        2. Description
+        3. Conditions
+        4. Actions
+        5. Priority (High/Medium/Low)
+        6. Business impact
+        
+        Format the rules in a structured JSON format."""
+        
+        # Use the business_rules agent to generate rules
+        response = await get_agent_response(
+            query=prompt,
+            agent_type="business_rules",
+            model_id=model_id,
+            dataset_id=dataset_id,
+            context=context
+        )
+        
+        # Extract and parse the generated rules
+        rules = []
+        try:
+            # Try to parse the response as JSON
+            if isinstance(response, str):
+                rules = json.loads(response)
+            elif isinstance(response, dict) and 'response' in response:
+                rules = json.loads(response['response'])
+        except (json.JSONDecodeError, AttributeError):
+            # If parsing fails, try to extract JSON from the response
+            import re
+            json_match = re.search(r'```json\n(.*?)\n```', response, re.DOTALL)
+            if json_match:
+                rules = json.loads(json_match.group(1))
+        
+        return {
+            "success": True,
+            "rules": rules,
+            "dataset_id": dataset_id,
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating business rules: {str(e)}")
+        return {"success": False, "error": str(e)}
+
 async def get_chat_suggestions(
     dataset_id: Optional[str] = None,
-    category: Optional[str] = None
+    category: Optional[str] = None,
+    include_rules: bool = True
 ) -> List[Dict[str, Any]]:
     """
     Get suggested chat queries based on dataset and category
+    
+    Args:
+        dataset_id: Optional dataset ID to get specific suggestions for
+        category: Optional category to filter suggestions
+        include_rules: Whether to include AI-generated business rules
+        
+    Returns:
+        List of suggestion dictionaries with text and category
     """
     # Define default suggestions by category
     default_suggestions = {
@@ -616,6 +713,27 @@ async def get_chat_suggestions(
             "What competitive advantages does this data reveal?"
         ]
     }
+    
+    # Add AI-generated business rules if dataset is provided and rules are requested
+    ai_rules = []
+    if dataset_id and include_rules and (not category or category == 'business'):
+        try:
+            rules_result = await generate_business_rules(dataset_id=dataset_id)
+            if rules_result.get('success') and rules_result.get('rules'):
+                for rule in rules_result['rules'][:3]:  # Limit to top 3 rules
+                    ai_rules.append({
+                        'text': f"Apply rule: {rule.get('name', 'Business Rule')}",
+                        'category': 'business_rules',
+                        'metadata': rule
+                    })
+        except Exception as e:
+            logger.warning(f"Failed to generate business rules: {str(e)}")
+    
+    # Add AI rules to default suggestions
+    if ai_rules:
+        if 'business_rules' not in default_suggestions:
+            default_suggestions['business_rules'] = []
+        default_suggestions['business_rules'].extend(ai_rules)
     
     # If no category specified, combine all categories
     if not category:
