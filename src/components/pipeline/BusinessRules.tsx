@@ -1,37 +1,32 @@
-import { useState, useEffect, useCallback } from 'react';
-import { api } from '@/api';
+import { useState, useEffect, useCallback, FC } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Upload, PlusCircle, Download, FileText, Trash2, Pencil, Check, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Plus, RefreshCw, Sparkles, Edit, Trash2, Download } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-// Types
-type AIRuleEngine = 'ai_default' | 'ai_advanced' | 'custom';
-type RuleSeverity = 'low' | 'medium' | 'high';
-
-interface BusinessRule {
+type BusinessRule = {
   id: string;
   dataset_id: string;
   name: string;
   description: string;
   condition: string;
   message: string;
-  severity: RuleSeverity;
+  severity: 'low' | 'medium' | 'high';
   active: boolean;
   created_at: string;
   updated_at: string;
-  model_generated: boolean;
-  field?: string;
-  source?: string;
-  model?: string;
-}
+  model_generated?: boolean;
+};
+
+type AIRuleEngine = 'ai_default' | 'ai_advanced' | 'custom';
+type RuleSeverity = 'low' | 'medium' | 'high';
 
 interface BusinessRulesProps {
   datasetId?: string;
@@ -40,41 +35,36 @@ interface BusinessRulesProps {
   onRulesUpdate?: (rules: BusinessRule[]) => void;
 }
 
-type NewRuleState = Omit<BusinessRule, 'id' | 'dataset_id' | 'created_at' | 'updated_at' | 'model_generated'>;
 
-
-
-const BusinessRules: React.FC<BusinessRulesProps> = ({
-  datasetId,
+const BusinessRules: FC<BusinessRulesProps> = ({
+  datasetId = '',
   rules: externalRules = [],
   onRulesUpdate,
 }) => {
   const { toast } = useToast();
-  
-  // State management
-  const [rules, setRules] = useState<BusinessRule[]>(externalRules);
+  const [rules, setRules] = useState<BusinessRule[]>(externalRules || []);
   const [isLoading, setIsLoading] = useState(false);
   const [showAddRuleDialog, setShowAddRuleDialog] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingRule, setEditingRule] = useState<BusinessRule | null>(null);
+  const [editRule, setEditRule] = useState<BusinessRule | null>(null);
   const [deleteRule, setDeleteRule] = useState<BusinessRule | null>(null);
-  const [jsonInput, setJsonInput] = useState('');
   const [selectedEngine, setSelectedEngine] = useState<AIRuleEngine>('ai_default');
-  const [newRule, setNewRule] = useState<NewRuleState>({
+  const [newRule, setNewRule] = useState<Omit<BusinessRule, 'id' | 'dataset_id' | 'created_at' | 'updated_at' | 'model_generated'>>({
     name: '',
     description: '',
     condition: '',
     message: '',
-    active: true,
     severity: 'medium',
+    active: true,
   });
-  
-  // Update local state when external rules change
+
+  const isRuleValid = useCallback((rule: BusinessRule): boolean => {
+    return Boolean(rule?.name && rule?.condition && rule?.message);
+  }, []);
+
   useEffect(() => {
     setRules(externalRules);
   }, [externalRules]);
-  
-  // Handle rules update
+
   const handleRulesUpdate = useCallback((updatedRules: BusinessRule[]) => {
     setRules(updatedRules);
     if (onRulesUpdate) {
@@ -82,167 +72,13 @@ const BusinessRules: React.FC<BusinessRulesProps> = ({
     }
   }, [onRulesUpdate]);
 
-  // Handle adding a new rule
-  const handleAddRule = useCallback(async () => {
-    if (!newRule.name || !newRule.condition) {
-      toast({
-        title: 'Error',
-        description: 'Please fill in all required fields',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      const response = await api.businessRules.create({
-        ...newRule,
-        dataset_id: datasetId || '',
-      });
-
-      const updatedRules = [...rules, response.data];
-      handleRulesUpdate(updatedRules);
-
-      setNewRule({
-        name: '',
-        description: '',
-        condition: '',
-        message: '',
-        active: true,
-        severity: 'medium',
-      });
-      setShowAddRuleDialog(false);
-
-      toast({
-        title: 'Success',
-        description: 'Business rule added successfully',
-      });
-    } catch (error) {
-      console.error('Error adding rule:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to add business rule',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [datasetId, newRule, toast]);
-
-  // Handle editing an existing rule
-  const handleEditRule = useCallback((rule: BusinessRule) => {
-    setEditingRule(rule);
-    setIsEditDialogOpen(true);
-  }, []);
-
-  const handleUpdateRule = useCallback(async (updatedRule: BusinessRule) => {
-    try {
-      setIsLoading(true);
-      const response = await api.businessRules.update(updatedRule.id, updatedRule);
-
-      const updatedRules = rules.map(rule =>
-        rule.id === updatedRule.id ? response.data : rule
-      );
-
-      handleRulesUpdate(updatedRules);
-      setEditDialogOpen(false);
-
-      toast({
-        title: 'Success',
-        description: 'Business rule updated successfully',
-      });
-    } catch (error) {
-      console.error('Error updating rule:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to update business rule',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [rules, toast]);
-
-  // Handle rule export
-  const handleExport = useCallback(() => {
-    if (rules.length === 0) {
-      toast({
-        title: 'No rules to export',
-        description: 'There are no rules to export.',
-      });
-      return;
-    }
-
-    try {
-      const data = JSON.stringify(rules, null, 2);
-      const blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `business-rules-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      
-      toast({
-        title: 'Export successful',
-        description: `Exported ${rules.length} rule(s)`,
-      });
-    } catch (error) {
-      console.error('Error exporting rules:', error);
-      toast({
-        title: 'Export failed',
-        description: 'Failed to export rules. Please try again.',
-        variant: 'destructive',
-      });
-    }
-  }, [rules, toast]);
-
-  // Toggle rule active status
-  const toggleRuleActive = useCallback(async (ruleId: string) => {
-    try {
-      setIsLoading(true);
-      const ruleToUpdate = rules.find(rule => rule.id === ruleId);
-      if (!ruleToUpdate) return;
-      
-      const updatedRule = { ...ruleToUpdate, active: !ruleToUpdate.active };
-      const response = await api.businessRules.update(ruleId, updatedRule);
-      
-      const updatedRules = rules.map(rule => 
-        rule.id === ruleId ? response.data : rule
-      );
-      
-      handleRulesUpdate(updatedRules);
-      
-      toast({
-        title: 'Rule updated',
-        description: `Rule has been ${updatedRule.active ? 'activated' : 'deactivated'}`,
-      });
-    } catch (error) {
-      console.error('Error toggling rule status:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to update rule status',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [rules, handleRulesUpdate, toast]);
-
-  const handleDeleteRule = useCallback((rule: BusinessRule) => {
-    setDeleteRule(rule);
-  }, []);
-
+  // Handle confirming rule deletion
   const handleConfirmDeleteRule = useCallback(async () => {
     if (!deleteRule) return;
 
     try {
       setIsLoading(true);
-      await api.businessRules.delete(deleteRule.id);
-
+      // In a real app, you would call an API here
       const updatedRules = rules.filter(rule => rule.id !== deleteRule.id);
       handleRulesUpdate(updatedRules);
       setDeleteRule(null);
@@ -261,16 +97,9 @@ const BusinessRules: React.FC<BusinessRulesProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [deleteRule, rules, toast]);
+  }, [deleteRule, rules, handleRulesUpdate, toast]);
 
-  // Notify parent component of rules changes
-  useEffect(() => {
-    if (onRulesUpdate) {
-      onRulesUpdate(rules);
-    }
-  }, [rules, onRulesUpdate]);
-
-  // Handle rule import
+  // Handle importing rules from file
   const handleImport = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -291,7 +120,7 @@ const BusinessRules: React.FC<BusinessRulesProps> = ({
           rule.condition &&
           rule.severity &&
           typeof rule.active === 'boolean';
-        
+
         if (!isValid) {
           console.warn('Invalid rule format:', rule);
           return false;
@@ -309,294 +138,897 @@ const BusinessRules: React.FC<BusinessRulesProps> = ({
         dataset_id: datasetId || '',
       }));
 
-      // Save rules to the server
-      const response = await api.businessRules.saveBusinessRules(
-        datasetId || '',
-        rulesWithDataset
-      );
-
-      // Update local state
-      const updatedRules = [...rules, ...response.data];
+      // In a real app, you would call an API here
+      const updatedRules = [...rules, ...rulesWithDataset];
       handleRulesUpdate(updatedRules);
 
       toast({
         title: 'Import successful',
-        description: `Successfully imported ${response.data.length} rule(s)`,
+        description: `Successfully imported ${validRules.length} rule(s)`,
       });
 
       // Reset file input
-      event.target.value = '';
+      if (event.target) {
+        event.target.value = '';
+      }
     } catch (error) {
       console.error('Error importing rules:', error);
       toast({
         title: 'Import failed',
-        description:
-          error instanceof Error ? error.message : 'Failed to import rules',
+        description: error instanceof Error ? error.message : 'Failed to import rules',
         variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
     }
-  }, [datasetId, rules, handleRulesUpdate, toast]);
+  }, [rules, datasetId, handleRulesUpdate, toast]);
 
-// ...
+  // Handle rule export to file
+  const handleExportToFile = useCallback(() => {
+    if (rules.length === 0) {
+      toast({
+        title: 'No rules to export',
+        description: 'There are no rules to export.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-{rules?.length > 0 ? (
-  rules.map((rule) => (
-    <div key={rule.id} className="border rounded-lg p-4">
-      <div className="flex justify-between items-start">
-        <div>
-          <h3 className="font-medium">{rule.name}</h3>
-          <p className="text-sm text-muted-foreground">{rule.description}</p>
-                      <X className="h-4 w-4 text-red-500" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-3 pt-0">
-                <div className="text-sm mb-1"><span className="font-medium">Condition:</span> <span className="font-mono">{rule.condition}</span></div>
-                <div className="text-xs mb-1"><span className="font-medium">Severity:</span> {rule.severity}</div>
-                <div className="text-xs mb-1"><span className="font-medium">Message:</span> {rule.message}</div>
-                {rule.description && <div className="text-xs text-muted-foreground">{rule.description}</div>}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">No business rules defined.</p>
-      )}
+    try {
+      const dataStr = JSON.stringify(rules, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
       
+      const exportFileDefaultName = `business-rules-${new Date().toISOString().split('T')[0]}.json`;
+      
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+      
+      toast({
+        title: 'Success',
+        description: 'Rules exported successfully',
+      });
+    } catch (error) {
+      console.error('Error exporting rules:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to export rules',
+        variant: 'destructive',
+      });
+    }
+  }, [rules, toast]);
+
+  // Handle copying rules to clipboard
+  const handleCopyToClipboard = useCallback(() => {
+    if (exportTextareaRef.current) {
+      exportTextareaRef.current.select();
+      document.execCommand('copy');
+      toast({
+        title: 'Copied!',
+        description: 'Rules copied to clipboard',
+      });
+    }
+  }, [toast]);
+
+  // Handle generating AI rules
+  const handleGenerateRule = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const newRule: BusinessRule = {
+        id: `rule-${Date.now()}`,
+        dataset_id: datasetId,
+        name: `New Rule ${rules.length + 1}`,
+        description: 'Generated rule',
+        condition: 'value > 0',
+        message: 'Value must be greater than 0',
+        severity: 'medium',
+        active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        model_generated: true,
+      };
+      handleRulesUpdate([...rules, newRule]);
+      toast({
+        title: 'Success',
+        description: 'New rule generated successfully',
+      });
+    } catch (error) {
+      console.error('Error generating rule:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to generate rule',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [rules, datasetId, handleRulesUpdate, toast]);
+
+  // Handle adding a new rule
+  const handleAddRule = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      if (!newRule.name || !newRule.condition) {
+        toast({
+          title: 'Error',
+          description: 'Name and condition are required',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // In a real app, you would call an API here
+      const newRuleWithId: BusinessRule = {
+        ...newRule,
+        id: `rule-${Date.now()}`,
+        dataset_id: datasetId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        model_generated: false
+      };
+
+      const updatedRules = [...rules, newRuleWithId];
+      handleRulesUpdate(updatedRules);
+      setShowAddRuleDialog(false);
+      setNewRule({
+        name: '',
+        description: '',
+        condition: '',
+        message: '',
+        severity: 'medium',
+        active: true,
+      });
+
+      toast({
+        title: 'Success',
+        description: 'Business rule added successfully',
+      });
+    } catch (error) {
+      console.error('Error adding rule:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to add business rule',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [newRule, rules, datasetId, handleRulesUpdate, toast]);
+
+  // Handle rule export
+  const handleExport = useCallback(() => {
+    if (rules.length === 0) {
+      toast({
+        title: 'No rules to export',
+        description: 'There are no rules to export.',
+      });
+      return;
+    }
+
+    try {
+      const data = JSON.stringify(rules, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `business-rules-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Export successful',
+        description: `Exported ${rules.length} rule(s)`,
+      });
+    } catch (error) {
+      console.error('Error exporting rules:', error);
+      toast({
+
+// Handle rule export
+const handleExport = useCallback(() => {
+  if (rules.length === 0) {
+    toast({
+      title: 'No rules to export',
+      description: 'There are no rules to export.',
+    });
+    return;
+  }
+
+  try {
+    const data = JSON.stringify(rules, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `business-rules-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: 'Export successful',
+      description: `Exported ${rules.length} rule(s)`,
+    });
+  } catch (error) {
+    console.error('Error exporting rules:', error);
+    toast({
+      title: 'Export failed',
+      description: 'Failed to export rules. Please try again.',
+      variant: 'destructive',
+    });
+  }
+}, [rules, handleRulesUpdate, toast]);
+
+const handleConfirmDeleteRule = useCallback(async () => {
+  if (!deleteRule) return;
+
+  try {
+    setIsLoading(true);
+    await api.businessRules.delete(deleteRule.id);
+
+    const updatedRules = rules.filter(rule => rule.id !== deleteRule.id);
+    handleRulesUpdate(updatedRules);
+    setDeleteRule(null);
+
+    toast({
+      title: 'Success',
+      description: 'Business rule deleted successfully',
+    });
+  } catch (error) {
+    console.error('Error deleting rule:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to delete business rule',
+      variant: 'destructive',
+    });
+  } finally {
+    setIsLoading(false);
+  }
+}, [deleteRule, rules, toast]);
+
+// Notify parent component of rules changes
+useEffect(() => {
+  if (onRulesUpdate) {
+    onRulesUpdate(rules);
+  }
+}, [rules, onRulesUpdate]);
+
+// Handle rule import
+const handleImport = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  try {
+    setIsLoading(true);
+    const content = await file.text();
+    const importedRules = JSON.parse(content);
+
+    // Validate imported rules
+    if (!Array.isArray(importedRules)) {
+      throw new Error('Invalid file format. Expected an array of rules.');
+    }
+
+    // Validate each rule
+    const validRules = importedRules.filter((rule: any) => {
+      const isValid = rule.name &&
+        rule.condition &&
+        rule.severity &&
+        typeof rule.active === 'boolean';
+        <Button onClick={() => setShowAddRuleDialog(true)}>
+          <Plus className="h-4 w-4 mr-2" /> Add Rule
+        </Button>
+      </div>
+
+      <Tabs defaultValue="manual" className="w-full space-y-4">
+        <TabsList>
+          <TabsTrigger value="manual">Manual Rules</TabsTrigger>
+          <TabsTrigger value="ai">AI-Generated Rules</TabsTrigger>
+          <TabsTrigger value="import">Import</TabsTrigger>
+          <TabsTrigger value="export">Export</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="manual">
+          <Card>
+            <CardHeader>Business Rules</CardHeader>
+            <CardContent className="space-y-4">
+              {rules.length > 0 ? (
+                rules.map((rule) => (
+                  <Card key={rule.id}>
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-medium">{rule.name}</h3>
+                          <p className="text-sm text-muted-foreground">{rule.condition}</p>
+                        </div>
+                        <div className="flex space-x-2">
+                          <Button variant="ghost" size="icon" onClick={() => {
+                            setEditRule(rule);
+                            setIsEditDialogOpen(true);
+                          }}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => setDeleteRule(rule)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm">{rule.description}</p>
+                      <div className="mt-2 flex items-center space-x-2">
+                        <Badge variant={rule.severity === 'high' ? 'destructive' : rule.severity === 'medium' ? 'warning' : 'default'}>
+                          {rule.severity}
+                        </Badge>
+                        {rule.active ? (
+                          <Badge variant="outline">Active</Badge>
+                        ) : (
+                          <Badge variant="outline">Inactive</Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No business rules defined.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="ai">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="font-medium">AI-Generated Rules</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Generate rules using AI based on your data patterns
+                  </p>
+                </div>
+                <Select value={selectedEngine} onValueChange={(value) => setSelectedEngine(value as AIRuleEngine)}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Select AI Engine" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ai_default">Default AI</SelectItem>
+                    <SelectItem value="ai_advanced">Advanced AI</SelectItem>
+                    <SelectItem value="custom">Custom Model</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Button disabled={isLoading} onClick={handleGenerateRule}>
+                {isLoading ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Generate Rules
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="import">
+          <Card>
+            <CardHeader>
+              <h3 className="font-medium">Import Rules</h3>
+              <p className="text-sm text-muted-foreground">
+                Import rules from a JSON file
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center space-x-4">
+                  <Input 
+                    type="file" 
+                    accept=".json" 
+                    onChange={handleImport} 
+                    className="w-full max-w-sm"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="export">
+          <Card>
+            <CardHeader>
+              <h3 className="font-medium">Export Rules</h3>
+              <p className="text-sm text-muted-foreground">
+                Export your current rules to a JSON file
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <Button variant="outline" onClick={handleExportToFile}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Rules
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      <Tabs defaultValue="manual" className="w-full">
+        <TabsList>
+          <TabsTrigger value="manual">Manual Rules</TabsTrigger>
+          <TabsTrigger value="ai">AI-Generated Rules</TabsTrigger>
+          <TabsTrigger value="import">Import</TabsTrigger>
+          <TabsTrigger value="export">Export</TabsTrigger>
+        </TabsList>
+
+      {/* Add/Edit Rule Dialog */}
+      <Dialog open={showAddRuleDialog} onOpenChange={setShowAddRuleDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Business Rule</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Rule Name</Label>
+              <Input
+                id="name"
+                value={newRule.name}
+                onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
+                placeholder="Enter rule name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={newRule.description}
+                onChange={(e) => setNewRule({ ...newRule, description: e.target.value })}
+                placeholder="Enter rule description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="condition">Condition</Label>
+              <Textarea
+                id="condition"
+                value={newRule.condition}
+                onChange={(e) => setNewRule({ ...newRule, condition: e.target.value })}
+                placeholder="e.g., price > 100"
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Use SQL-like conditions (e.g., column_name = 'value' AND other_column > 100)
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="severity">Severity</Label>
+              <Select
+                value={newRule.severity}
+                onValueChange={(value) => setNewRule({ ...newRule, severity: value as RuleSeverity })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select severity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="message">Error Message</Label>
+              <Input
+                id="message"
+                value={newRule.message}
+                onChange={(e) => setNewRule({ ...newRule, message: e.target.value })}
+                placeholder="Enter error message to display when rule fails"
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="active"
+                checked={newRule.active}
+                onChange={(e) => setNewRule({ ...newRule, active: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <Label htmlFor="active" className="text-sm font-medium leading-none">
+                Active
+              </Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddRuleDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddRule}>
+              Add Rule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Tabs defaultValue="manual" className="w-full">
+        <TabsList>
+          <TabsTrigger value="manual">Manual Rules</TabsTrigger>
+          <TabsTrigger value="ai">AI-Generated Rules</TabsTrigger>
+          <TabsTrigger value="import-export">Import/Export</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="manual">
+          <Card>
+            <CardHeader>Business Rules</CardHeader>
+            <CardContent>
+              {rules.length > 0 ? (
+                rules.map((rule) => (
+                  <div key={rule.id} className="mb-4 p-4 border rounded-lg">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-medium">{rule.name}</h3>
+                        <p className="text-sm text-muted-foreground">{rule.condition}</p>
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setEditRule(rule);
+                            setIsEditDialogOpen(true);
+                          }}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeleteRule(rule)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-sm">{rule.description}</p>
+                    <div className="mt-2 flex items-center space-x-2">
+                      <Badge
+                        variant={
+                          rule.severity === 'high'
+                            ? 'destructive'
+                            : rule.severity === 'medium'
+                            ? 'warning'
+                            : 'default'
+                        }
+                      >
+                        {rule.severity}
+                      </Badge>
+                      {rule.active ? (
+                        <Badge variant="outline">Active</Badge>
+                      ) : (
+                        <Badge variant="outline">Inactive</Badge>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No business rules defined.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+      {/* Add/Edit Rule Dialog */}
+      <Dialog open={showAddRuleDialog} onOpenChange={setShowAddRuleDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Business Rule</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Rule Name</Label>
+              <Input
+                id="name"
+                value={newRule.name}
+                onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
+                placeholder="Enter rule name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={newRule.description}
+                onChange={(e) => setNewRule({ ...newRule, description: e.target.value })}
+                placeholder="Enter rule description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="condition">Condition</Label>
+              <Textarea
+                id="condition"
+                value={newRule.condition}
+                onChange={(e) => setNewRule({ ...newRule, condition: e.target.value })}
+                placeholder="e.g., price > 100"
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Use SQL-like conditions (e.g., column_name = 'value' AND other_column > 100)
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="severity">Severity</Label>
+              <Select
+                value={newRule.severity}
+                onValueChange={(value) => setNewRule({ ...newRule, severity: value as RuleSeverity })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select severity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="message">Error Message</Label>
+              <Input
+                id="message"
+                value={newRule.message}
+                onChange={(e) => setNewRule({ ...newRule, message: e.target.value })}
+                placeholder="Enter error message to display when rule fails"
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="active"
+                checked={newRule.active}
+                onChange={(e) => setNewRule({ ...newRule, active: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <Label htmlFor="active" className="text-sm font-medium leading-none">
+                Active
+              </Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddRuleDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddRule}>
+              Add Rule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteRule} onOpenChange={(open) => !open && setDeleteRule(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Rule</DialogTitle>
+          </DialogHeader>
+          {deleteRule && (
+            <div>
+              <p>Are you sure you want to delete this rule?</p>
+              <div className="font-medium">{deleteRule.name}</div>
+              <div className="text-sm mt-1 font-mono">{deleteRule.condition}</div>
+            </div>
+          )}
+          <DialogFooter className="mt-4">
+            <Button type="button" onClick={() => setDeleteRule(null)} variant="outline">
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleConfirmDeleteRule} variant="destructive">
+              Delete Rule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Tabs defaultValue="manual" className="w-full">
+        <TabsList>
+          <TabsTrigger value="manual">Manual Rules</TabsTrigger>
+          <TabsTrigger value="ai">AI-Generated Rules</TabsTrigger>
+          <TabsTrigger value="import-export">Import/Export</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="manual">
+          <Card>
+            <CardHeader>Business Rules</CardHeader>
+            <CardContent>
+              {rules.length > 0 ? (
+                rules.map((rule) => (
+                  <Card key={rule.id}>
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-medium">{rule.name}</h3>
+                          <p className="text-sm text-muted-foreground">{rule.condition}</p>
+                        </div>
+                        <div className="flex space-x-2">
+                          <Button variant="ghost" size="icon" onClick={() => {
+                            setEditRule(rule);
+                            setIsEditDialogOpen(true);
+                          }}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => setDeleteRule(rule)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm">{rule.description}</p>
+                      <div className="mt-2 flex items-center space-x-2">
+                        <Badge variant={rule.severity === 'high' ? 'destructive' : rule.severity === 'medium' ? 'warning' : 'default'}>
+                          {rule.severity}
+                        </Badge>
+                        {rule.active ? (
+                          <Badge variant="outline">Active</Badge>
+                        ) : (
+                          <Badge variant="outline">Inactive</Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No business rules defined.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="ai">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="font-medium">AI-Generated Rules</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Generate rules using AI based on your data patterns
+                  </p>
+                </div>
+                <Select value={selectedEngine} onValueChange={(value) => setSelectedEngine(value as AIRuleEngine)}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Select AI Engine" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ai_default">Default AI</SelectItem>
+                    <SelectItem value="ai_advanced">Advanced AI</SelectItem>
+                    <SelectItem value="custom">Custom Model</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Button disabled={isLoading}>
+                {isLoading ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Generate Rules
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="import" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <h3 className="font-medium">Import Rules</h3>
+              <p className="text-sm text-muted-foreground">
+                Import rules from a JSON file
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center space-x-4">
+                  <Input type="file" accept=".json" onChange={handleImport} />
+                  <Button variant="outline" onClick={handleExport}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Export Rules
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
       {/* Add Rule Dialog */}
       <Dialog open={showAddRuleDialog} onOpenChange={setShowAddRuleDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Business Rule</DialogTitle>
-            <DialogDescription>
-              Create a new business rule to validate your data.
-            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="rule-name">Rule Name</Label>
-              <Input
-                id="rule-name"
-                value={newRule.name}
-                onChange={e => setNewRule({...newRule, name: e.target.value})}
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          <div className="space-y-4">
+            <div>
+              <Label>Name</Label>
+              <Input value={newRule.name} onChange={(e) => setNewRule({...newRule, name: e.target.value})} />
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea value={newRule.description} onChange={(e) => setNewRule({...newRule, description: e.target.value})} />
+            </div>
+            <div>
+              <Label>Condition</Label>
+              <Textarea value={newRule.condition} onChange={(e) => setNewRule({...newRule, condition: e.target.value})} />
+            </div>
+            <div>
+              <Label>Message</Label>
+              <Textarea value={newRule.message} onChange={(e) => setNewRule({...newRule, message: e.target.value})} />
+            </div>
+            <div>
+              <Label>Severity</Label>
+              <Select value={newRule.severity} onValueChange={(value) => setNewRule({...newRule, severity: value as RuleSeverity})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select severity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddRuleDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddRule} disabled={!isRuleValid(newRule as BusinessRule)}>
+              Add Rule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        {/* Add Rule Dialog */}
-        <Dialog open={showAddRuleDialog} onOpenChange={setShowAddRuleDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Business Rule</DialogTitle>
-              <DialogDescription>
-                Create a new business rule to validate your data.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div className="space-y-2">
-                <Label htmlFor="rule-name">Rule Name</Label>
-                <Input
-                  id="rule-name"
-                  value={newRule.name}
-                  onChange={e => setNewRule({...newRule, name: e.target.value})}
-                  disabled={isLoading}
-                  className={!newRule.name && showAddRuleDialog ? 'border-red-500' : ''}
-                />
-                {!newRule.name && showAddRuleDialog && <div className="text-xs text-red-500">Name is required.</div>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="rule-description">Description (Optional)</Label>
-                <Input
-                  id="rule-description"
-                  value={newRule.description}
-                  onChange={e => setNewRule({...newRule, description: e.target.value})}
-                  disabled={isLoading}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="rule-condition">Condition</Label>
-                <Textarea
-                  id="rule-condition"
-                  className={`font-mono ${!newRule.condition && showAddRuleDialog ? 'border-red-500' : ''}`}
-                  value={newRule.condition}
-                  onChange={e => setNewRule({...newRule, condition: e.target.value})}
-                  disabled={isLoading}
-                />
-                {!newRule.condition && showAddRuleDialog && <div className="text-xs text-red-500">Condition is required.</div>}
-                <p className="text-xs text-muted-foreground">
-                  Define the validation logic using JavaScript-like syntax
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="rule-message">Error Message</Label>
-                <Input
-                  id="rule-message"
-                  value={newRule.message}
-                  onChange={e => setNewRule({...newRule, message: e.target.value})}
-                  disabled={isLoading}
-                  className={!newRule.message && showAddRuleDialog ? 'border-red-500' : ''}
-                />
-                {!newRule.message && showAddRuleDialog && <div className="text-xs text-red-500">Message is required.</div>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="rule-severity">Severity</Label>
-                <Select
-                  value={newRule.severity}
-                  onValueChange={value => setNewRule({...newRule, severity: value as RuleSeverity})}
-                  disabled={isLoading}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select severity" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteRule} onOpenChange={(open) => !open && setDeleteRule(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Rule</DialogTitle>
+          </DialogHeader>
+          {deleteRule && (
+            <div>
+              <p>Are you sure you want to delete this rule?</p>
+              <div className="font-medium">{deleteRule.name}</div>
+              <div className="text-sm mt-1 font-mono">{deleteRule.condition}</div>
             </div>
-            <DialogFooter>
-              <Button type="button" onClick={() => setShowAddRuleDialog(false)} variant="outline" disabled={isLoading}>
-                Cancel
-              </Button>
-              <Button 
-                type="button" 
-                onClick={handleAddRule} 
-                disabled={isLoading || !newRule.name || !newRule.condition || !newRule.message}
-              >
-                {isLoading ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-                Add Rule
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        
-        {/* Edit Rule Dialog */}
-        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Business Rule</DialogTitle>
-              <DialogDescription>
-                Update your business rule details.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div className="space-y-2">
-                <Label htmlFor="edit-rule-name">Rule Name</Label>
-                <Input
-                  id="edit-rule-name"
-                  value={editRule?.name || ''}
-                  onChange={e => setEditRule(r => r ? { ...r, name: e.target.value } : r)}
-                  disabled={isLoading}
-                  className={(!editRule?.name && editDialogOpen) ? 'border-red-500' : ''}
-                />
-                {!editRule?.name && editDialogOpen && <div className="text-xs text-red-500">Name is required.</div>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-rule-description">Description (Optional)</Label>
-                <Input
-                  id="edit-rule-description"
-                  value={editRule?.description || ''}
-                  onChange={e => setEditRule(r => r ? { ...r, description: e.target.value } : r)}
-                  disabled={isLoading}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-rule-condition">Condition</Label>
-                <Textarea
-                  id="edit-rule-condition"
-                  className={`font-mono ${(!editRule?.condition && editDialogOpen) ? 'border-red-500' : ''}`}
-                  value={editRule?.condition || ''}
-                  onChange={e => setEditRule(r => r ? { ...r, condition: e.target.value } : r)}
-                  disabled={isLoading}
-                />
-                {!editRule?.condition && editDialogOpen && <div className="text-xs text-red-500">Condition is required.</div>}
-                <p className="text-xs text-muted-foreground">
-                  Define the validation logic using JavaScript-like syntax
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-rule-message">Error Message</Label>
-                <Input
-                  id="edit-rule-message"
-                  value={editRule?.message || ''}
-                  onChange={e => setEditRule(r => r ? { ...r, message: e.target.value } : r)}
-                  disabled={isLoading}
-                  className={(!editRule?.message && editDialogOpen) ? 'border-red-500' : ''}
-                />
-                {!editRule?.message && editDialogOpen && <div className="text-xs text-red-500">Message is required.</div>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-rule-severity">Severity</Label>
-                <Select
-                  value={editRule?.severity || 'medium'}
-                  onValueChange={value => setEditRule(r => r ? { ...r, severity: value as RuleSeverity } : r)}
-                  disabled={isLoading}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select severity" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                variant="destructive"
-                onClick={() => confirmDeleteRule(editRule!)}
-                disabled={isLoading}
-              >
-                <X className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
-            </div>
-            <DialogFooter>
-              <Button type="button" onClick={() => setEditDialogOpen(false)} variant="outline" disabled={isLoading}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={handleUpdateRule} disabled={isLoading || !isRuleValid()}>
-                {isLoading ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-                Save Changes
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        
-        {/* Delete Rule Confirmation Dialog */}
-        <Dialog open={!!deleteRule} onOpenChange={(open) => !open && setDeleteRule(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Delete Rule</DialogTitle>
-              <DialogDescription>
-                Are you sure you want to delete this rule? This action cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="pt-2 pb-4">
-              {deleteRule && (
-                <div className="border rounded-md p-3 bg-muted/50">
-                  <div className="font-medium">{deleteRule.name}</div>
-                  <div className="text-sm mt-1 font-mono">{deleteRule.condition}</div>
-                </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button type="button" onClick={() => setDeleteRule(null)} variant="outline">
-                Cancel
-              </Button>
-              <Button type="button" onClick={handleConfirmDeleteRule} variant="destructive">
-                Delete Rule
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+          )}
+          <DialogFooter className="mt-4">
+            <Button type="button" onClick={() => setDeleteRule(null)} variant="outline">
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleConfirmDeleteRule} variant="destructive">
+              Delete Rule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </TabsContent>
 
       {/* AI Generated Tab */}
@@ -690,19 +1122,23 @@ const BusinessRules: React.FC<BusinessRulesProps> = ({
           <CardContent>
             <div className="flex flex-col gap-4">
               <Textarea
+                ref={exportTextareaRef}
                 value={JSON.stringify(rules, null, 2)}
                 readOnly
                 rows={8}
+                className="font-mono text-xs"
               />
-              <Button onClick={handleExport} variant="default">
+              <Button onClick={handleCopyToClipboard} variant="default">
                 <Upload className="h-4 w-4 mr-2" /> Copy to Clipboard
+              </Button>
+              <Button onClick={handleExportToFile} variant="outline" className="mt-2">
+                <Download className="h-4 w-4 mr-2" /> Download as File
               </Button>
             </div>
           </CardContent>
         </Card>
       </TabsContent>
     </Tabs>
-  );
-}
-
+  </div>
+);
 export default BusinessRules;
